@@ -2,7 +2,6 @@ package top.leipishu.tinkerssearch.client.gui;
 
 import com.mojang.blaze3d.platform.GlStateManager;
 import com.mojang.blaze3d.vertex.PoseStack;
-import mezz.jei.api.ingredients.IIngredientRenderer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiComponent;
@@ -18,7 +17,6 @@ import top.leipishu.tinkerssearch.utils.SearchHelper;
 import top.leipishu.tinkerssearch.utils.SmelteryClickHandler;
 import top.leipishu.tinkerssearch.utils.SmelteryDataHelper;
 
-import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -47,15 +45,8 @@ public class FloatingSearchPanel extends AbstractWidget {
     private int lastScreenWidth = 0;
     private int lastScreenHeight = 0;
 
-    // ===== JEI =====
+    // ===== JEI（只检测是否可用，不持有渲染器） =====
     private boolean jeiAvailable = false;
-    private IIngredientRenderer<FluidStack> jeiFluidRenderer = null;
-    private boolean jeiRendererInit = false;
-    private int jeiInitAttempts = 0;
-
-    // 缓存渲染方法，避免重复反射
-    private Method jeiRenderMethod = null;
-    private Object[] jeiRenderArgs = null;
 
     // ===== 动画 =====
     private int animationOffset = 0;
@@ -96,6 +87,7 @@ public class FloatingSearchPanel extends AbstractWidget {
     public int getMaxScrollOffset() { return maxScrollOffset; }
     public int getAnimationOffset() { return animationOffset; }
     public int getActualPanelX() { return this.x + animationOffset; }
+    public boolean isJeiAvailable() { return jeiAvailable; }
 
     public PanelInteractionHandler getInteractionHandler() {
         return interactionHandler;
@@ -175,197 +167,6 @@ public class FloatingSearchPanel extends AbstractWidget {
         return null;
     }
 
-    // ==================== JEI 渲染器初始化 ====================
-
-    /**
-     * 初始化 JEI 流体渲染器
-     */
-    @SuppressWarnings({"unchecked", "rawtypes"})
-    private void initJeiFluidRenderer() {
-        if (!jeiAvailable || jeiRendererInit) return;
-        if (jeiInitAttempts > 5) {
-            System.err.println("Tinker's Search: Too many JEI init attempts, giving up");
-            return;
-        }
-        jeiInitAttempts++;
-
-        try {
-            Object runtime = top.leipishu.tinkerssearch.jei.Jei.getJeiRuntime();
-            if (runtime == null) {
-                System.out.println("Tinker's Search: JEI runtime not available (attempt " + jeiInitAttempts + ")");
-                return;
-            }
-
-            // 获取 IIngredientManager
-            Object ingredientManager = null;
-            Class<?> runtimeClass = runtime.getClass();
-
-            try {
-                Method getManager = runtimeClass.getMethod("getIngredientManager");
-                ingredientManager = getManager.invoke(runtime);
-            } catch (NoSuchMethodException e) {
-                try {
-                    Method getRegistry = runtimeClass.getMethod("getIngredientRegistry");
-                    ingredientManager = getRegistry.invoke(runtime);
-                } catch (NoSuchMethodException e2) {
-                    // 尝试获取 IngredientFilter 或直接获取 renderer
-                }
-            }
-
-            if (ingredientManager == null) {
-                System.err.println("Tinker's Search: Failed to get ingredient manager");
-                return;
-            }
-
-            // 获取 FluidStack 的渲染器
-            Class<?> managerClass = ingredientManager.getClass();
-            Method getRenderer = managerClass.getMethod("getIngredientRenderer", Class.class);
-            Object renderer = getRenderer.invoke(ingredientManager, FluidStack.class);
-
-            if (renderer instanceof IIngredientRenderer) {
-                jeiFluidRenderer = (IIngredientRenderer<FluidStack>) renderer;
-                jeiRendererInit = true;
-
-                // 缓存渲染方法
-                cacheRenderMethod();
-
-                System.out.println("Tinker's Search: SUCCESS! JEI FluidStackRenderer initialized: " +
-                        jeiFluidRenderer.getClass().getName());
-                System.out.println("Tinker's Search: Render method cached: " + (jeiRenderMethod != null));
-            } else {
-                System.err.println("Tinker's Search: Renderer is not IIngredientRenderer, got: " +
-                        (renderer != null ? renderer.getClass().getName() : "null"));
-            }
-
-        } catch (Exception e) {
-            System.err.println("Tinker's Search: Failed to init JEI renderer: " + e.getMessage());
-            e.printStackTrace();
-        }
-    }
-
-    /**
-     * 缓存渲染方法，提高性能
-     */
-    private void cacheRenderMethod() {
-        if (jeiFluidRenderer == null) return;
-
-        Class<?> rendererClass = jeiFluidRenderer.getClass();
-
-        // 尝试各种常见的方法签名
-        Method[][] candidates = {
-                // 最常见的：render(PoseStack, int, int, T)
-                new Method[]{getMethodSafe(rendererClass, "render", PoseStack.class, int.class, int.class, FluidStack.class)},
-                // 带 Minecraft 的：render(Minecraft, PoseStack, int, int, T)
-                new Method[]{getMethodSafe(rendererClass, "render", Minecraft.class, PoseStack.class, int.class, int.class, FluidStack.class)},
-                // 带 IIngredientType 的
-                new Method[]{getMethodSafe(rendererClass, "render", PoseStack.class, int.class, int.class, FluidStack.class, Object.class)},
-        };
-
-        for (Method[] candidate : candidates) {
-            if (candidate[0] != null) {
-                jeiRenderMethod = candidate[0];
-                return;
-            }
-        }
-
-        // 如果上面都没找到，尝试获取所有 render 方法并选择第一个
-        try {
-            Method[] methods = rendererClass.getMethods();
-            for (Method m : methods) {
-                if (m.getName().equals("render") && m.getParameterCount() >= 3) {
-                    Class<?>[] params = m.getParameterTypes();
-                    // 检查参数类型是否匹配
-                    if (params[params.length - 1].isAssignableFrom(FluidStack.class)) {
-                        jeiRenderMethod = m;
-                        System.out.println("Tinker's Search: Found render method via fallback: " + m);
-                        return;
-                    }
-                }
-            }
-        } catch (Exception e) {
-            System.err.println("Tinker's Search: Failed to find render method: " + e.getMessage());
-        }
-    }
-
-    private Method getMethodSafe(Class<?> clazz, String name, Class<?>... params) {
-        try {
-            return clazz.getMethod(name, params);
-        } catch (NoSuchMethodException e) {
-            return null;
-        }
-    }
-
-    /**
-     * 使用 JEI 渲染器绘制流体图标
-     */
-    private void renderJeiFluidIcon(PoseStack poseStack, int x, int y, int size, FluidStack fluid) {
-        Minecraft mc = Minecraft.getInstance();
-
-        // 确保 JEI 渲染器已初始化
-        if (!jeiRendererInit && jeiAvailable) {
-            initJeiFluidRenderer();
-        }
-
-        // ===== 使用 JEI 渲染器 =====
-        if (jeiFluidRenderer != null && jeiRendererInit && jeiRenderMethod != null) {
-            try {
-                // 准备参数
-                Object[] args;
-                Class<?>[] paramTypes = jeiRenderMethod.getParameterTypes();
-
-                if (paramTypes.length == 3) {
-                    args = new Object[]{poseStack, x, y};
-                } else if (paramTypes.length == 4) {
-                    if (paramTypes[0] == PoseStack.class &&
-                            paramTypes[1] == int.class &&
-                            paramTypes[2] == int.class) {
-                        args = new Object[]{poseStack, x, y, fluid};
-                    } else if (paramTypes[0] == Minecraft.class) {
-                        args = new Object[]{mc, poseStack, x, y};
-                    } else {
-                        args = new Object[]{poseStack, x, y, fluid};
-                    }
-                } else if (paramTypes.length == 5) {
-                    if (paramTypes[0] == Minecraft.class) {
-                        args = new Object[]{mc, poseStack, x, y, fluid};
-                    } else {
-                        args = new Object[]{poseStack, x, y, fluid, null};
-                    }
-                } else {
-                    args = new Object[]{poseStack, x, y, fluid};
-                }
-
-                jeiRenderMethod.invoke(jeiFluidRenderer, args);
-
-                // 绘制 JEI 风格的边框（深色边框，和配方界面一致）
-                GuiComponent.fill(poseStack, x - 1, y - 1, x + size + 1, y, 0xFF222222);
-                GuiComponent.fill(poseStack, x - 1, y + size, x + size + 1, y + size + 1, 0xFF222222);
-                GuiComponent.fill(poseStack, x - 1, y - 1, x, y + size + 1, 0xFF222222);
-                GuiComponent.fill(poseStack, x + size, y - 1, x + size + 1, y + size + 1, 0xFF222222);
-
-                return;
-            } catch (Exception e) {
-                System.err.println("Tinker's Search: JEI render failed: " + e.getMessage());
-                e.printStackTrace();
-                // 如果渲染失败，尝试重新初始化
-                jeiRendererInit = false;
-                jeiRenderMethod = null;
-            }
-        }
-
-        // ===== 回退：直接使用原版流体渲染（无蓝色边框） =====
-        if (fluid != null && !fluid.isEmpty()) {
-            try {
-                SmelteryDataHelper.drawFluidIcon(poseStack, x, y, fluid, size);
-                // 蓝色边框已移除
-            } catch (Exception e) {
-                // 最后的备用方案
-                GuiComponent.fill(poseStack, x, y, x + size, y + size, 0xFFFF8844);
-                mc.font.draw(poseStack, "?", x + size/2 - 3, y + size/2 - 4, 0xFFFFFF);
-            }
-        }
-    }
-
     // ==================== 可见性控制 ====================
 
     public void setVisible(boolean visible) {
@@ -387,11 +188,6 @@ public class FloatingSearchPanel extends AbstractWidget {
             targetOffset = 0;
             isAnimating = true;
             animationStartTime = System.currentTimeMillis();
-
-            // 面板打开时尝试初始化 JEI
-            if (jeiAvailable && !jeiRendererInit) {
-                initJeiFluidRenderer();
-            }
         }
     }
 
@@ -521,6 +317,38 @@ public class FloatingSearchPanel extends AbstractWidget {
     public boolean moveFluidToBottom(FluidStack fluidStack) {
         if (fluidStack == null || fluidStack.isEmpty()) return false;
         return SmelteryClickHandler.clickFluidByStack(fluidStack);
+    }
+
+    // ==================== 鼠标和键盘事件 ====================
+
+    @Override
+    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (!isVisible && !isAnimating) return false;
+        int actualX = this.x + animationOffset;
+        if (mouseX >= actualX && mouseX <= actualX + this.width &&
+                mouseY >= this.y && mouseY <= this.y + this.height) {
+            return interactionHandler.handleMouseClicked(mouseX, mouseY, button);
+        }
+        return false;
+    }
+
+    @Override
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (!isVisible) return false;
+
+        // 先尝试 JEI 书签快捷键 (A键)
+        if (interactionHandler.handleKeyPressedGlobal(keyCode, scanCode, modifiers)) {
+            return true;
+        }
+
+        // 再尝试搜索框按键
+        return interactionHandler.handleKeyPressed(keyCode, scanCode, modifiers);
+    }
+
+    @Override
+    public boolean charTyped(char codePoint, int modifiers) {
+        if (!isVisible) return false;
+        return interactionHandler.handleCharTyped(codePoint, modifiers);
     }
 
     // ==================== 渲染 ====================
@@ -686,13 +514,13 @@ public class FloatingSearchPanel extends AbstractWidget {
         GuiComponent.fill(poseStack, x, y, x + 1, y + h, border);
         GuiComponent.fill(poseStack, x + w - 1, y, x + w, y + h, border);
 
-        // ===== 流体图标 =====
+        // ===== 流体图标 - 使用原有方式渲染（无边框） =====
         int iconSize = ICON_SIZE;
         int iconX = x + 3;
         int iconY = y + (h - iconSize) / 2;
 
-        // 渲染图标
-        renderJeiFluidIcon(poseStack, iconX, iconY, iconSize, fluid);
+        // 直接使用 SmelteryDataHelper 渲染，不添加任何额外边框
+        SmelteryDataHelper.drawFluidIcon(poseStack, iconX, iconY, fluid, iconSize);
 
         // 流体名称
         int textX = iconX + iconSize + ICON_TEXT_GAP;
@@ -709,7 +537,7 @@ public class FloatingSearchPanel extends AbstractWidget {
         font.draw(poseStack, "§8" + amtStr, textX, y + 18, 0x888888);
 
         // JEI 交互提示
-        if (jeiAvailable && hover && jeiRendererInit) {
+        if (jeiAvailable && hover) {
             font.draw(poseStack, "§7左键: JEI用途 右键: JEI配方", x + 4, y + h - 10, 0x666666);
             font.draw(poseStack, "§7A键: 加入书签", x + 4, y + h - 2, 0x666666);
         } else if (hover) {
