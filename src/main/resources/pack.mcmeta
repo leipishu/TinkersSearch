@@ -1,0 +1,12 @@
+{
+    "pack": {
+        "pack_format": 9,
+        "description": "§aTinker's Search§r - Resources for the smeltery search addon",
+        "forge:resource_pack_format": 8,
+        "forge:data_pack_format": 9
+    },
+    "language": {
+        "en_us": "English",
+        "zh_cn": "简体中文"
+    }
+}

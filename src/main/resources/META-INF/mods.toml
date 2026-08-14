@@ -1,0 +1,70 @@
+# This is an example mods.toml file. It contains the data relating to the loading mods.
+# There are several mandatory fields (#mandatory), and many more that are optional (#optional).
+# The overall format is standard TOML format, v0.5.0.
+# Note that there are a couple of TOML lists in this file.
+# Find more information on toml format here:  https://github.com/toml-lang/toml
+
+modLoader="javafml" #mandatory
+loaderVersion="[40,)" #mandatory
+license="All rights reserved"
+
+[[mods]] #mandatory
+modId="tinkerssearch" #mandatory
+version="${file.jarVersion}" #mandatory
+displayName="Tinkers' Search" #mandatory
+logoFile="icon.png" #optional
+credits="Thanks for this example mod goes to Java" #optional
+authors="leipishu" #optional
+side="CLIENT"
+description='''
+Tinker's Search is a lightweight addon for Tinkers' Construct.
+
+Ever found yourself scrolling through a Smeltery full of different metals and alloys, struggling to find the one you need?
+This mod adds a search bar directly to the Smeltery GUI, allowing you to quickly filter and locate the liquids and items already inside.
+
+Features:
+- Adds an intuitive search bar to the Smeltery GUI
+- Real-time filtering of displayed liquids and items
+- Lightweight design with minimal performance impact
+- Fully compatible with Tinkers' Construct 3
+
+Whether you're working on complex alloy recipes or managing a large smelting operation,
+Tinker's Search makes your smelting experience more efficient and organized.
+'''
+
+[[mods.properties]]
+"mixin.configs" = "tinkerssearch.mixins.json"
+
+# ========== 依赖声明（关键修改部分）==========
+
+# 1. 对 Forge 的依赖
+[[dependencies.tinkerssearch]]
+modId="forge"
+mandatory=true
+versionRange="[40,)"  # 对应 Minecraft 1.18.2 的 Forge 版本范围
+ordering="NONE"
+side="BOTH"
+
+# 2. 对 Minecraft 本身的依赖
+[[dependencies.tinkerssearch]]
+modId="minecraft"
+mandatory=true
+versionRange="[1.18.2,1.19)"
+ordering="NONE"
+side="BOTH"
+
+# 3. 对匠魂（Tinkers' Construct）的依赖 —— 这是你的模组的前置！
+[[dependencies.tinkerssearch]]
+modId="tconstruct"
+mandatory=true
+versionRange="[3.6,)"  # 指定最低版本，也可以写成 "[3.7,)" 更宽松
+ordering="NONE"
+side="BOTH"
+
+# 4. 对 Mantle（匠魂前置库）的依赖 —— 虽然通常会自动引入，但显式声明更安全
+[[dependencies.tinkerssearch]]
+modId="mantle"
+mandatory=true
+versionRange="[1.9.45,)"
+ordering="NONE"
+side="BOTH"
