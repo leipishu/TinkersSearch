@@ -1,5 +1,6 @@
 package top.leipishu.tinkerssearch.client.gui;
 
+import com.mojang.blaze3d.platform.GlStateManager;
 import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
@@ -10,7 +11,10 @@ import net.minecraft.network.chat.TextComponent;
 import net.minecraft.network.chat.TranslatableComponent;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraftforge.fluids.FluidStack;
+import net.minecraftforge.fml.ModList;
 import top.leipishu.tinkerssearch.config.PanelConfig;
+import top.leipishu.tinkerssearch.jei.JeiFluidClickHandler;
+import top.leipishu.tinkerssearch.utils.SearchHelper;
 import top.leipishu.tinkerssearch.utils.SmelteryDataHelper;
 
 import java.util.ArrayList;
@@ -35,10 +39,23 @@ public class FloatingSearchPanel extends AbstractWidget {
     private int lastScreenWidth = 0;
     private int lastScreenHeight = 0;
 
+    private boolean jeiAvailable = false;
+
+    // ===== 动画相关 =====
+    private int animationOffset = 0;
+    private int targetOffset = 0;
+    private long animationStartTime = 0;
+    private static final int ANIMATION_DURATION = 350;
+    private boolean isAnimating = false;
+    private int panelWidth = PANEL_WIDTH;
+
     public FloatingSearchPanel() {
         super(0, 0, PANEL_WIDTH, 100, new TextComponent("Search Panel"));
         this.visible = false;
         this.isVisible = false;
+
+        this.jeiAvailable = ModList.get().isLoaded("jei");
+        System.out.println("Tinker's Search: JEI available in panel: " + jeiAvailable);
 
         this.interactionHandler = new PanelInteractionHandler(
                 this,
@@ -49,13 +66,15 @@ public class FloatingSearchPanel extends AbstractWidget {
         updatePanelPosition();
     }
 
-    public int getPanelX() { return this.x; }
+    public int getPanelX() { return this.x + animationOffset; }
     public int getPanelY() { return this.y; }
     public int getPanelWidth() { return this.width; }
     public int getPanelHeight() { return this.height; }
     public boolean isVisible() { return isVisible; }
     public int getScrollOffset() { return scrollOffset; }
     public int getMaxScrollOffset() { return maxScrollOffset; }
+    public boolean isAnimating() { return isAnimating; }
+    public int getAnimationOffset() { return animationOffset; }
 
     public PanelInteractionHandler getInteractionHandler() {
         return interactionHandler;
@@ -70,6 +89,7 @@ public class FloatingSearchPanel extends AbstractWidget {
         this.y = 0;
         this.width = PANEL_WIDTH;
         this.height = screenHeight;
+        this.panelWidth = PANEL_WIDTH;
 
         this.lastScreenWidth = screenWidth;
         this.lastScreenHeight = screenHeight;
@@ -99,25 +119,70 @@ public class FloatingSearchPanel extends AbstractWidget {
     }
 
     public boolean isPointInsidePanel(double mouseX, double mouseY) {
-        if (!isVisible) return false;
-        return mouseX >= this.x && mouseX <= this.x + this.width &&
+        if (!isVisible && !isAnimating) return false;
+        int actualX = this.x + animationOffset;
+        return mouseX >= actualX && mouseX <= actualX + this.width &&
                 mouseY >= this.y && mouseY <= this.y + this.height;
     }
 
     public void setVisible(boolean visible) {
-        this.isVisible = visible;
-        this.visible = visible;
+        // 如果状态相同，不做任何事
+        if (this.isVisible == visible && !isAnimating) return;
+
+        // 如果要隐藏，但已经隐藏且不在动画中，直接返回
+        if (!visible && !this.isVisible && !isAnimating) return;
+
         if (!visible) {
+            // ===== 关闭：滑出动画 =====
             interactionHandler.setSearchBoxFocused(false);
             scrollOffset = 0;
+            targetOffset = -this.width;
+            isAnimating = true;
+            animationStartTime = System.currentTimeMillis();
+            // 注意：isVisible 保持 true，直到动画完成
         } else {
+            // ===== 打开：滑入动画 =====
             updatePanelPosition();
             refreshMoltenFluids();
+            this.isVisible = true;
+            this.visible = true;
+            animationOffset = -this.width;
+            targetOffset = 0;
+            isAnimating = true;
+            animationStartTime = System.currentTimeMillis();
         }
     }
 
     public void toggleVisibility() {
         setVisible(!this.isVisible);
+    }
+
+    /**
+     * 更新动画
+     */
+    private void updateAnimation() {
+        if (!isAnimating) return;
+
+        long currentTime = System.currentTimeMillis();
+        float progress = (float) (currentTime - animationStartTime) / ANIMATION_DURATION;
+
+        if (progress >= 1.0f) {
+            animationOffset = targetOffset;
+            isAnimating = false;
+
+            // 如果滑出完成，标记为不可见
+            if (targetOffset < 0) {
+                this.isVisible = false;
+                this.visible = false;
+            }
+            return;
+        }
+
+        // easeOutCubic: 1 - (1-t)^3
+        float eased = 1.0f - (float) Math.pow(1.0f - progress, 3);
+
+        int startOffset = targetOffset == 0 ? -this.width : 0;
+        animationOffset = startOffset + (int) ((targetOffset - startOffset) * eased);
     }
 
     public void updateMaxScrollOffset() {
@@ -155,7 +220,8 @@ public class FloatingSearchPanel extends AbstractWidget {
     public boolean mouseScrolled(double mouseX, double mouseY, double delta) {
         if (!isVisible || displayedFluids.isEmpty()) return false;
 
-        if (mouseX < this.x || mouseX > this.x + this.width ||
+        int actualX = this.x + animationOffset;
+        if (mouseX < actualX || mouseX > actualX + this.width ||
                 mouseY < this.y || mouseY > this.y + this.height) {
             return false;
         }
@@ -186,7 +252,7 @@ public class FloatingSearchPanel extends AbstractWidget {
         if (keyword == null || keyword.trim().isEmpty()) {
             displayedFluids = new ArrayList<>(allFluids);
         } else {
-            displayedFluids = top.leipishu.tinkerssearch.utils.SearchHelper.filterFluids(allFluids, keyword);
+            displayedFluids = SearchHelper.filterFluids(allFluids, keyword);
         }
 
         interactionHandler.setDataRefs(allFluids, displayedFluids);
@@ -210,36 +276,69 @@ public class FloatingSearchPanel extends AbstractWidget {
         }).start();
     }
 
-    // 在 renderButton 方法中，增强背景渲染
+    public boolean handleJeiLeftClick(FluidStack fluidStack) {
+        if (!jeiAvailable) return false;
+        if (fluidStack == null || fluidStack.isEmpty()) return false;
+
+        boolean result = JeiFluidClickHandler.handleLeftClick(fluidStack);
+        if (result) {
+            refreshMoltenFluids();
+        }
+        return result;
+    }
+
+    public boolean handleJeiRightClick(FluidStack fluidStack) {
+        if (!jeiAvailable) return false;
+        if (fluidStack == null || fluidStack.isEmpty()) return false;
+
+        return JeiFluidClickHandler.handleRightClick(fluidStack);
+    }
+
+    public boolean handleJeiShiftLeftClick(FluidStack fluidStack) {
+        if (!jeiAvailable) return false;
+        if (fluidStack == null || fluidStack.isEmpty()) return false;
+
+        boolean result = JeiFluidClickHandler.handleShiftLeftClick(fluidStack);
+        if (result) {
+            refreshMoltenFluids();
+        }
+        return result;
+    }
+
     @Override
     public void renderButton(PoseStack poseStack, int mouseX, int mouseY, float partialTick) {
-        if (!isVisible) return;
+        // 更新动画
+        updateAnimation();
+
+        // 如果完全滑出屏幕，不渲染
+        if (!isVisible && !isAnimating) return;
 
         checkWindowResize();
 
         Minecraft mc = Minecraft.getInstance();
         Font font = mc.font;
 
-        int px = this.x;
+        int px = this.x + animationOffset;
         int py = this.y;
         int pw = this.width;
         int ph = this.height;
 
-        // 修复：使用完全不透明背景遮挡下层 UI，并增加额外边框
-        // 背景层 - 完全覆盖
-        GuiComponent.fill(poseStack, px, py, px + pw, py + ph, 0xFF101010); // 完全不透明
+        // 如果完全在屏幕外，不渲染
+        if (px + pw < 0) return;
 
-        // 边框
-        GuiComponent.fill(poseStack, px, py, px + pw, py + 1, 0xFFFF6666); // 红色上边框更显眼
-        GuiComponent.fill(poseStack, px, py + ph - 1, px + pw, py + ph, 0xFFFF6666);
-        GuiComponent.fill(poseStack, px, py, px + 1, py + ph, 0xFFFF6666);
-        GuiComponent.fill(poseStack, px + pw - 1, py, px + pw, py + ph, 0xFFFF6666);
+        // ===== 半透明背景（磨砂玻璃效果） =====
+        GuiComponent.fill(poseStack, px, py, px + pw, py + ph, 0xAA1A1A1A);
+
+        // 左侧高亮边框
+        GuiComponent.fill(poseStack, px, py, px + 1, py + ph, 0x44FFFFFF);
+        GuiComponent.fill(poseStack, px + pw - 1, py, px + pw, py + ph, 0x22FFFFFF);
+        GuiComponent.fill(poseStack, px, py, px + pw, py + 1, 0x22FFFFFF);
+        GuiComponent.fill(poseStack, px, py + ph - 1, px + pw, py + ph, 0x22FFFFFF);
 
         renderTitleBar(poseStack, px, py, pw, font);
         renderRefreshButton(poseStack, px, py, mouseX, mouseY, font);
         renderSearchBox(poseStack, px, py, pw, font);
 
-        // 裁剪区域
         int clipStartY = py + CARDS_START_Y;
         int clipEndY = py + ph - 4;
         enableScissor(px + 5, clipStartY, pw - 10 - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING, clipEndY - clipStartY);
@@ -258,16 +357,16 @@ public class FloatingSearchPanel extends AbstractWidget {
         int screenY = mc.getWindow().getScreenHeight() - (y + height) * scale;
         int screenW = width * scale;
         int screenH = height * scale;
-        com.mojang.blaze3d.platform.GlStateManager._enableScissorTest();
-        com.mojang.blaze3d.platform.GlStateManager._scissorBox(screenX, screenY, screenW, screenH);
+        GlStateManager._enableScissorTest();
+        GlStateManager._scissorBox(screenX, screenY, screenW, screenH);
     }
 
     private void disableScissor() {
-        com.mojang.blaze3d.platform.GlStateManager._disableScissorTest();
+        GlStateManager._disableScissorTest();
     }
 
     private void renderTitleBar(PoseStack poseStack, int px, int py, int pw, Font font) {
-        GuiComponent.fill(poseStack, px + 1, py + 1, px + pw - 2, py + TITLE_BAR_HEIGHT, COLOR_TITLE_BG);
+        GuiComponent.fill(poseStack, px + 1, py + 1, px + pw - 2, py + TITLE_BAR_HEIGHT, 0xFF2A2A2A);
         font.draw(poseStack, "§6Tinker's Search", px + 5, py + 5, 0xFFFFFF);
     }
 
@@ -295,10 +394,10 @@ public class FloatingSearchPanel extends AbstractWidget {
         int boxW = pw - 10;
         int boxH = SEARCH_BOX_H;
 
-        int bg = focused ? COLOR_SEARCH_BOX_FOCUS : COLOR_SEARCH_BOX_BG;
+        int bg = focused ? 0xFF3A3A3A : 0xFF222222;
         GuiComponent.fill(poseStack, boxX, boxY, boxX + boxW, boxY + boxH, bg);
 
-        int border = focused ? COLOR_SEARCH_BOX_BORDER_FOCUS : COLOR_SEARCH_BOX_BORDER;
+        int border = focused ? 0xFF888888 : 0xFF444444;
         GuiComponent.fill(poseStack, boxX, boxY, boxX + boxW, boxY + 1, border);
         GuiComponent.fill(poseStack, boxX, boxY + boxH - 1, boxX + boxW, boxY + boxH, border);
         GuiComponent.fill(poseStack, boxX, boxY, boxX + 1, boxY + boxH, border);
@@ -357,10 +456,10 @@ public class FloatingSearchPanel extends AbstractWidget {
     private void drawSingleCard(PoseStack poseStack, int x, int y, int w, int h, FluidStack fluid, int mouseX, int mouseY, Font font) {
         boolean hover = isHovered(x, y, w, h, mouseX, mouseY);
 
-        int bg = hover ? COLOR_CARD_HOVER : COLOR_CARD_BG;
+        int bg = hover ? 0xFF3A3A3A : 0xFF222222;
         GuiComponent.fill(poseStack, x, y, x + w, y + h, bg);
 
-        int border = hover ? COLOR_CARD_BORDER_HOVER : COLOR_CARD_BORDER;
+        int border = hover ? 0xFF888888 : 0xFF333333;
         GuiComponent.fill(poseStack, x, y, x + w, y + 1, border);
         GuiComponent.fill(poseStack, x, y + h - 1, x + w, y + h, border);
         GuiComponent.fill(poseStack, x, y, x + 1, y + h, border);
@@ -382,6 +481,13 @@ public class FloatingSearchPanel extends AbstractWidget {
         int amount = fluid.getAmount();
         String amtStr = amount >= 1000 ? String.format("%.1fB", amount / 1000.0) : amount + "mB";
         font.draw(poseStack, "§8" + amtStr, textX, y + 18, 0x888888);
+
+        if (jeiAvailable && hover) {
+            String hint = "§8JEI交互可用";
+            int hintX = x + w - font.width(hint) - 4;
+            int hintY = y + h - 8;
+            font.draw(poseStack, hint, hintX, hintY, 0x666666);
+        }
     }
 
     private void renderScrollBar(PoseStack poseStack, int px, int py, int pw, int ph) {
@@ -391,12 +497,12 @@ public class FloatingSearchPanel extends AbstractWidget {
         int barY = py + CARDS_START_Y;
         int barH = ph - CARDS_START_Y - 4;
 
-        GuiComponent.fill(poseStack, barX, barY, barX + SCROLL_BAR_WIDTH, barY + barH, COLOR_SCROLL_BAR_BG);
+        GuiComponent.fill(poseStack, barX, barY, barX + SCROLL_BAR_WIDTH, barY + barH, 0x33FFFFFF);
 
         float ratio = (float) scrollOffset / (float) maxScrollOffset;
         int thumbH = Math.max(16, (int) (barH * 0.3f));
         int thumbY = barY + (int) (ratio * (barH - thumbH));
-        GuiComponent.fill(poseStack, barX, thumbY, barX + SCROLL_BAR_WIDTH, thumbY + thumbH, COLOR_SCROLL_BAR_THUMB);
+        GuiComponent.fill(poseStack, barX, thumbY, barX + SCROLL_BAR_WIDTH, thumbY + thumbH, 0x99FFFFFF);
     }
 
     private static boolean isHovered(int x, int y, int w, int h, int mouseX, int mouseY) {

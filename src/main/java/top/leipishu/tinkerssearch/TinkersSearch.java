@@ -15,9 +15,11 @@ import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
+import net.minecraftforge.fml.ModList;
 import org.lwjgl.glfw.GLFW;
 import top.leipishu.tinkerssearch.client.gui.FloatingSearchPanel;
 import top.leipishu.tinkerssearch.client.gui.PanelInteractionHandler;
+import top.leipishu.tinkerssearch.jei.Jei;
 
 import java.lang.reflect.Field;
 
@@ -37,25 +39,23 @@ public class TinkersSearch {
 
     private static final String[] SMELTERY_FIELD_NAMES = {"te", "tileEntity", "blockEntity", "smeltery", "tile"};
 
-    // Ctrl+F 防抖
     private long lastToggleTime = 0;
     private static final long TOGGLE_COOLDOWN = 200;
 
-    // ===== 按钮位置 =====
     private static final int BUTTON_X_OFFSET = 4;
     private static final int BUTTON_Y_OFFSET = 4;
 
-    // ===== 缓存的 GUI 位置 =====
     private int cachedGuiLeft = 0;
     private int cachedGuiTop = 0;
     private int cachedXSize = 0;
     private int cachedYSize = 0;
 
-    // ===== 按钮位置缓存 =====
     private int buttonX = 0;
     private int buttonY = 0;
     private int buttonWidth = 0;
     private int buttonHeight = 14;
+
+    private boolean jeiAvailable;
 
     public TinkersSearch() {
         System.out.println("Tinker's Search mod initialized!");
@@ -63,10 +63,15 @@ public class TinkersSearch {
 
         searchPanel = new FloatingSearchPanel();
         interactionHandler = searchPanel.getInteractionHandler();
+
+        jeiAvailable = ModList.get().isLoaded("jei");
+        System.out.println("Tinker's Search: JEI available: " + jeiAvailable);
         System.out.println("Tinker's Search: Panel created!");
     }
 
-    // ==================== 屏幕初始化 ====================
+    public static FloatingSearchPanel getSearchPanel() {
+        return searchPanel;
+    }
 
     @SubscribeEvent
     public void onScreenInit(ScreenEvent.InitScreenEvent.Post event) {
@@ -106,6 +111,9 @@ public class TinkersSearch {
                 searchPanel.refreshMoltenFluids();
                 hasInitialized = true;
             }
+            if (jeiAvailable) {
+                Jei.refreshExclusionAreas();
+            }
         } else {
             searchPanel.setVisible(false);
         }
@@ -128,15 +136,11 @@ public class TinkersSearch {
         System.out.println("Tinker's Search: Could not find smeltery BlockEntity");
     }
 
-    /**
-     * 修复：使用 getGuiLeft/getGuiTop/getXSize/getYSize 方法
-     */
     private void updatePanelPosition(Screen screen) {
         if (!(screen instanceof AbstractContainerScreen)) return;
 
         try {
             AbstractContainerScreen<?> container = (AbstractContainerScreen<?>) screen;
-            // 1.18.2 使用 getter 方法而不是字段
             int guiLeft = container.getGuiLeft();
             int guiTop = container.getGuiTop();
             int xSize = container.getXSize();
@@ -148,9 +152,6 @@ public class TinkersSearch {
         }
     }
 
-    /**
-     * 修复：使用 getter 方法缓存位置
-     */
     private void updateCachedPosition(Screen screen) {
         if (!(screen instanceof AbstractContainerScreen)) return;
 
@@ -165,9 +166,6 @@ public class TinkersSearch {
         }
     }
 
-    /**
-     * 修复：使用 getter 方法强制更新按钮位置
-     */
     private void forceUpdateButtonPosition(Screen screen) {
         if (!(screen instanceof AbstractContainerScreen)) return;
 
@@ -217,11 +215,12 @@ public class TinkersSearch {
             searchPanel.setVisible(false);
             smelteryBlockEntity = null;
             hasInitialized = false;
+            if (jeiAvailable) {
+                Jei.refreshExclusionAreas();
+            }
             System.out.println("Tinker's Search: Smeltery closed");
         }
     }
-
-    // ==================== 窗口尺寸变化 ====================
 
     @SubscribeEvent
     public void onClientTick(TickEvent.ClientTickEvent event) {
@@ -244,6 +243,9 @@ public class TinkersSearch {
                 forceUpdateButtonPosition(screen);
                 if (searchPanel != null) {
                     searchPanel.forceUpdatePosition();
+                }
+                if (jeiAvailable) {
+                    Jei.refreshExclusionAreas();
                 }
                 System.out.println("Tinker's Search: Window resized, position updated");
             }
@@ -271,8 +273,6 @@ public class TinkersSearch {
         }
     }
 
-    // ==================== 键盘事件 ====================
-
     @SubscribeEvent
     public void onKeyInput(InputEvent.KeyInputEvent event) {
         if (searchPanel == null) return;
@@ -294,6 +294,9 @@ public class TinkersSearch {
             if (panelVisible) {
                 panelVisible = false;
                 searchPanel.setVisible(false);
+                if (jeiAvailable) {
+                    Jei.refreshExclusionAreas();
+                }
                 System.out.println("Tinker's Search: ESC pressed, hiding panel");
             }
         }
@@ -319,6 +322,10 @@ public class TinkersSearch {
             }
             hasInitialized = true;
         }
+
+        if (jeiAvailable) {
+            Jei.refreshExclusionAreas();
+        }
     }
 
     @SubscribeEvent(priority = EventPriority.HIGHEST)
@@ -331,8 +338,6 @@ public class TinkersSearch {
         }
     }
 
-    // ==================== 鼠标事件（修复：阻止事件传递） ====================
-
     @SubscribeEvent(priority = EventPriority.HIGHEST)
     public void onMouseClick(ScreenEvent.MouseClickedEvent.Pre event) {
         if (!isSmelteryScreen || searchPanel == null) return;
@@ -340,24 +345,19 @@ public class TinkersSearch {
         double mouseX = event.getMouseX();
         double mouseY = event.getMouseY();
 
-        // 按钮点击
         if (isButtonHovered(mouseX, mouseY)) {
             togglePanel();
             event.setCanceled(true);
-            System.out.println("Tinker's Search: Button clicked, panel visible: " + panelVisible);
             return;
         }
 
-        // 面板内点击 - 阻止事件向下传递
-        if (searchPanel.isVisible() && searchPanel.isPointInsidePanel(mouseX, mouseY)) {
-            // 先让交互处理器处理
-            boolean handled = interactionHandler.handleMouseClicked(mouseX, mouseY, event.getButton());
-            // 无论是否处理，都取消事件防止 JEI/FTB 接收
-            event.setCanceled(true);
-            if (handled) {
-                System.out.println("Tinker's Search: Panel click handled");
+        // ===== 动画期间也拦截点击 =====
+        if (searchPanel.isVisible() || searchPanel.isAnimating()) {
+            if (searchPanel.isPointInsidePanel(mouseX, mouseY)) {
+                boolean handled = interactionHandler.handleMouseClicked(mouseX, mouseY, event.getButton());
+                event.setCanceled(true);
+                return;
             }
-            return;
         }
     }
 
@@ -368,20 +368,21 @@ public class TinkersSearch {
         }
 
         if (searchPanel.isPointInsidePanel(event.getMouseX(), event.getMouseY())) {
-            // 面板内滚动 - 完全阻止
             searchPanel.mouseScrolled(event.getMouseX(), event.getMouseY(), event.getScrollDelta());
             event.setCanceled(true);
         }
     }
 
-    // ==================== 渲染（修复：使用 PRE 事件 + 拦截 JEI 渲染） ====================
-
-    /**
-     * 修复：使用 PRE 事件在 JEI 之前绘制
-     */
     @SubscribeEvent(priority = EventPriority.HIGHEST)
     public void onScreenDrawPre(ScreenEvent.DrawScreenEvent.Pre event) {
-        // 使用 PRE 事件，在 JEI 渲染之前绘制面板
+        // Pre 阶段：不绘制任何东西，留给 Post 阶段统一绘制
+        // 或者保留但会被 Post 覆盖，为了不重复绘制，这里留空
+    }
+
+    @SubscribeEvent(priority = EventPriority.LOWEST)
+    public void onScreenDrawPost(ScreenEvent.DrawScreenEvent.Post event) {
+        // ===== Post 阶段：绘制整个面板（背景 + 所有组件） =====
+        // 这样就在 JEI 书签上面了
         if (isSmelteryScreen && searchPanel != null && searchPanel.isVisible()) {
             try {
                 PoseStack poseStack = event.getPoseStack();
@@ -390,19 +391,14 @@ public class TinkersSearch {
                 e.printStackTrace();
             }
         }
-    }
 
-    /**
-     * 修复：在 POST 中绘制按钮（让按钮始终在最上层）
-     */
-    @SubscribeEvent(priority = EventPriority.LOWEST)
-    public void onScreenDrawPost(ScreenEvent.DrawScreenEvent.Post event) {
-        // 绘制按钮（在 POST 中确保在 JEI 之上）
+        // 绘制按钮
         drawToggleButton(event);
     }
 
-    // ==================== 按钮绘制 ====================
-
+    /**
+     * 绘制打开/关闭面板的按钮
+     */
     private void drawToggleButton(ScreenEvent.DrawScreenEvent.Post event) {
         if (!isSmelteryScreen) return;
 
@@ -420,6 +416,7 @@ public class TinkersSearch {
         int absX = this.buttonX;
         int absY = this.buttonY;
 
+        // 如果按钮位置未初始化，计算默认位置
         if (absX == 0 && absY == 0) {
             int inventoryBottomY = cachedGuiTop + cachedYSize;
             absX = cachedGuiLeft + BUTTON_X_OFFSET;
@@ -438,19 +435,24 @@ public class TinkersSearch {
 
         boolean hover = isButtonHovered(event.getMouseX(), event.getMouseY());
 
+        // 按钮背景颜色
         int bgColor = hover ? 0xFF4CAF50 : 0xFF2E7D32;
         int borderColor = 0xFFFFFFFF;
 
+        // 绘制按钮背景
         GuiComponent.fill(poseStack, absX, absY, absX + bWidth, absY + bHeight, bgColor);
+        // 绘制边框
         GuiComponent.fill(poseStack, absX, absY, absX + bWidth, absY + 1, borderColor);
         GuiComponent.fill(poseStack, absX, absY + bHeight - 1, absX + bWidth, absY + bHeight, borderColor);
         GuiComponent.fill(poseStack, absX, absY, absX + 1, absY + bHeight, borderColor);
         GuiComponent.fill(poseStack, absX + bWidth - 1, absY, absX + bWidth, absY + bHeight, borderColor);
 
+        // 绘制按钮文字
         int textX = absX + (bWidth - textWidth) / 2;
         int textY = absY + (bHeight - font.lineHeight) / 2 + 1;
         font.draw(poseStack, buttonText, textX, textY, 0xFFFFFF);
 
+        // 如果面板未打开，显示快捷键提示
         if (!panelVisible) {
             String hint = "§8[Ctrl+F]";
             int hintX = absX + bWidth + 4;
@@ -459,12 +461,11 @@ public class TinkersSearch {
         }
     }
 
-    // ==================== 辅助方法 ====================
-
     private boolean isButtonHovered(double mouseX, double mouseY) {
         int bWidth = this.buttonWidth;
         int bHeight = this.buttonHeight;
 
+        // 如果宽度为0，重新计算
         if (bWidth == 0) {
             Font font = Minecraft.getInstance().font;
             String buttonTextKey = panelVisible ? "button.tinkerssearch.close" : "button.tinkerssearch.open";

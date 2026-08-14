@@ -79,16 +79,25 @@ repositories {
         name 'DVS1 Maven FS'
         url 'https://dvs1.progwml6.com/files/maven'
     }
+    maven {
+        name 'Progwml6 JEI'
+        url 'https://dvs1.progwml6.com/files/maven'
+    }
+    maven {
+        name 'ModMaven'
+        url 'https://modmaven.dev'
+    }
 }
 
 dependencies {
     minecraft 'net.minecraftforge:forge:1.18.2-40.2.10'
 
-    // 移除 Mixin 依赖
-    // annotationProcessor 'org.spongepowered:mixin:0.8.5'
-
     implementation fg.deobf("slimeknights.mantle:Mantle:${minecraft_version}-${mantle_build}")
     implementation fg.deobf("slimeknights.tconstruct:TConstruct:${minecraft_version}-${tinkers_build}")
+
+    // JEI - 可选依赖
+    compileOnly fg.deobf("mezz.jei:jei-${minecraft_version}:9.7.1.255:api")
+    runtimeOnly fg.deobf("mezz.jei:jei-${minecraft_version}:9.7.1.255")
 }
 
 jar {
@@ -101,7 +110,6 @@ jar {
                 "Implementation-Version": project.jar.archiveVersion,
                 "Implementation-Vendor": "tinkerssearchsareus",
                 "Implementation-Timestamp": new Date().format("yyyy-MM-dd'T'HH:mm:ssZ")
-                // 移除 MixinConfigs
         ])
     }
 }

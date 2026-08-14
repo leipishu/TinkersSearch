@@ -6,26 +6,17 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiComponent;
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.material.Fluid;
 import net.minecraftforge.fluids.FluidStack;
-import net.minecraftforge.items.IItemHandler;
 import slimeknights.tconstruct.smeltery.block.entity.controller.HeatingStructureBlockEntity;
 import slimeknights.tconstruct.smeltery.block.entity.tank.SmelteryTank;
 
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * 冶炼炉数据帮助类
- * 用于获取冶炼炉中的流体信息
- */
 public class SmelteryDataHelper {
 
-    /**
-     * 从冶炼炉 BlockEntity 获取所有熔融流体
-     */
     public static List<FluidStack> getMoltenFluids(BlockEntity tileEntity) {
         List<FluidStack> fluids = new ArrayList<>();
         if (tileEntity == null) {
@@ -51,34 +42,6 @@ public class SmelteryDataHelper {
         return fluids;
     }
 
-    /**
-     * 从冶炼炉 BlockEntity 获取正在熔炼的物品列表
-     */
-    public static List<ItemStack> getMeltingItems(BlockEntity tileEntity) {
-        List<ItemStack> items = new ArrayList<>();
-        if (tileEntity == null) {
-            return items;
-        }
-
-        if (tileEntity instanceof HeatingStructureBlockEntity) {
-            HeatingStructureBlockEntity controller = (HeatingStructureBlockEntity) tileEntity;
-            IItemHandler inventory = controller.getMeltingInventory();
-            if (inventory != null) {
-                for (int i = 0; i < inventory.getSlots(); i++) {
-                    ItemStack stack = inventory.getStackInSlot(i);
-                    if (!stack.isEmpty()) {
-                        items.add(stack);
-                    }
-                }
-            }
-        }
-
-        return items;
-    }
-
-    /**
-     * 回退方案：使用 Forge Capability 系统获取流体
-     */
     private static List<FluidStack> getFluidsFromCapability(BlockEntity tileEntity) {
         List<FluidStack> fluids = new ArrayList<>();
         if (tileEntity == null) return fluids;
@@ -105,12 +68,6 @@ public class SmelteryDataHelper {
         return fluids;
     }
 
-    /**
-     * 绘制流体图标
-     */
-    /**
-     * 绘制流体图标（指定大小）
-     */
     public static void drawFluidIcon(PoseStack poseStack, int x, int y, FluidStack fluidStack, int size) {
         if (fluidStack == null || fluidStack.isEmpty()) return;
 
@@ -141,7 +98,6 @@ public class SmelteryDataHelper {
             GuiComponent.blit(poseStack, x, y, 0, size, size, sprite);
             RenderSystem.setShaderColor(1.0f, 1.0f, 1.0f, 1.0f);
 
-            // 加边框让图标更清晰
             GuiComponent.fill(poseStack, x, y, x + size, y + 1, 0xFF666666);
             GuiComponent.fill(poseStack, x, y + size - 1, x + size, y + size, 0xFF666666);
             GuiComponent.fill(poseStack, x, y, x + 1, y + size, 0xFF666666);
