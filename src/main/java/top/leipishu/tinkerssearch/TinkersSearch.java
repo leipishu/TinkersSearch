@@ -42,20 +42,11 @@ public class TinkersSearch {
     private long lastToggleTime = 0;
     private static final long TOGGLE_COOLDOWN = 200;
 
-    private static final int BUTTON_X_OFFSET = 4;
-    private static final int BUTTON_Y_OFFSET = 4;
-
-    private int cachedGuiLeft = 0;
-    private int cachedGuiTop = 0;
-    private int cachedXSize = 0;
-    private int cachedYSize = 0;
-
-    private int buttonX = 0;
-    private int buttonY = 0;
-    private int buttonWidth = 0;
-    private int buttonHeight = 14;
-
     private boolean jeiAvailable;
+
+    // ===== 按钮尺寸 =====
+    private static final int TAB_BUTTON_WIDTH = 14;
+    private static final int TAB_BUTTON_HEIGHT = 30;
 
     public TinkersSearch() {
         System.out.println("Tinker's Search mod initialized!");
@@ -82,7 +73,6 @@ public class TinkersSearch {
 
         if (isSmeltery) {
             handleSmelteryOpen(screen);
-            forceUpdateButtonPosition(screen);
         } else {
             handleSmelteryClose();
         }
@@ -101,9 +91,7 @@ public class TinkersSearch {
         }
 
         findSmelteryBlockEntity(screen);
-        updatePanelPosition(screen);
-        updateCachedPosition(screen);
-        forceUpdateButtonPosition(screen);
+        searchPanel.updatePanelPosition();
 
         if (panelVisible) {
             searchPanel.setVisible(true);
@@ -136,78 +124,6 @@ public class TinkersSearch {
         System.out.println("Tinker's Search: Could not find smeltery BlockEntity");
     }
 
-    private void updatePanelPosition(Screen screen) {
-        if (!(screen instanceof AbstractContainerScreen)) return;
-
-        try {
-            AbstractContainerScreen<?> container = (AbstractContainerScreen<?>) screen;
-            int guiLeft = container.getGuiLeft();
-            int guiTop = container.getGuiTop();
-            int xSize = container.getXSize();
-            int ySize = container.getYSize();
-
-            searchPanel.updatePosition(guiLeft, guiTop, xSize, ySize);
-        } catch (Exception e) {
-            System.err.println("Tinker's Search: Failed to get GUI position: " + e.getMessage());
-        }
-    }
-
-    private void updateCachedPosition(Screen screen) {
-        if (!(screen instanceof AbstractContainerScreen)) return;
-
-        try {
-            AbstractContainerScreen<?> container = (AbstractContainerScreen<?>) screen;
-            cachedGuiLeft = container.getGuiLeft();
-            cachedGuiTop = container.getGuiTop();
-            cachedXSize = container.getXSize();
-            cachedYSize = container.getYSize();
-        } catch (Exception e) {
-            System.err.println("Tinker's Search: Failed to cache position: " + e.getMessage());
-        }
-    }
-
-    private void forceUpdateButtonPosition(Screen screen) {
-        if (!(screen instanceof AbstractContainerScreen)) return;
-
-        try {
-            AbstractContainerScreen<?> container = (AbstractContainerScreen<?>) screen;
-            int guiLeft = container.getGuiLeft();
-            int guiTop = container.getGuiTop();
-            int xSize = container.getXSize();
-            int ySize = container.getYSize();
-
-            Font font = Minecraft.getInstance().font;
-            String buttonTextKey = panelVisible ? "button.tinkerssearch.close" : "button.tinkerssearch.open";
-            String buttonText = new TranslatableComponent(buttonTextKey).getString();
-            int textWidth = font.width(buttonText);
-            int padding = 8;
-            int bWidth = textWidth + padding;
-            int bHeight = 14;
-
-            int inventoryBottomY = guiTop + ySize;
-            int absX = guiLeft + BUTTON_X_OFFSET;
-            int absY = inventoryBottomY + BUTTON_Y_OFFSET;
-
-            int screenHeight = Minecraft.getInstance().getWindow().getGuiScaledHeight();
-            if (absY + bHeight > screenHeight - 4) {
-                absY = screenHeight - bHeight - 4;
-            }
-
-            this.buttonX = absX;
-            this.buttonY = absY;
-            this.buttonWidth = bWidth;
-            this.buttonHeight = bHeight;
-
-            this.cachedGuiLeft = guiLeft;
-            this.cachedGuiTop = guiTop;
-            this.cachedXSize = xSize;
-            this.cachedYSize = ySize;
-
-        } catch (Exception e) {
-            System.err.println("Tinker's Search: Failed to force update button position: " + e.getMessage());
-        }
-    }
-
     private void handleSmelteryClose() {
         if (isSmelteryScreen) {
             isSmelteryScreen = false;
@@ -230,27 +146,6 @@ public class TinkersSearch {
         Screen screen = mc.screen;
         if (screen == null) return;
 
-        int currentWidth = mc.getWindow().getGuiScaledWidth();
-        int currentHeight = mc.getWindow().getGuiScaledHeight();
-
-        if (currentWidth != lastScreenWidth || currentHeight != lastScreenHeight) {
-            lastScreenWidth = currentWidth;
-            lastScreenHeight = currentHeight;
-
-            if (isSmelteryScreen && screen instanceof AbstractContainerScreen) {
-                updatePanelPosition(screen);
-                updateCachedPosition(screen);
-                forceUpdateButtonPosition(screen);
-                if (searchPanel != null) {
-                    searchPanel.forceUpdatePosition();
-                }
-                if (jeiAvailable) {
-                    Jei.refreshExclusionAreas();
-                }
-                System.out.println("Tinker's Search: Window resized, position updated");
-            }
-        }
-
         if (KeyBindings.togglePanelKey.consumeClick()) {
             long currentTime = System.currentTimeMillis();
             if (currentTime - lastToggleTime < TOGGLE_COOLDOWN) {
@@ -262,9 +157,7 @@ public class TinkersSearch {
                 if (!isSmelteryScreen) {
                     isSmelteryScreen = true;
                     findSmelteryBlockEntity(screen);
-                    updatePanelPosition(screen);
-                    updateCachedPosition(screen);
-                    forceUpdateButtonPosition(screen);
+                    searchPanel.updatePanelPosition();
                 }
                 togglePanel();
             } else {
@@ -345,15 +238,39 @@ public class TinkersSearch {
         double mouseX = event.getMouseX();
         double mouseY = event.getMouseY();
 
-        if (isButtonHovered(mouseX, mouseY)) {
+        // ===== 计算按钮位置 =====
+        int panelHeight = searchPanel.getPanelHeight();
+        int panelX = searchPanel.getActualPanelX();
+        boolean isExpanded = panelVisible || searchPanel.isAnimating();
+
+        int btnX, btnY;
+        if (isExpanded) {
+            btnX = panelX + searchPanel.getPanelWidth() - 1;
+        } else {
+            btnX = 0;
+        }
+        btnY = (panelHeight - TAB_BUTTON_HEIGHT) / 2;
+
+        // ===== 检测按钮点击 =====
+        if (mouseX >= btnX && mouseX <= btnX + TAB_BUTTON_WIDTH &&
+                mouseY >= btnY && mouseY <= btnY + TAB_BUTTON_HEIGHT) {
+            if (searchPanel.isAnimating()) {
+                event.setCanceled(true);
+                return;
+            }
             togglePanel();
             event.setCanceled(true);
+            System.out.println("Tinker's Search: Tab button clicked, panel visible: " + panelVisible);
             return;
         }
 
-        // ===== 动画期间也拦截点击 =====
+        // ===== 面板内部点击 =====
         if (searchPanel.isVisible() || searchPanel.isAnimating()) {
             if (searchPanel.isPointInsidePanel(mouseX, mouseY)) {
+                if (searchPanel.isAnimating()) {
+                    event.setCanceled(true);
+                    return;
+                }
                 boolean handled = interactionHandler.handleMouseClicked(mouseX, mouseY, event.getButton());
                 event.setCanceled(true);
                 return;
@@ -375,108 +292,73 @@ public class TinkersSearch {
 
     @SubscribeEvent(priority = EventPriority.HIGHEST)
     public void onScreenDrawPre(ScreenEvent.DrawScreenEvent.Pre event) {
-        // Pre 阶段：不绘制任何东西，留给 Post 阶段统一绘制
-        // 或者保留但会被 Post 覆盖，为了不重复绘制，这里留空
+        // Pre 阶段不绘制
     }
 
     @SubscribeEvent(priority = EventPriority.LOWEST)
     public void onScreenDrawPost(ScreenEvent.DrawScreenEvent.Post event) {
-        // ===== Post 阶段：绘制整个面板（背景 + 所有组件） =====
-        // 这样就在 JEI 书签上面了
-        if (isSmelteryScreen && searchPanel != null && searchPanel.isVisible()) {
+        if (!isSmelteryScreen || searchPanel == null) return;
+
+        PoseStack poseStack = event.getPoseStack();
+
+        // ===== 1. 先绘制独立的按钮（始终绘制） =====
+        drawTabButton(poseStack);
+
+        // ===== 2. 再绘制面板（如果可见或动画中） =====
+        if (searchPanel.isVisible() || searchPanel.isAnimating()) {
             try {
-                PoseStack poseStack = event.getPoseStack();
                 searchPanel.render(poseStack, 0, 0, 0);
             } catch (Exception e) {
                 e.printStackTrace();
             }
         }
-
-        // 绘制按钮
-        drawToggleButton(event);
     }
 
     /**
-     * 绘制打开/关闭面板的按钮
+     * 独立绘制展开/收起按钮
      */
-    private void drawToggleButton(ScreenEvent.DrawScreenEvent.Post event) {
-        if (!isSmelteryScreen) return;
+    private void drawTabButton(PoseStack poseStack) {
+        int panelHeight = searchPanel.getPanelHeight();
+        int panelX = searchPanel.getActualPanelX();
+        boolean isExpanded = panelVisible || searchPanel.isAnimating();
 
-        PoseStack poseStack = event.getPoseStack();
-        Font font = Minecraft.getInstance().font;
+        int btnX, btnY;
+        if (isExpanded) {
+            btnX = panelX + searchPanel.getPanelWidth() - 1;
+        } else {
+            btnX = 0;
+        }
+        btnY = (panelHeight - TAB_BUTTON_HEIGHT) / 2;
 
-        String buttonTextKey = panelVisible ? "button.tinkerssearch.close" : "button.tinkerssearch.open";
-        String buttonText = new TranslatableComponent(buttonTextKey).getString();
+        // 获取鼠标位置
+        Minecraft mc = Minecraft.getInstance();
+        double mouseX = mc.mouseHandler.xpos() * mc.getWindow().getGuiScaledWidth() / mc.getWindow().getScreenWidth();
+        double mouseY = mc.mouseHandler.ypos() * mc.getWindow().getGuiScaledHeight() / mc.getWindow().getScreenHeight();
+        boolean hover = mouseX >= btnX && mouseX <= btnX + TAB_BUTTON_WIDTH &&
+                mouseY >= btnY && mouseY <= btnY + TAB_BUTTON_HEIGHT;
 
-        int textWidth = font.width(buttonText);
-        int padding = 8;
-        int bWidth = textWidth + padding;
-        int bHeight = 14;
+        // ===== 按钮背景 =====
+        int bgColor = hover ? 0xCC444444 : 0xCC1A1A1A;
+        GuiComponent.fill(poseStack, btnX, btnY, btnX + TAB_BUTTON_WIDTH, btnY + TAB_BUTTON_HEIGHT, bgColor);
 
-        int absX = this.buttonX;
-        int absY = this.buttonY;
+        // ===== 边框 =====
+        int borderColor = 0x44FFFFFF;
+        GuiComponent.fill(poseStack, btnX, btnY, btnX + TAB_BUTTON_WIDTH, btnY + 1, borderColor);
+        GuiComponent.fill(poseStack, btnX, btnY + TAB_BUTTON_HEIGHT - 1, btnX + TAB_BUTTON_WIDTH, btnY + TAB_BUTTON_HEIGHT, borderColor);
 
-        // 如果按钮位置未初始化，计算默认位置
-        if (absX == 0 && absY == 0) {
-            int inventoryBottomY = cachedGuiTop + cachedYSize;
-            absX = cachedGuiLeft + BUTTON_X_OFFSET;
-            absY = inventoryBottomY + BUTTON_Y_OFFSET;
-
-            int screenHeight = Minecraft.getInstance().getWindow().getGuiScaledHeight();
-            if (absY + bHeight > screenHeight - 4) {
-                absY = screenHeight - bHeight - 4;
-            }
-
-            this.buttonX = absX;
-            this.buttonY = absY;
-            this.buttonWidth = bWidth;
-            this.buttonHeight = bHeight;
+        if (isExpanded) {
+            GuiComponent.fill(poseStack, btnX + TAB_BUTTON_WIDTH - 1, btnY, btnX + TAB_BUTTON_WIDTH, btnY + TAB_BUTTON_HEIGHT, borderColor);
+        } else {
+            GuiComponent.fill(poseStack, btnX, btnY, btnX + 1, btnY + TAB_BUTTON_HEIGHT, borderColor);
+            GuiComponent.fill(poseStack, btnX + TAB_BUTTON_WIDTH - 1, btnY, btnX + TAB_BUTTON_WIDTH, btnY + TAB_BUTTON_HEIGHT, borderColor);
         }
 
-        boolean hover = isButtonHovered(event.getMouseX(), event.getMouseY());
-
-        // 按钮背景颜色
-        int bgColor = hover ? 0xFF4CAF50 : 0xFF2E7D32;
-        int borderColor = 0xFFFFFFFF;
-
-        // 绘制按钮背景
-        GuiComponent.fill(poseStack, absX, absY, absX + bWidth, absY + bHeight, bgColor);
-        // 绘制边框
-        GuiComponent.fill(poseStack, absX, absY, absX + bWidth, absY + 1, borderColor);
-        GuiComponent.fill(poseStack, absX, absY + bHeight - 1, absX + bWidth, absY + bHeight, borderColor);
-        GuiComponent.fill(poseStack, absX, absY, absX + 1, absY + bHeight, borderColor);
-        GuiComponent.fill(poseStack, absX + bWidth - 1, absY, absX + bWidth, absY + bHeight, borderColor);
-
-        // 绘制按钮文字
-        int textX = absX + (bWidth - textWidth) / 2;
-        int textY = absY + (bHeight - font.lineHeight) / 2 + 1;
-        font.draw(poseStack, buttonText, textX, textY, 0xFFFFFF);
-
-        // 如果面板未打开，显示快捷键提示
-        if (!panelVisible) {
-            String hint = "§8[Ctrl+F]";
-            int hintX = absX + bWidth + 4;
-            int hintY = absY + (bHeight - font.lineHeight) / 2 + 1;
-            font.draw(poseStack, hint, hintX, hintY, 0x666666);
-        }
-    }
-
-    private boolean isButtonHovered(double mouseX, double mouseY) {
-        int bWidth = this.buttonWidth;
-        int bHeight = this.buttonHeight;
-
-        // 如果宽度为0，重新计算
-        if (bWidth == 0) {
-            Font font = Minecraft.getInstance().font;
-            String buttonTextKey = panelVisible ? "button.tinkerssearch.close" : "button.tinkerssearch.open";
-            String buttonText = new TranslatableComponent(buttonTextKey).getString();
-            int textWidth = font.width(buttonText);
-            int padding = 8;
-            bWidth = textWidth + padding;
-            bHeight = 14;
-        }
-
-        return mouseX >= this.buttonX && mouseX <= this.buttonX + bWidth &&
-                mouseY >= this.buttonY && mouseY <= this.buttonY + bHeight;
+        // ===== 箭头 =====
+        Font font = mc.font;
+        String arrow = isExpanded ? "◀" : "▶";
+        int textX = btnX + (TAB_BUTTON_WIDTH - font.width(arrow)) / 2;
+        int textY = btnY + (TAB_BUTTON_HEIGHT - font.lineHeight) / 2 + 1;
+        int textColor = hover ? 0xFFFFFFFF : 0xCCCCCCCC;
+        font.draw(poseStack, arrow, textX, textY, textColor);
     }
 }

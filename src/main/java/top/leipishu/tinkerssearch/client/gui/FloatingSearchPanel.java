@@ -47,7 +47,10 @@ public class FloatingSearchPanel extends AbstractWidget {
     private long animationStartTime = 0;
     private static final int ANIMATION_DURATION = 350;
     private boolean isAnimating = false;
-    private int panelWidth = PANEL_WIDTH;
+
+    // ===== 按钮尺寸（供外部使用） =====
+    public static final int TAB_BUTTON_WIDTH = 14;
+    public static final int TAB_BUTTON_HEIGHT = 30;
 
     public FloatingSearchPanel() {
         super(0, 0, PANEL_WIDTH, 100, new TextComponent("Search Panel"));
@@ -76,6 +79,13 @@ public class FloatingSearchPanel extends AbstractWidget {
     public boolean isAnimating() { return isAnimating; }
     public int getAnimationOffset() { return animationOffset; }
 
+    /**
+     * 获取面板当前的实际 X 位置（用于按钮定位）
+     */
+    public int getActualPanelX() {
+        return this.x + animationOffset;
+    }
+
     public PanelInteractionHandler getInteractionHandler() {
         return interactionHandler;
     }
@@ -89,7 +99,6 @@ public class FloatingSearchPanel extends AbstractWidget {
         this.y = 0;
         this.width = PANEL_WIDTH;
         this.height = screenHeight;
-        this.panelWidth = PANEL_WIDTH;
 
         this.lastScreenWidth = screenWidth;
         this.lastScreenHeight = screenHeight;
@@ -126,22 +135,18 @@ public class FloatingSearchPanel extends AbstractWidget {
     }
 
     public void setVisible(boolean visible) {
-        // 如果状态相同，不做任何事
         if (this.isVisible == visible && !isAnimating) return;
-
-        // 如果要隐藏，但已经隐藏且不在动画中，直接返回
         if (!visible && !this.isVisible && !isAnimating) return;
 
         if (!visible) {
-            // ===== 关闭：滑出动画 =====
+            // 关闭动画
             interactionHandler.setSearchBoxFocused(false);
             scrollOffset = 0;
             targetOffset = -this.width;
             isAnimating = true;
             animationStartTime = System.currentTimeMillis();
-            // 注意：isVisible 保持 true，直到动画完成
         } else {
-            // ===== 打开：滑入动画 =====
+            // 打开动画
             updatePanelPosition();
             refreshMoltenFluids();
             this.isVisible = true;
@@ -157,9 +162,6 @@ public class FloatingSearchPanel extends AbstractWidget {
         setVisible(!this.isVisible);
     }
 
-    /**
-     * 更新动画
-     */
     private void updateAnimation() {
         if (!isAnimating) return;
 
@@ -169,8 +171,6 @@ public class FloatingSearchPanel extends AbstractWidget {
         if (progress >= 1.0f) {
             animationOffset = targetOffset;
             isAnimating = false;
-
-            // 如果滑出完成，标记为不可见
             if (targetOffset < 0) {
                 this.isVisible = false;
                 this.visible = false;
@@ -178,9 +178,8 @@ public class FloatingSearchPanel extends AbstractWidget {
             return;
         }
 
-        // easeOutCubic: 1 - (1-t)^3
+        // easeOutCubic
         float eased = 1.0f - (float) Math.pow(1.0f - progress, 3);
-
         int startOffset = targetOffset == 0 ? -this.width : 0;
         animationOffset = startOffset + (int) ((targetOffset - startOffset) * eased);
     }
@@ -307,11 +306,12 @@ public class FloatingSearchPanel extends AbstractWidget {
 
     @Override
     public void renderButton(PoseStack poseStack, int mouseX, int mouseY, float partialTick) {
-        // 更新动画
         updateAnimation();
 
-        // 如果完全滑出屏幕，不渲染
-        if (!isVisible && !isAnimating) return;
+        // 面板不可见且不在动画中时不渲染
+        if (!isVisible && !isAnimating) {
+            return;
+        }
 
         checkWindowResize();
 
@@ -323,14 +323,13 @@ public class FloatingSearchPanel extends AbstractWidget {
         int pw = this.width;
         int ph = this.height;
 
-        // 如果完全在屏幕外，不渲染
         if (px + pw < 0) return;
 
-        // ===== 半透明背景（磨砂玻璃效果） =====
+        // ===== 面板背景 =====
         GuiComponent.fill(poseStack, px, py, px + pw, py + ph, 0xAA1A1A1A);
 
-        // 左侧高亮边框
-        GuiComponent.fill(poseStack, px, py, px + 1, py + ph, 0x44FFFFFF);
+        // 边框
+        GuiComponent.fill(poseStack, px, py, px + 1, py + ph, 0x33FFFFFF);
         GuiComponent.fill(poseStack, px + pw - 1, py, px + pw, py + ph, 0x22FFFFFF);
         GuiComponent.fill(poseStack, px, py, px + pw, py + 1, 0x22FFFFFF);
         GuiComponent.fill(poseStack, px, py + ph - 1, px + pw, py + ph, 0x22FFFFFF);
