@@ -41,17 +41,17 @@ public class TinkersSearch {
     private long lastToggleTime = 0;
     private static final long TOGGLE_COOLDOWN = 200;
 
-    // ===== 按钮位置（强制固定在物品栏下方） =====
+    // ===== 按钮位置 =====
     private static final int BUTTON_X_OFFSET = 4;
     private static final int BUTTON_Y_OFFSET = 4;
 
     // ===== 缓存的 GUI 位置 =====
-    private int cachedLeftPos = 0;
-    private int cachedTopPos = 0;
-    private int cachedImageWidth = 0;
-    private int cachedImageHeight = 0;
+    private int cachedGuiLeft = 0;
+    private int cachedGuiTop = 0;
+    private int cachedXSize = 0;
+    private int cachedYSize = 0;
 
-    // ===== 按钮位置缓存（强制固定） =====
+    // ===== 按钮位置缓存 =====
     private int buttonX = 0;
     private int buttonY = 0;
     private int buttonWidth = 0;
@@ -128,78 +128,55 @@ public class TinkersSearch {
         System.out.println("Tinker's Search: Could not find smeltery BlockEntity");
     }
 
+    /**
+     * 修复：使用 getGuiLeft/getGuiTop/getXSize/getYSize 方法
+     */
     private void updatePanelPosition(Screen screen) {
         if (!(screen instanceof AbstractContainerScreen)) return;
 
         try {
             AbstractContainerScreen<?> container = (AbstractContainerScreen<?>) screen;
-            Field leftPos = AbstractContainerScreen.class.getDeclaredField("leftPos");
-            Field topPos = AbstractContainerScreen.class.getDeclaredField("topPos");
-            Field imageWidth = AbstractContainerScreen.class.getDeclaredField("imageWidth");
-            Field imageHeight = AbstractContainerScreen.class.getDeclaredField("imageHeight");
+            // 1.18.2 使用 getter 方法而不是字段
+            int guiLeft = container.getGuiLeft();
+            int guiTop = container.getGuiTop();
+            int xSize = container.getXSize();
+            int ySize = container.getYSize();
 
-            leftPos.setAccessible(true);
-            topPos.setAccessible(true);
-            imageWidth.setAccessible(true);
-            imageHeight.setAccessible(true);
-
-            searchPanel.updatePosition(
-                    leftPos.getInt(container),
-                    topPos.getInt(container),
-                    imageWidth.getInt(container),
-                    imageHeight.getInt(container)
-            );
+            searchPanel.updatePosition(guiLeft, guiTop, xSize, ySize);
         } catch (Exception e) {
             System.err.println("Tinker's Search: Failed to get GUI position: " + e.getMessage());
         }
     }
 
+    /**
+     * 修复：使用 getter 方法缓存位置
+     */
     private void updateCachedPosition(Screen screen) {
         if (!(screen instanceof AbstractContainerScreen)) return;
 
         try {
             AbstractContainerScreen<?> container = (AbstractContainerScreen<?>) screen;
-            Field leftPos = AbstractContainerScreen.class.getDeclaredField("leftPos");
-            Field topPos = AbstractContainerScreen.class.getDeclaredField("topPos");
-            Field imageWidth = AbstractContainerScreen.class.getDeclaredField("imageWidth");
-            Field imageHeight = AbstractContainerScreen.class.getDeclaredField("imageHeight");
-
-            leftPos.setAccessible(true);
-            topPos.setAccessible(true);
-            imageWidth.setAccessible(true);
-            imageHeight.setAccessible(true);
-
-            cachedLeftPos = leftPos.getInt(container);
-            cachedTopPos = topPos.getInt(container);
-            cachedImageWidth = imageWidth.getInt(container);
-            cachedImageHeight = imageHeight.getInt(container);
+            cachedGuiLeft = container.getGuiLeft();
+            cachedGuiTop = container.getGuiTop();
+            cachedXSize = container.getXSize();
+            cachedYSize = container.getYSize();
         } catch (Exception e) {
             System.err.println("Tinker's Search: Failed to cache position: " + e.getMessage());
         }
     }
 
     /**
-     * 强制更新按钮位置
+     * 修复：使用 getter 方法强制更新按钮位置
      */
     private void forceUpdateButtonPosition(Screen screen) {
         if (!(screen instanceof AbstractContainerScreen)) return;
 
         try {
             AbstractContainerScreen<?> container = (AbstractContainerScreen<?>) screen;
-            Field leftPos = AbstractContainerScreen.class.getDeclaredField("leftPos");
-            Field topPos = AbstractContainerScreen.class.getDeclaredField("topPos");
-            Field imageWidth = AbstractContainerScreen.class.getDeclaredField("imageWidth");
-            Field imageHeight = AbstractContainerScreen.class.getDeclaredField("imageHeight");
-
-            leftPos.setAccessible(true);
-            topPos.setAccessible(true);
-            imageWidth.setAccessible(true);
-            imageHeight.setAccessible(true);
-
-            int lPos = leftPos.getInt(container);
-            int tPos = topPos.getInt(container);
-            int iWidth = imageWidth.getInt(container);
-            int iHeight = imageHeight.getInt(container);
+            int guiLeft = container.getGuiLeft();
+            int guiTop = container.getGuiTop();
+            int xSize = container.getXSize();
+            int ySize = container.getYSize();
 
             Font font = Minecraft.getInstance().font;
             String buttonTextKey = panelVisible ? "button.tinkerssearch.close" : "button.tinkerssearch.open";
@@ -209,8 +186,8 @@ public class TinkersSearch {
             int bWidth = textWidth + padding;
             int bHeight = 14;
 
-            int inventoryBottomY = tPos + iHeight;
-            int absX = lPos + BUTTON_X_OFFSET;
+            int inventoryBottomY = guiTop + ySize;
+            int absX = guiLeft + BUTTON_X_OFFSET;
             int absY = inventoryBottomY + BUTTON_Y_OFFSET;
 
             int screenHeight = Minecraft.getInstance().getWindow().getGuiScaledHeight();
@@ -223,10 +200,10 @@ public class TinkersSearch {
             this.buttonWidth = bWidth;
             this.buttonHeight = bHeight;
 
-            this.cachedLeftPos = lPos;
-            this.cachedTopPos = tPos;
-            this.cachedImageWidth = iWidth;
-            this.cachedImageHeight = iHeight;
+            this.cachedGuiLeft = guiLeft;
+            this.cachedGuiTop = guiTop;
+            this.cachedXSize = xSize;
+            this.cachedYSize = ySize;
 
         } catch (Exception e) {
             System.err.println("Tinker's Search: Failed to force update button position: " + e.getMessage());
@@ -354,7 +331,7 @@ public class TinkersSearch {
         }
     }
 
-    // ==================== 鼠标事件 ====================
+    // ==================== 鼠标事件（修复：阻止事件传递） ====================
 
     @SubscribeEvent(priority = EventPriority.HIGHEST)
     public void onMouseClick(ScreenEvent.MouseClickedEvent.Pre event) {
@@ -363,6 +340,7 @@ public class TinkersSearch {
         double mouseX = event.getMouseX();
         double mouseY = event.getMouseY();
 
+        // 按钮点击
         if (isButtonHovered(mouseX, mouseY)) {
             togglePanel();
             event.setCanceled(true);
@@ -370,9 +348,15 @@ public class TinkersSearch {
             return;
         }
 
+        // 面板内点击 - 阻止事件向下传递
         if (searchPanel.isVisible() && searchPanel.isPointInsidePanel(mouseX, mouseY)) {
-            interactionHandler.handleMouseClicked(mouseX, mouseY, event.getButton());
+            // 先让交互处理器处理
+            boolean handled = interactionHandler.handleMouseClicked(mouseX, mouseY, event.getButton());
+            // 无论是否处理，都取消事件防止 JEI/FTB 接收
             event.setCanceled(true);
+            if (handled) {
+                System.out.println("Tinker's Search: Panel click handled");
+            }
             return;
         }
     }
@@ -384,19 +368,20 @@ public class TinkersSearch {
         }
 
         if (searchPanel.isPointInsidePanel(event.getMouseX(), event.getMouseY())) {
-            if (searchPanel.mouseScrolled(event.getMouseX(), event.getMouseY(), event.getScrollDelta())) {
-                event.setCanceled(true);
-            } else {
-                event.setCanceled(true);
-            }
+            // 面板内滚动 - 完全阻止
+            searchPanel.mouseScrolled(event.getMouseX(), event.getMouseY(), event.getScrollDelta());
+            event.setCanceled(true);
         }
     }
 
-    // ==================== 渲染 ====================
+    // ==================== 渲染（修复：使用 PRE 事件 + 拦截 JEI 渲染） ====================
 
-    @SubscribeEvent(priority = EventPriority.LOWEST)
-    public void onScreenDraw(ScreenEvent.DrawScreenEvent.Post event) {
-        // 1. 绘制面板
+    /**
+     * 修复：使用 PRE 事件在 JEI 之前绘制
+     */
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
+    public void onScreenDrawPre(ScreenEvent.DrawScreenEvent.Pre event) {
+        // 使用 PRE 事件，在 JEI 渲染之前绘制面板
         if (isSmelteryScreen && searchPanel != null && searchPanel.isVisible()) {
             try {
                 PoseStack poseStack = event.getPoseStack();
@@ -405,8 +390,14 @@ public class TinkersSearch {
                 e.printStackTrace();
             }
         }
+    }
 
-        // 2. 绘制按钮
+    /**
+     * 修复：在 POST 中绘制按钮（让按钮始终在最上层）
+     */
+    @SubscribeEvent(priority = EventPriority.LOWEST)
+    public void onScreenDrawPost(ScreenEvent.DrawScreenEvent.Post event) {
+        // 绘制按钮（在 POST 中确保在 JEI 之上）
         drawToggleButton(event);
     }
 
@@ -430,8 +421,8 @@ public class TinkersSearch {
         int absY = this.buttonY;
 
         if (absX == 0 && absY == 0) {
-            int inventoryBottomY = cachedTopPos + cachedImageHeight;
-            absX = cachedLeftPos + BUTTON_X_OFFSET;
+            int inventoryBottomY = cachedGuiTop + cachedYSize;
+            absX = cachedGuiLeft + BUTTON_X_OFFSET;
             absY = inventoryBottomY + BUTTON_Y_OFFSET;
 
             int screenHeight = Minecraft.getInstance().getWindow().getGuiScaledHeight();
@@ -486,9 +477,5 @@ public class TinkersSearch {
 
         return mouseX >= this.buttonX && mouseX <= this.buttonX + bWidth &&
                 mouseY >= this.buttonY && mouseY <= this.buttonY + bHeight;
-    }
-
-    private static boolean isKeyDown(long window, int key) {
-        return GLFW.glfwGetKey(window, key) == GLFW.GLFW_PRESS;
     }
 }

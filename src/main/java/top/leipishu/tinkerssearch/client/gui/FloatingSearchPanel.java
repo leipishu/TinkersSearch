@@ -210,6 +210,7 @@ public class FloatingSearchPanel extends AbstractWidget {
         }).start();
     }
 
+    // 在 renderButton 方法中，增强背景渲染
     @Override
     public void renderButton(PoseStack poseStack, int mouseX, int mouseY, float partialTick) {
         if (!isVisible) return;
@@ -224,14 +225,21 @@ public class FloatingSearchPanel extends AbstractWidget {
         int pw = this.width;
         int ph = this.height;
 
-        // 使用不透明背景遮挡下层UI
-        GuiComponent.fill(poseStack, px, py, px + pw, py + ph, COLOR_BG);
-        GuiComponent.fill(poseStack, px + pw - 2, py, px + pw, py + ph, COLOR_BORDER);
+        // 修复：使用完全不透明背景遮挡下层 UI，并增加额外边框
+        // 背景层 - 完全覆盖
+        GuiComponent.fill(poseStack, px, py, px + pw, py + ph, 0xFF101010); // 完全不透明
+
+        // 边框
+        GuiComponent.fill(poseStack, px, py, px + pw, py + 1, 0xFFFF6666); // 红色上边框更显眼
+        GuiComponent.fill(poseStack, px, py + ph - 1, px + pw, py + ph, 0xFFFF6666);
+        GuiComponent.fill(poseStack, px, py, px + 1, py + ph, 0xFFFF6666);
+        GuiComponent.fill(poseStack, px + pw - 1, py, px + pw, py + ph, 0xFFFF6666);
 
         renderTitleBar(poseStack, px, py, pw, font);
         renderRefreshButton(poseStack, px, py, mouseX, mouseY, font);
         renderSearchBox(poseStack, px, py, pw, font);
 
+        // 裁剪区域
         int clipStartY = py + CARDS_START_Y;
         int clipEndY = py + ph - 4;
         enableScissor(px + 5, clipStartY, pw - 10 - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING, clipEndY - clipStartY);
