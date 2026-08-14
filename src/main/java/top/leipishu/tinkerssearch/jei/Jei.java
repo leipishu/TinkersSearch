@@ -14,7 +14,6 @@ import net.minecraftforge.fml.ModList;
 import top.leipishu.tinkerssearch.TinkersSearch;
 import top.leipishu.tinkerssearch.client.gui.FloatingSearchPanel;
 
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
@@ -45,32 +44,35 @@ public class Jei implements IModPlugin {
                     @Override
                     public List<Rect2i> getGuiExtraAreas(AbstractContainerScreen<?> screen) {
                         FloatingSearchPanel panel = TinkersSearch.getSearchPanel();
-                        if (panel == null || !panel.isVisible() && !panel.isAnimating()) {
+                        if (panel == null || (!panel.isVisible() && !panel.isAnimating())) {
                             return Collections.emptyList();
                         }
-
-                        List<Rect2i> areas = new ArrayList<>();
-                        // 使用动画偏移后的实际位置
                         int x = panel.getPanelX();
                         int y = panel.getPanelY();
                         int w = panel.getPanelWidth();
                         int h = panel.getPanelHeight();
-
-                        // ===== 关键：把整个面板区域标记为 JEI 排除区域 =====
-                        areas.add(new Rect2i(x, y, w, h));
-                        return areas;
+                        return Collections.singletonList(new Rect2i(x, y, w, h));
                     }
 
                     @Override
                     public Object getIngredientUnderMouse(AbstractContainerScreen<?> screen, double mouseX, double mouseY) {
-                        FloatingSearchPanel panel = TinkersSearch.getSearchPanel();
-                        if (panel != null && (panel.isVisible() || panel.isAnimating())) {
-                            if (panel.isPointInsidePanel(mouseX, mouseY)) {
-                                // ===== 返回 null 阻止 JEI 显示任何信息 =====
-                                return null;
-                            }
+                        String className = screen.getClass().getName();
+                        if (!className.contains("SmelteryScreen") && !className.contains("smeltery")) {
+                            return null;
                         }
-                        return null;
+
+                        FloatingSearchPanel panel = TinkersSearch.getSearchPanel();
+                        if (panel == null) return null;
+
+                        if (!panel.isVisible() && !panel.isAnimating()) return null;
+                        if (!panel.isPointInsidePanel(mouseX, mouseY)) return null;
+
+                        net.minecraftforge.fluids.FluidStack fluid = panel.getFluidAt(mouseX, mouseY);
+                        if (fluid == null || fluid.isEmpty()) return null;
+
+                        System.out.println("Tinker's Search: JEI detected fluid: " + fluid.getDisplayName().getString());
+
+                        return fluid;
                     }
                 });
     }

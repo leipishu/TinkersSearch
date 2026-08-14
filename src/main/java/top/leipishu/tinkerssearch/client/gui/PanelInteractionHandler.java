@@ -2,32 +2,31 @@ package top.leipishu.tinkerssearch.client.gui;
 
 import net.minecraft.client.Minecraft;
 import net.minecraftforge.fluids.FluidStack;
+import net.minecraftforge.fml.ModList;
+import org.lwjgl.glfw.GLFW;
 import top.leipishu.tinkerssearch.config.PanelConfig;
-import top.leipishu.tinkerssearch.utils.SmelteryClickHandler;
 
+import java.lang.reflect.Method;
 import java.util.List;
 import java.util.function.Consumer;
 
 import static top.leipishu.tinkerssearch.config.PanelConfig.*;
 
-/**
- * 面板交互处理器 - 处理鼠标和键盘事件
- * 与渲染逻辑完全分离
- */
 public class PanelInteractionHandler {
 
     private final FloatingSearchPanel panel;
     private final Runnable onRefresh;
     private final Consumer<List<FluidStack>> onFluidClick;
 
-    // 交互状态
     private boolean isSearchBoxFocused = false;
     private String searchKeyword = "";
     private long lastClickTime = 0;
 
-    // 数据引用
     private List<FluidStack> allFluids;
     private List<FluidStack> displayedFluids;
+
+    private boolean jeiAvailable;
+    private Object jeiRuntime;
 
     public PanelInteractionHandler(FloatingSearchPanel panel,
                                    Runnable onRefresh,
@@ -35,17 +34,16 @@ public class PanelInteractionHandler {
         this.panel = panel;
         this.onRefresh = onRefresh;
         this.onFluidClick = onFluidClick;
+        this.jeiAvailable = ModList.get().isLoaded("jei");
+        if (jeiAvailable) {
+            this.jeiRuntime = top.leipishu.tinkerssearch.jei.Jei.getJeiRuntime();
+        }
     }
 
-    /**
-     * 设置数据引用（由面板调用）
-     */
     public void setDataRefs(List<FluidStack> allFluids, List<FluidStack> displayedFluids) {
         this.allFluids = allFluids;
         this.displayedFluids = displayedFluids;
     }
-
-    // ==================== 搜索框状态 ====================
 
     public boolean isSearchBoxFocused() {
         return isSearchBoxFocused;
@@ -59,21 +57,19 @@ public class PanelInteractionHandler {
         this.searchKeyword = keyword;
     }
 
-    // ==================== 键盘事件 ====================
-
     public boolean handleKeyPressed(int keyCode, int scanCode, int modifiers) {
         if (!panel.isVisible() || !isSearchBoxFocused) return false;
 
         switch (keyCode) {
-            case 259: // 退格
+            case 259:
                 if (!searchKeyword.isEmpty()) {
                     searchKeyword = searchKeyword.substring(0, searchKeyword.length() - 1);
                     onRefresh.run();
                 }
                 return true;
-            case 256: // ESC
-            case 257: // 回车
-            case 335: // 回车 (数字键盘)
+            case 256:
+            case 257:
+            case 335:
                 isSearchBoxFocused = false;
                 return true;
             default:
@@ -90,8 +86,6 @@ public class PanelInteractionHandler {
         return true;
     }
 
-    // ==================== 鼠标事件 ====================
-
     public boolean handleMouseClicked(double mouseX, double mouseY, int button) {
         if (!panel.isVisible()) return false;
 
@@ -99,31 +93,26 @@ public class PanelInteractionHandler {
         int py = panel.getPanelY();
         int pw = panel.getPanelWidth();
 
-        // 防抖
         long currentTime = System.currentTimeMillis();
         if (currentTime - lastClickTime < CLICK_COOLDOWN) {
             return false;
         }
 
-        // 1. 刷新按钮
         if (isInRefreshButton(mouseX, mouseY, px, py)) {
             onRefresh.run();
             return true;
         }
 
-        // 2. 搜索框点击
         if (isInSearchBox(mouseX, mouseY, px, py, pw)) {
             isSearchBoxFocused = true;
             return true;
         }
 
-        // 3. 点击卡片
-        if (handleCardClick(mouseX, mouseY, px, py, pw)) {
+        if (handleCardClick(mouseX, mouseY, px, py, pw, button)) {
             lastClickTime = currentTime;
             return true;
         }
 
-        // 4. 点击面板其他区域取消搜索焦点
         if (isInPanel(mouseX, mouseY, px, py, pw)) {
             if (isSearchBoxFocused) {
                 isSearchBoxFocused = false;
@@ -133,8 +122,6 @@ public class PanelInteractionHandler {
 
         return false;
     }
-
-    // ==================== 坐标检测 ====================
 
     private boolean isInRefreshButton(double mouseX, double mouseY, int px, int py) {
         return mouseX >= px + REFRESH_BTN_X && mouseX <= px + REFRESH_BTN_X + REFRESH_BTN_W &&
@@ -151,60 +138,182 @@ public class PanelInteractionHandler {
                 mouseY >= py && mouseY <= py + panel.getPanelHeight();
     }
 
-    // ==================== 卡片点击（优化版 - 直接使用 FluidStack） ====================
-
-    private boolean handleCardClick(double mouseX, double mouseY, int px, int py, int pw) {
+    /**
+     * 处理卡片点击
+     * - 图标区域：交给 JEI 处理（左键用途、右键配方）
+     * - 卡片主体：执行移动到最下面
+     */
+    private boolean handleCardClick(double mouseX, double mouseY, int px, int py, int pw, int button) {
         if (displayedFluids == null || displayedFluids.isEmpty()) return false;
 
-        // 获取点击到的流体对象
-        FluidStack clickedFluid = getFluidFromClick(mouseX, mouseY, px, py, pw);
-        if (clickedFluid == null) return false;
+        CardClickInfo info = getCardAndIconAt(mouseX, mouseY, px, py, pw);
+        if (info == null) return false;
 
-        // 获取当前冶炼炉中所有流体的完整列表（用于查找匹配）
-        FluidStack matchedFluid = findMatchingFluidInAll(clickedFluid);
-        if (matchedFluid == null) {
-            System.out.println("Tinker's Search: Fluid not found in allFluids list: " +
-                    clickedFluid.getDisplayName().getString());
-            return false;
-        }
+        FluidStack fluid = info.fluid;
+        boolean isOnIcon = info.isOnIcon;
 
-        System.out.println("Tinker's Search: Clicked: " + matchedFluid.getDisplayName().getString() +
-                ", amount: " + matchedFluid.getAmount() + " mB");
-
-        // 直接传递 FluidStack 对象给处理器
-        boolean success = SmelteryClickHandler.clickFluidByStack(matchedFluid);
-
-        if (!success) {
-            // 如果直接传递失败，尝试按名称匹配
-            System.out.println("Tinker's Search: Direct click failed, trying fallback...");
-            success = SmelteryClickHandler.clickFluidByName(matchedFluid);
-        }
-
-        if (success) {
-            System.out.println("Tinker's Search: Fluid clicked successfully!");
+        if (isOnIcon) {
+            // ===== 图标区域：交给 JEI 处理 =====
+            return handleJeiInteraction(fluid, button);
         } else {
-            System.out.println("Tinker's Search: Failed to click fluid!");
+            // ===== 卡片主体：执行移动操作 =====
+            if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+                return panel.moveFluidToBottom(fluid);
+            }
         }
 
-        // 执行回调（刷新面板）
-        if (onFluidClick != null) {
-            onFluidClick.accept(allFluids);
-        }
-
-        return true;
+        return false;
     }
 
     /**
-     * 从鼠标位置获取点击到的流体对象（直接从 displayedFluids 中获取）
+     * 处理 JEI 交互
+     * 左键：显示用途 (Show Uses)
+     * 右键：显示配方 (Show Recipes)
      */
-    private FluidStack getFluidFromClick(double mouseX, double mouseY, int px, int py, int pw) {
+    private boolean handleJeiInteraction(FluidStack fluid, int button) {
+        if (!jeiAvailable || jeiRuntime == null) return false;
+
+        try {
+            // 获取 RecipeManager
+            Class<?> runtimeClass = jeiRuntime.getClass();
+            Method getRecipeManager = runtimeClass.getMethod("getRecipeManager");
+            Object recipeManager = getRecipeManager.invoke(jeiRuntime);
+
+            if (recipeManager == null) return false;
+
+            if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+                // 左键：显示用途 (Show Uses)
+                try {
+                    Method showUses = recipeManager.getClass().getMethod("showUses", Object.class);
+                    showUses.invoke(recipeManager, fluid);
+                    System.out.println("Tinker's Search: JEI Show Uses for " + fluid.getDisplayName().getString());
+                    return true;
+                } catch (NoSuchMethodException e) {
+                    // 尝试其他方法名
+                    try {
+                        Method showUses2 = recipeManager.getClass().getMethod("showUses", FluidStack.class);
+                        showUses2.invoke(recipeManager, fluid);
+                        System.out.println("Tinker's Search: JEI Show Uses (alt) for " + fluid.getDisplayName().getString());
+                        return true;
+                    } catch (NoSuchMethodException e2) {
+                        System.err.println("Tinker's Search: showUses method not found");
+                    }
+                }
+            } else if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
+                // 右键：显示配方 (Show Recipes)
+                try {
+                    Method showRecipes = recipeManager.getClass().getMethod("showRecipes", Object.class);
+                    showRecipes.invoke(recipeManager, fluid);
+                    System.out.println("Tinker's Search: JEI Show Recipes for " + fluid.getDisplayName().getString());
+                    return true;
+                } catch (NoSuchMethodException e) {
+                    try {
+                        Method showRecipes2 = recipeManager.getClass().getMethod("showRecipes", FluidStack.class);
+                        showRecipes2.invoke(recipeManager, fluid);
+                        System.out.println("Tinker's Search: JEI Show Recipes (alt) for " + fluid.getDisplayName().getString());
+                        return true;
+                    } catch (NoSuchMethodException e2) {
+                        System.err.println("Tinker's Search: showRecipes method not found");
+                    }
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("Tinker's Search: JEI interaction error: " + e.getMessage());
+            e.printStackTrace();
+        }
+
+        return false;
+    }
+
+    /**
+     * 处理键盘按键（用于 JEI 书签）
+     */
+    public boolean handleKeyPressedGlobal(int keyCode, int scanCode, int modifiers) {
+        if (!panel.isVisible()) return false;
+
+        // A键 (GLFW_KEY_A = 65)
+        if (keyCode == 65) {
+            // 检查鼠标是否在某个卡片上
+            Minecraft mc = Minecraft.getInstance();
+            double mouseX = mc.mouseHandler.xpos() / mc.getWindow().getGuiScale();
+            double mouseY = mc.mouseHandler.ypos() / mc.getWindow().getGuiScale();
+
+            int px = panel.getPanelX();
+            int py = panel.getPanelY();
+            int pw = panel.getPanelWidth();
+
+            CardClickInfo info = getCardAndIconAt(mouseX, mouseY, px, py, pw);
+            if (info != null && info.isOnIcon) {
+                // 在图标上按 A 键，添加到 JEI 书签
+                return addToJeiBookmark(info.fluid);
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * 添加到 JEI 书签
+     */
+    private boolean addToJeiBookmark(FluidStack fluid) {
+        if (!jeiAvailable || jeiRuntime == null) return false;
+
+        try {
+            // 获取 BookmarkOverlay
+            Class<?> runtimeClass = jeiRuntime.getClass();
+            Method getBookmarkOverlay = runtimeClass.getMethod("getBookmarkOverlay");
+            Object bookmarkOverlay = getBookmarkOverlay.invoke(jeiRuntime);
+
+            if (bookmarkOverlay == null) return false;
+
+            // 尝试添加书签
+            Class<?> bookmarkClass = bookmarkOverlay.getClass();
+
+            // 方法1: addIngredient
+            try {
+                Method addMethod = bookmarkClass.getMethod("addIngredient", Object.class);
+                addMethod.invoke(bookmarkOverlay, fluid);
+                System.out.println("Tinker's Search: Added to JEI bookmarks: " + fluid.getDisplayName().getString());
+                return true;
+            } catch (NoSuchMethodException e1) {
+                // 方法2: addBookmark
+                try {
+                    Method addMethod = bookmarkClass.getMethod("addBookmark", Object.class);
+                    addMethod.invoke(bookmarkOverlay, fluid);
+                    System.out.println("Tinker's Search: Added to JEI bookmarks (alt): " + fluid.getDisplayName().getString());
+                    return true;
+                } catch (NoSuchMethodException e2) {
+                    // 方法3: 通过 RecipeManager
+                    try {
+                        Method getRecipeManager = runtimeClass.getMethod("getRecipeManager");
+                        Object recipeManager = getRecipeManager.invoke(jeiRuntime);
+                        if (recipeManager != null) {
+                            try {
+                                Method addBookmark = recipeManager.getClass().getMethod("addBookmark", Object.class);
+                                addBookmark.invoke(recipeManager, fluid);
+                                System.out.println("Tinker's Search: Added to JEI bookmarks via RecipeManager");
+                                return true;
+                            } catch (Exception ignored) {}
+                        }
+                    } catch (Exception ignored) {}
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("Tinker's Search: Failed to add bookmark: " + e.getMessage());
+        }
+
+        return false;
+    }
+
+    /**
+     * 获取点击位置的卡片和图标信息
+     */
+    private CardClickInfo getCardAndIconAt(double mouseX, double mouseY, int px, int py, int pw) {
         if (displayedFluids == null || displayedFluids.isEmpty()) return null;
 
-        // 计算卡片尺寸
         int cardW = (pw - 10 - CARD_SPACING - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING) / ITEMS_PER_ROW;
         int cardH = CARD_HEIGHT;
 
-        // 获取滚动偏移
         int scrollOffset = panel.getScrollOffset();
         int startY = py + CARDS_START_Y - scrollOffset;
 
@@ -214,50 +323,23 @@ public class PanelInteractionHandler {
             int cardX = px + 5 + col * (cardW + CARD_SPACING);
             int cardY = startY + row * (cardH + CARD_SPACING);
 
-            // 检查鼠标是否在卡片区域内
             if (mouseX >= cardX && mouseX <= cardX + cardW &&
                     mouseY >= cardY && mouseY <= cardY + cardH) {
-                return displayedFluids.get(i);
+
+                FluidStack fluid = displayedFluids.get(i);
+
+                int iconSize = ICON_SIZE;
+                int iconX = cardX + 3;
+                int iconY = cardY + (cardH - iconSize) / 2;
+
+                boolean isOnIcon = mouseX >= iconX && mouseX <= iconX + iconSize &&
+                        mouseY >= iconY && mouseY <= iconY + iconSize;
+
+                return new CardClickInfo(fluid, isOnIcon);
             }
         }
         return null;
     }
-
-    /**
-     * 在 allFluids 中查找匹配的流体（通过 FluidStack 比较）
-     */
-    private FluidStack findMatchingFluidInAll(FluidStack targetFluid) {
-        if (targetFluid == null || allFluids == null) return null;
-
-        // 优先通过 FluidStack.isFluidEqual 比较（比较流体类型和NBT）
-        for (FluidStack fluid : allFluids) {
-            if (fluid.isFluidEqual(targetFluid)) {
-                return fluid;
-            }
-        }
-
-        // 如果找不到，尝试通过流体名称匹配（兼容不同模组）
-        String targetName = targetFluid.getDisplayName().getString();
-        for (FluidStack fluid : allFluids) {
-            String fluidName = fluid.getDisplayName().getString();
-            if (fluidName.equals(targetName)) {
-                return fluid;
-            }
-        }
-
-        // 最后尝试通过 FluidRegistry 名称匹配
-        String targetRegistryName = targetFluid.getFluid().getRegistryName().toString();
-        for (FluidStack fluid : allFluids) {
-            String registryName = fluid.getFluid().getRegistryName().toString();
-            if (registryName.equals(targetRegistryName)) {
-                return fluid;
-            }
-        }
-
-        return null;
-    }
-
-    // ==================== 外部控制 ====================
 
     public void setSearchBoxFocused(boolean focused) {
         this.isSearchBoxFocused = focused;
@@ -271,5 +353,15 @@ public class PanelInteractionHandler {
 
     public void refreshData() {
         onRefresh.run();
+    }
+
+    private static class CardClickInfo {
+        final FluidStack fluid;
+        final boolean isOnIcon;
+
+        CardClickInfo(FluidStack fluid, boolean isOnIcon) {
+            this.fluid = fluid;
+            this.isOnIcon = isOnIcon;
+        }
     }
 }
