@@ -169,22 +169,54 @@ public class TinkersSearch {
     public void onKeyInput(InputEvent.KeyInputEvent event) {
         if (searchPanel == null) return;
 
-        // ===== ESC 键：完全忽略，不处理 =====
+        // ===== 如果搜索框获得焦点，完全跳过 =====
+        if (searchPanel.isVisible() && interactionHandler != null && interactionHandler.isSearchBoxFocused()) {
+            return;
+        }
+
+        // ===== ESC 键：完全忽略 =====
         if (event.getKey() == GLFW.GLFW_KEY_ESCAPE && event.getAction() == GLFW.GLFW_PRESS) {
             return;
         }
 
-        // ===== 搜索框按键处理 =====
+        // ===== 搜索框按键处理（未获得焦点时） =====
         if (searchPanel.isVisible()) {
             PanelInteractionHandler handler = searchPanel.getInteractionHandler();
             if (handler != null) {
                 if (event.getKey() == GLFW.GLFW_KEY_BACKSPACE && event.getAction() == GLFW.GLFW_PRESS) {
-                    if (handler.handleKeyPressed(event.getKey(), event.getScanCode(), event.getModifiers())) {
-                        return;
-                    }
+                    handler.handleKeyPressed(event.getKey(), event.getScanCode(), event.getModifiers());
+                    return;
                 }
             }
         }
+    }
+
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
+    public void onKeyboardKeyPressedPre(ScreenEvent.KeyboardKeyPressedEvent.Pre event) {
+        if (searchPanel == null) return;
+        if (!searchPanel.isVisible()) return;
+        if (!interactionHandler.isSearchBoxFocused()) return;
+
+        int key = event.getKeyCode();
+        int scanCode = event.getScanCode();
+        int modifiers = event.getModifiers();
+
+        // Backspace：删除字符
+        if (key == GLFW.GLFW_KEY_BACKSPACE) {
+            interactionHandler.handleKeyPressed(key, scanCode, modifiers);
+            event.setCanceled(true);
+            return;
+        }
+
+        // Enter / ESC：取消焦点
+        if (key == GLFW.GLFW_KEY_ENTER || key == GLFW.GLFW_KEY_ESCAPE) {
+            interactionHandler.setSearchBoxFocused(false);
+            event.setCanceled(true);
+            return;
+        }
+
+        // 其他所有按键：完全拦截，不触发任何快捷键
+        event.setCanceled(true);
     }
 
     private void togglePanel() {

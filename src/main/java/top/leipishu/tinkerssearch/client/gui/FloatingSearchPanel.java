@@ -372,17 +372,31 @@ public class FloatingSearchPanel extends AbstractWidget {
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         if (!isVisible) return false;
 
-        // ===== ESC 键：完全忽略 =====
+        // ===== 如果搜索框获得焦点，拦截所有按键 =====
+        if (interactionHandler.isSearchBoxFocused()) {
+            // Backspace：删除字符
+            if (keyCode == GLFW.GLFW_KEY_BACKSPACE) {
+                return interactionHandler.handleKeyPressed(keyCode, scanCode, modifiers);
+            }
+            // Enter / ESC：取消焦点
+            if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_ESCAPE) {
+                interactionHandler.setSearchBoxFocused(false);
+                return true;
+            }
+            // 所有其他按键：让 charTyped 处理字符输入
+            // 返回 true 表示事件已消费，阻止快捷键
+            return true;
+        }
+
+        // ===== 搜索框未获得焦点时，正常处理 =====
         if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
             return false;
         }
 
-        // 先尝试 JEI 书签快捷键 (A键)
         if (interactionHandler.handleKeyPressedGlobal(keyCode, scanCode, modifiers)) {
             return true;
         }
 
-        // 再尝试搜索框按键
         return interactionHandler.handleKeyPressed(keyCode, scanCode, modifiers);
     }
 
