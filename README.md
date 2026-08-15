@@ -1,4 +1,3 @@
-```markdown
 # 🔍 Tinker's Search
 
 [![Minecraft Version](https://img.shields.io/badge/Minecraft-1.18.2-3B8C4A?style=flat-square)](https://www.minecraft.net/)
