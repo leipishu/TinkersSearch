@@ -12,8 +12,8 @@ license="All rights reserved"
 modId="tinkerssearch" #mandatory
 version="${file.jarVersion}" #mandatory
 displayName="Tinkers' Search" #mandatory
-logoFile="icon.png" #optional
-credits="Thanks for this example mod goes to Java" #optional
+logoFile="/assets/tinkerssearch/icon.png" #optional
+credits="" #optional
 authors="leipishu" #optional
 side="CLIENT"
 description='''
@@ -27,6 +27,7 @@ Features:
 - Real-time filtering of displayed liquids and items
 - Lightweight design with minimal performance impact
 - Fully compatible with Tinkers' Construct 3
+- Fully compatible with JEI
 
 Whether you're working on complex alloy recipes or managing a large smelting operation,
 Tinker's Search makes your smelting experience more efficient and organized.
@@ -41,7 +42,7 @@ Tinker's Search makes your smelting experience more efficient and organized.
 [[dependencies.tinkerssearch]]
 modId="forge"
 mandatory=true
-versionRange="[40,)"  # 对应 Minecraft 1.18.2 的 Forge 版本范围
+versionRange="[40,)"
 ordering="NONE"
 side="BOTH"
 
@@ -53,18 +54,26 @@ versionRange="[1.18.2,1.19)"
 ordering="NONE"
 side="BOTH"
 
-# 3. 对匠魂（Tinkers' Construct）的依赖 —— 这是你的模组的前置！
+# 3. 对匠魂（Tinkers' Construct）的依赖
 [[dependencies.tinkerssearch]]
 modId="tconstruct"
 mandatory=true
-versionRange="[3.6,)"  # 指定最低版本，也可以写成 "[3.7,)" 更宽松
+versionRange="[3.6,)"
 ordering="NONE"
 side="BOTH"
 
-# 4. 对 Mantle（匠魂前置库）的依赖 —— 虽然通常会自动引入，但显式声明更安全
+# 4. 对 Mantle（匠魂前置库）的依赖
 [[dependencies.tinkerssearch]]
 modId="mantle"
 mandatory=true
 versionRange="[1.9.45,)"
 ordering="NONE"
 side="BOTH"
+
+#5. 对JEI的可选依赖
+[[dependencies.tinkerssearch]]
+modId="jei"
+mandatory=false
+versionRange="[9,)"
+ordering="NONE"
+side="CLIENT"
