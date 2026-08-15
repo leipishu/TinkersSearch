@@ -30,7 +30,8 @@ public class TinkersSearch {
     private PanelInteractionHandler interactionHandler;
 
     private boolean isSmelteryScreen = false;
-    private boolean panelVisible = false;
+    // ===== 删除 panelVisible 字段，直接使用 searchPanel.isVisible() =====
+    // private boolean panelVisible = false;
     private BlockEntity smelteryBlockEntity = null;
 
     private int lastScreenWidth = 0;
@@ -93,8 +94,8 @@ public class TinkersSearch {
         findSmelteryBlockEntity(screen);
         searchPanel.updatePanelPosition();
 
-        if (panelVisible) {
-            searchPanel.setVisible(true);
+        // ===== 使用 searchPanel.isVisible() 判断 =====
+        if (searchPanel.isVisible()) {
             if (!hasInitialized) {
                 searchPanel.refreshMoltenFluids();
                 hasInitialized = true;
@@ -127,10 +128,8 @@ public class TinkersSearch {
     private void handleSmelteryClose() {
         if (isSmelteryScreen) {
             isSmelteryScreen = false;
-            panelVisible = false;
-            searchPanel.setVisible(false);
-            smelteryBlockEntity = null;
-            hasInitialized = false;
+            // ===== 关键修改：关闭冶炼炉时不要强制关闭面板 =====
+            // 只刷新 JEI 区域，面板状态保持不变
             if (jeiAvailable) {
                 Jei.refreshExclusionAreas();
             }
@@ -170,37 +169,29 @@ public class TinkersSearch {
     public void onKeyInput(InputEvent.KeyInputEvent event) {
         if (searchPanel == null) return;
 
-        if (searchPanel.isVisible()) {
-            if (event.getKey() == GLFW.GLFW_KEY_BACKSPACE && event.getAction() == GLFW.GLFW_PRESS) {
-                if (interactionHandler.handleKeyPressed(event.getKey(), event.getScanCode(), event.getModifiers())) {
-                    return;
-                }
-            }
-            if (event.getKey() == GLFW.GLFW_KEY_ESCAPE && event.getAction() == GLFW.GLFW_PRESS) {
-                if (interactionHandler.handleKeyPressed(event.getKey(), event.getScanCode(), event.getModifiers())) {
-                    return;
-                }
-            }
+        // ===== ESC 键：完全忽略，不处理 =====
+        if (event.getKey() == GLFW.GLFW_KEY_ESCAPE && event.getAction() == GLFW.GLFW_PRESS) {
+            return;
         }
 
-        if (event.getKey() == GLFW.GLFW_KEY_ESCAPE && event.getAction() == GLFW.GLFW_PRESS) {
-            if (panelVisible) {
-                panelVisible = false;
-                searchPanel.setVisible(false);
-                if (jeiAvailable) {
-                    Jei.refreshExclusionAreas();
+        // ===== 搜索框按键处理 =====
+        if (searchPanel.isVisible()) {
+            PanelInteractionHandler handler = searchPanel.getInteractionHandler();
+            if (handler != null) {
+                if (event.getKey() == GLFW.GLFW_KEY_BACKSPACE && event.getAction() == GLFW.GLFW_PRESS) {
+                    if (handler.handleKeyPressed(event.getKey(), event.getScanCode(), event.getModifiers())) {
+                        return;
+                    }
                 }
-                System.out.println("Tinker's Search: ESC pressed, hiding panel");
             }
         }
     }
 
     private void togglePanel() {
         System.out.println("Tinker's Search: Toggling panel!");
-        panelVisible = !panelVisible;
         searchPanel.toggleVisibility();
 
-        if (panelVisible) {
+        if (searchPanel.isVisible()) {
             searchPanel.forceUpdatePosition();
             if (smelteryBlockEntity != null) {
                 searchPanel.refreshMoltenFluids();
@@ -241,7 +232,7 @@ public class TinkersSearch {
         // ===== 计算按钮位置 =====
         int panelHeight = searchPanel.getPanelHeight();
         int panelX = searchPanel.getActualPanelX();
-        boolean isExpanded = panelVisible || searchPanel.isAnimating();
+        boolean isExpanded = searchPanel.isVisible() || searchPanel.isAnimating();
 
         int btnX, btnY;
         if (isExpanded) {
@@ -260,7 +251,7 @@ public class TinkersSearch {
             }
             togglePanel();
             event.setCanceled(true);
-            System.out.println("Tinker's Search: Tab button clicked, panel visible: " + panelVisible);
+            System.out.println("Tinker's Search: Tab button clicked, panel visible: " + searchPanel.isVisible());
             return;
         }
 
@@ -320,7 +311,7 @@ public class TinkersSearch {
     private void drawTabButton(PoseStack poseStack) {
         int panelHeight = searchPanel.getPanelHeight();
         int panelX = searchPanel.getActualPanelX();
-        boolean isExpanded = panelVisible || searchPanel.isAnimating();
+        boolean isExpanded = searchPanel.isVisible() || searchPanel.isAnimating();
 
         int btnX, btnY;
         if (isExpanded) {

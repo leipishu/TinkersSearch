@@ -7,6 +7,7 @@ import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiComponent;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.narration.NarrationElementOutput;
+import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.TextComponent;
 import net.minecraft.network.chat.TranslatableComponent;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -19,6 +20,7 @@ import top.leipishu.tinkerssearch.utils.SmelteryDataHelper;
 
 import java.util.ArrayList;
 import java.util.List;
+import org.lwjgl.glfw.GLFW;
 
 import static top.leipishu.tinkerssearch.config.PanelConfig.*;
 
@@ -45,7 +47,7 @@ public class FloatingSearchPanel extends AbstractWidget {
     private int lastScreenWidth = 0;
     private int lastScreenHeight = 0;
 
-    // ===== JEI（只检测是否可用，不持有渲染器） =====
+    // ===== JEI =====
     private boolean jeiAvailable = false;
 
     // ===== 动画 =====
@@ -167,9 +169,33 @@ public class FloatingSearchPanel extends AbstractWidget {
         return null;
     }
 
+    // ==================== JEI 界面检测 ====================
+
+    /**
+     * 检测 JEI 配方/用途界面是否打开
+     */
+    public boolean isJeiRecipeGuiOpen() {
+        if (!jeiAvailable) return false;
+
+        Minecraft mc = Minecraft.getInstance();
+        Screen screen = mc.screen;
+        if (screen == null) return false;
+
+        String className = screen.getClass().getName();
+        return className.contains("RecipesGui") ||
+                className.contains("JeiRecipe") ||
+                (className.contains("jei") && className.contains("Recipe"));
+    }
+
     // ==================== 可见性控制 ====================
 
     public void setVisible(boolean visible) {
+        // ===== 如果 JEI 界面打开，阻止关闭面板 =====
+        if (!visible && isJeiRecipeGuiOpen()) {
+            System.out.println("Tinker's Search: JEI recipe GUI open, preventing panel close");
+            return;
+        }
+
         if (this.isVisible == visible && !isAnimating) return;
         if (!visible && !this.isVisible && !isAnimating) return;
 
@@ -193,6 +219,16 @@ public class FloatingSearchPanel extends AbstractWidget {
 
     public void toggleVisibility() {
         setVisible(!this.isVisible);
+    }
+
+    /**
+     * 强制恢复面板可见性（供外部调用，防止被意外重置）
+     */
+    public void restoreVisibility() {
+        if (isVisible && !visible) {
+            System.out.println("Tinker's Search: Restoring panel visibility");
+            visible = true;
+        }
     }
 
     // ==================== 动画 ====================
@@ -336,6 +372,11 @@ public class FloatingSearchPanel extends AbstractWidget {
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         if (!isVisible) return false;
 
+        // ===== ESC 键：完全忽略 =====
+        if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+            return false;
+        }
+
         // 先尝试 JEI 书签快捷键 (A键)
         if (interactionHandler.handleKeyPressedGlobal(keyCode, scanCode, modifiers)) {
             return true;
@@ -355,6 +396,11 @@ public class FloatingSearchPanel extends AbstractWidget {
 
     @Override
     public void renderButton(PoseStack poseStack, int mouseX, int mouseY, float partialTick) {
+        // ===== 关键：每次渲染时恢复面板状态，防止被外部事件重置 =====
+        if (isVisible && !visible) {
+            visible = true;
+        }
+
         updateAnimation();
 
         if (!isVisible && !isAnimating) return;
@@ -514,12 +560,12 @@ public class FloatingSearchPanel extends AbstractWidget {
         GuiComponent.fill(poseStack, x, y, x + 1, y + h, border);
         GuiComponent.fill(poseStack, x + w - 1, y, x + w, y + h, border);
 
-        // ===== 流体图标 - 使用原有方式渲染（无边框） =====
+        // ===== 流体图标 =====
         int iconSize = ICON_SIZE;
         int iconX = x + 3;
         int iconY = y + (h - iconSize) / 2;
 
-        // 直接使用 SmelteryDataHelper 渲染，不添加任何额外边框
+        // 直接使用 SmelteryDataHelper 渲染
         SmelteryDataHelper.drawFluidIcon(poseStack, iconX, iconY, fluid, iconSize);
 
         // 流体名称
@@ -538,7 +584,7 @@ public class FloatingSearchPanel extends AbstractWidget {
 
         // JEI 交互提示
         if (jeiAvailable && hover) {
-            font.draw(poseStack, "§7左键: JEI用途 右键: JEI配方", x + 4, y + h - 10, 0x666666);
+            font.draw(poseStack, "§7左键: JEI配方 右键: JEI用途", x + 4, y + h - 10, 0x666666);
             font.draw(poseStack, "§7A键: 加入书签", x + 4, y + h - 2, 0x666666);
         } else if (hover) {
             font.draw(poseStack, "§7左键卡片: 移至底部", x + 4, y + h - 6, 0x666666);
