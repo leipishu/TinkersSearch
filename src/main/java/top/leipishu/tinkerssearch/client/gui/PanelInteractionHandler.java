@@ -28,6 +28,17 @@ public class PanelInteractionHandler {
     private boolean jeiAvailable;
     private Object jeiRuntime;
 
+    // 缓存 JEI 方法
+    private Method jeiGetJeiHelpers = null;
+    private Method jeiGetFocusFactory = null;
+    private Method jeiGetRecipesGui = null;
+    private Method jeiGetRecipeManager = null;
+    private Method jeiCreateFocus = null;
+    private Method jeiShowFocus = null;
+    private Method jeiShow = null;
+    private Method jeiGetIngredientUnderMouse = null;
+    private boolean methodsCached = false;
+
     public PanelInteractionHandler(FloatingSearchPanel panel,
                                    Runnable onRefresh,
                                    Consumer<List<FluidStack>> onFluidClick) {
@@ -37,8 +48,89 @@ public class PanelInteractionHandler {
         this.jeiAvailable = ModList.get().isLoaded("jei");
         if (jeiAvailable) {
             this.jeiRuntime = top.leipishu.tinkerssearch.jei.Jei.getJeiRuntime();
+            cacheJeiMethods();
         }
         System.out.println("Tinker's Search: PanelInteractionHandler JEI available: " + jeiAvailable);
+    }
+
+    /**
+     * 缓存 JEI 方法以提高性能
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private void cacheJeiMethods() {
+        if (jeiRuntime == null || methodsCached) return;
+
+        try {
+            Class<?> runtimeClass = jeiRuntime.getClass();
+
+            // 1. IJeiRuntime.getJeiHelpers()
+            jeiGetJeiHelpers = runtimeClass.getMethod("getJeiHelpers");
+            Object jeiHelpers = jeiGetJeiHelpers.invoke(jeiRuntime);
+
+            if (jeiHelpers != null) {
+                Class<?> helpersClass = jeiHelpers.getClass();
+                // 2. IJeiHelpers.getFocusFactory()
+                jeiGetFocusFactory = helpersClass.getMethod("getFocusFactory");
+                Object focusFactory = jeiGetFocusFactory.invoke(jeiHelpers);
+
+                if (focusFactory != null) {
+                    Class<?> focusFactoryClass = focusFactory.getClass();
+                    Class<?> focusModeClass = Class.forName("mezz.jei.api.recipe.IFocus$Mode");
+                    // 3. IFocusFactory.createFocus()
+                    jeiCreateFocus = focusFactoryClass.getMethod("createFocus", focusModeClass, Object.class);
+                }
+            }
+
+            // 4. IJeiRuntime.getRecipesGui()
+            jeiGetRecipesGui = runtimeClass.getMethod("getRecipesGui");
+
+            // 5. IJeiRuntime.getRecipeManager() (备用)
+            jeiGetRecipeManager = runtimeClass.getMethod("getRecipeManager");
+
+            // 6. 获取 show 方法
+            Object recipesGui = jeiGetRecipesGui.invoke(jeiRuntime);
+            if (recipesGui != null) {
+                Class<?> focusClass = Class.forName("mezz.jei.api.recipe.IFocus");
+                jeiShow = recipesGui.getClass().getMethod("show", focusClass);
+            }
+
+            // 7. 备用：RecipeManager.showFocus()
+            Object recipeManager = jeiGetRecipeManager.invoke(jeiRuntime);
+            if (recipeManager != null) {
+                Class<?> focusClass = Class.forName("mezz.jei.api.recipe.IFocus");
+                try {
+                    jeiShowFocus = recipeManager.getClass().getMethod("showFocus", focusClass);
+                } catch (NoSuchMethodException e) {
+                    // 可能没有这个方法
+                }
+            }
+
+            // 8. IIngredientListOverlay.getIngredientUnderMouse() - 获取鼠标下的物品
+            Method getIngredientListOverlay = runtimeClass.getMethod("getIngredientListOverlay");
+            Object listOverlay = getIngredientListOverlay.invoke(jeiRuntime);
+            if (listOverlay != null) {
+                Class<?> listOverlayClass = listOverlay.getClass();
+                // 无参数版本
+                try {
+                    jeiGetIngredientUnderMouse = listOverlayClass.getMethod("getIngredientUnderMouse");
+                } catch (NoSuchMethodException e) {
+                    // 可能参数不同
+                }
+            }
+
+            methodsCached = true;
+            System.out.println("Tinker's Search: JEI methods cached successfully");
+            System.out.println("  jeiGetJeiHelpers: " + (jeiGetJeiHelpers != null));
+            System.out.println("  jeiGetFocusFactory: " + (jeiGetFocusFactory != null));
+            System.out.println("  jeiCreateFocus: " + (jeiCreateFocus != null));
+            System.out.println("  jeiGetRecipesGui: " + (jeiGetRecipesGui != null));
+            System.out.println("  jeiShow: " + (jeiShow != null));
+            System.out.println("  jeiShowFocus: " + (jeiShowFocus != null));
+
+        } catch (Exception e) {
+            System.err.println("Tinker's Search: Failed to cache JEI methods: " + e.getMessage());
+            e.printStackTrace();
+        }
     }
 
     public void setDataRefs(List<FluidStack> allFluids, List<FluidStack> displayedFluids) {
@@ -141,7 +233,7 @@ public class PanelInteractionHandler {
 
     /**
      * 处理卡片点击
-     * - 图标区域：交给 JEI 处理（左键用途、右键配方）
+     * - 图标区域：交给 JEI 处理（左键配方、右键用途）
      * - 卡片主体：执行移动到最下面
      */
     private boolean handleCardClick(double mouseX, double mouseY, int px, int py, int pw, int button) {
@@ -154,8 +246,8 @@ public class PanelInteractionHandler {
         boolean isOnIcon = info.isOnIcon;
 
         if (isOnIcon) {
-            // ===== 图标区域：交给 JEI 处理 =====
-            return handleJeiInteraction(fluid, button);
+            // ===== 图标区域：使用 JEI Focus API =====
+            return handleJeiIconClick(fluid, button);
         } else {
             // ===== 卡片主体：执行移动操作 =====
             if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
@@ -167,121 +259,139 @@ public class PanelInteractionHandler {
     }
 
     /**
-     * 处理 JEI 交互
-     * 左键：显示用途 (Show Uses)
-     * 右键：显示配方 (Show Recipes)
+     * 处理 JEI 图标点击
+     * 使用 JEI Focus API（无按键冲突）
      */
     @SuppressWarnings({"unchecked", "rawtypes"})
-    private boolean handleJeiInteraction(FluidStack fluid, int button) {
+    private boolean handleJeiIconClick(FluidStack fluid, int button) {
         if (!jeiAvailable) return false;
 
+        // 重新获取 runtime
         jeiRuntime = top.leipishu.tinkerssearch.jei.Jei.getJeiRuntime();
         if (jeiRuntime == null) {
             System.out.println("Tinker's Search: JEI runtime is null");
             return false;
         }
 
-        try {
-            Class<?> runtimeClass = jeiRuntime.getClass();
+        // 如果方法没缓存，重新缓存
+        if (!methodsCached) {
+            cacheJeiMethods();
+        }
 
-            // 获取 RecipeManager
-            Method getRecipeManager = runtimeClass.getMethod("getRecipeManager");
-            Object recipeManager = getRecipeManager.invoke(jeiRuntime);
-
-            if (recipeManager == null) {
-                System.out.println("Tinker's Search: RecipeManager is null");
-                return false;
-            }
-
-            // ===== 方法1: 尝试直接调用 showUses/showRecipes =====
+        // ===== 方法1：使用 IFocusFactory + RecipesGui.show() =====
+        if (jeiGetJeiHelpers != null && jeiGetFocusFactory != null && jeiCreateFocus != null && jeiShow != null) {
             try {
-                if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
-                    Method showUses = recipeManager.getClass().getMethod("showUses", Object.class);
-                    showUses.invoke(recipeManager, fluid);
-                    System.out.println("Tinker's Search: JEI Show Uses for " + fluid.getDisplayName().getString());
-                    return true;
-                } else if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
-                    Method showRecipes = recipeManager.getClass().getMethod("showRecipes", Object.class);
-                    showRecipes.invoke(recipeManager, fluid);
-                    System.out.println("Tinker's Search: JEI Show Recipes for " + fluid.getDisplayName().getString());
-                    return true;
+                // 获取 IJeiHelpers
+                Object jeiHelpers = jeiGetJeiHelpers.invoke(jeiRuntime);
+                if (jeiHelpers == null) {
+                    System.out.println("Tinker's Search: IJeiHelpers is null");
+                    return tryFallback(fluid, button);
                 }
-            } catch (NoSuchMethodException e) {
-                // 方法1失败，尝试方法2: 使用 Focus
-                System.out.println("Tinker's Search: Direct show method failed, trying Focus...");
-            }
 
-            // ===== 方法2: 使用 Focus =====
-            try {
-                // 获取 FocusFactory
-                Method getFocusFactory = runtimeClass.getMethod("getFocusFactory");
-                Object focusFactory = getFocusFactory.invoke(jeiRuntime);
-
+                // 获取 IFocusFactory
+                Object focusFactory = jeiGetFocusFactory.invoke(jeiHelpers);
                 if (focusFactory == null) {
-                    System.out.println("Tinker's Search: FocusFactory is null");
-                    return false;
+                    System.out.println("Tinker's Search: IFocusFactory is null");
+                    return tryFallback(fluid, button);
                 }
 
-                Class<?> focusClass = Class.forName("mezz.jei.api.recipe.IFocus");
-                Class<?> focusFactoryClass = Class.forName("mezz.jei.api.recipe.IFocusFactory");
+                // 获取 IFocus 相关的类
                 Class<?> focusModeClass = Class.forName("mezz.jei.api.recipe.IFocus$Mode");
-
-                // 获取 showFocus 方法
-                Method showFocus = recipeManager.getClass().getMethod("showFocus", focusClass);
 
                 // 根据按钮选择模式
                 Object mode;
                 if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
-                    // 左键：OUTPUT - 显示用途
-                    mode = Enum.valueOf((Class<Enum>) focusModeClass, "OUTPUT");
-                    System.out.println("Tinker's Search: JEI Show Uses (OUTPUT focus) for " + fluid.getDisplayName().getString());
-                } else if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
-                    // 右键：INPUT - 显示配方
+                    // 左键：INPUT - 显示配方
                     mode = Enum.valueOf((Class<Enum>) focusModeClass, "INPUT");
-                    System.out.println("Tinker's Search: JEI Show Recipes (INPUT focus) for " + fluid.getDisplayName().getString());
+                    System.out.println("Tinker's Search: JEI Focus - Show Recepie (INPUT) for " + fluid.getDisplayName().getString());
+                } else if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
+                    // 右键：OUTPUT - 显示用途
+                    mode = Enum.valueOf((Class<Enum>) focusModeClass, "OUTPUT");
+                    System.out.println("Tinker's Search: JEI Focus - Show Use (OUTPUT) for " + fluid.getDisplayName().getString());
                 } else {
                     return false;
                 }
 
-                // 创建 Focus
-                Method createFocus = focusFactoryClass.getMethod("createFocus", focusModeClass, Object.class);
-                Object focus = createFocus.invoke(focusFactory, mode, fluid);
+                // 创建 IFocus
+                Object focus = jeiCreateFocus.invoke(focusFactory, mode, fluid);
 
-                // 显示 Focus
-                showFocus.invoke(recipeManager, focus);
-                return true;
+                // 获取 RecipesGui 并显示
+                Object recipesGui = jeiGetRecipesGui.invoke(jeiRuntime);
+                if (recipesGui != null) {
+                    jeiShow.invoke(recipesGui, focus);
+                    System.out.println("Tinker's Search: JEI Focus API succeeded (RecipesGui)");
+                    return true;
+                }
 
             } catch (Exception e) {
-                System.out.println("Tinker's Search: Focus method failed: " + e.getMessage());
+                System.err.println("Tinker's Search: Focus API failed: " + e.getMessage());
+                e.printStackTrace();
             }
-
-            // ===== 方法3: 尝试 show 方法 =====
-            try {
-                Method show = recipeManager.getClass().getMethod("show", Object.class);
-                show.invoke(recipeManager, fluid);
-                System.out.println("Tinker's Search: JEI Show (fallback) for " + fluid.getDisplayName().getString());
-                return true;
-            } catch (NoSuchMethodException e) {
-                System.err.println("Tinker's Search: All show methods failed");
-            }
-
-        } catch (Exception e) {
-            System.err.println("Tinker's Search: JEI interaction error: " + e.getMessage());
-            e.printStackTrace();
         }
 
+        // ===== 方法2：使用 RecipeManager.showFocus() 备用 =====
+        if (jeiGetRecipeManager != null && jeiShowFocus != null) {
+            try {
+                Object recipeManager = jeiGetRecipeManager.invoke(jeiRuntime);
+                if (recipeManager != null) {
+                    // 需要创建 Focus
+                    Object jeiHelpers = jeiGetJeiHelpers.invoke(jeiRuntime);
+                    Object focusFactory = jeiGetFocusFactory.invoke(jeiHelpers);
+                    Class<?> focusModeClass = Class.forName("mezz.jei.api.recipe.IFocus$Mode");
+
+                    Object mode;
+                    if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+                        mode = Enum.valueOf((Class<Enum>) focusModeClass, "INPUT");
+                    } else {
+                        mode = Enum.valueOf((Class<Enum>) focusModeClass, "OUTPUT");
+                    }
+
+                    Object focus = jeiCreateFocus.invoke(focusFactory, mode, fluid);
+                    jeiShowFocus.invoke(recipeManager, focus);
+                    System.out.println("Tinker's Search: JEI Focus API 成功 (RecipeManager)");
+                    return true;
+                }
+            } catch (Exception e) {
+                System.out.println("Tinker's Search: RecipeManager fallback failed: " + e.getMessage());
+            }
+        }
+
+        // ===== 方法3：模拟按键（最终回退） =====
+        return tryFallback(fluid, button);
+    }
+
+    /**
+     * 回退方案：模拟按键
+     */
+    private boolean tryFallback(FluidStack fluid, int button) {
+        try {
+            Minecraft mc = Minecraft.getInstance();
+            long windowHandle = mc.getWindow().getWindow();
+            int key = button == GLFW.GLFW_MOUSE_BUTTON_LEFT ? GLFW.GLFW_KEY_R : GLFW.GLFW_KEY_U;
+            String keyName = button == GLFW.GLFW_MOUSE_BUTTON_LEFT ? "R" : "U";
+
+            mc.keyboardHandler.keyPress(windowHandle, key, 0, 1, 0);
+            mc.keyboardHandler.keyPress(windowHandle, key, 0, 0, 0);
+
+            System.out.println("Tinker's Search: 回退 - 模拟 " + keyName + " 键 for " + fluid.getDisplayName().getString());
+            return true;
+
+        } catch (Exception e) {
+            System.err.println("Tinker's Search: 回退失败: " + e.getMessage());
+            e.printStackTrace();
+        }
         return false;
     }
 
     /**
      * 处理键盘按键（用于 JEI 书签）
      */
+    @SuppressWarnings({"unchecked", "rawtypes"})
     public boolean handleKeyPressedGlobal(int keyCode, int scanCode, int modifiers) {
         if (!panel.isVisible()) return false;
 
-        // A键 (GLFW_KEY_A = 65)
+        // A键 (GLFW_KEY_A = 65) - 添加到 JEI 书签
         if (keyCode == 65) {
-            // 检查鼠标是否在某个卡片上
             Minecraft mc = Minecraft.getInstance();
             double mouseX = mc.mouseHandler.xpos() / mc.getWindow().getGuiScale();
             double mouseY = mc.mouseHandler.ypos() / mc.getWindow().getGuiScale();
@@ -292,7 +402,6 @@ public class PanelInteractionHandler {
 
             CardClickInfo info = getCardAndIconAt(mouseX, mouseY, px, py, pw);
             if (info != null && info.isOnIcon) {
-                // 在图标上按 A 键，添加到 JEI 书签
                 return addToJeiBookmark(info.fluid);
             }
         }
@@ -313,34 +422,43 @@ public class PanelInteractionHandler {
         try {
             Class<?> runtimeClass = jeiRuntime.getClass();
 
-            // 获取 BookmarkOverlay
             Method getBookmarkOverlay = runtimeClass.getMethod("getBookmarkOverlay");
             Object bookmarkOverlay = getBookmarkOverlay.invoke(jeiRuntime);
 
-            if (bookmarkOverlay == null) return false;
+            if (bookmarkOverlay == null) {
+                Method getIngredientListOverlay = runtimeClass.getMethod("getIngredientListOverlay");
+                Object listOverlay = getIngredientListOverlay.invoke(jeiRuntime);
 
-            // 尝试添加书签
+                if (listOverlay != null) {
+                    try {
+                        Method addBookmark = listOverlay.getClass().getMethod("addBookmark", Object.class);
+                        addBookmark.invoke(listOverlay, fluid);
+                        System.out.println("Tinker's Search: 已添加到 JEI 书签 (列表): " + fluid.getDisplayName().getString());
+                        return true;
+                    } catch (Exception ignored) {}
+                }
+                return false;
+            }
+
             Class<?> bookmarkClass = bookmarkOverlay.getClass();
 
-            // 方法1: addIngredient(Object)
             try {
                 Method addMethod = bookmarkClass.getMethod("addIngredient", Object.class);
                 addMethod.invoke(bookmarkOverlay, fluid);
-                System.out.println("Tinker's Search: Added to JEI bookmarks: " + fluid.getDisplayName().getString());
+                System.out.println("Tinker's Search: 已添加到 JEI 书签: " + fluid.getDisplayName().getString());
                 return true;
             } catch (NoSuchMethodException e1) {
-                // 方法2: addBookmark(Object)
                 try {
                     Method addMethod = bookmarkClass.getMethod("addBookmark", Object.class);
                     addMethod.invoke(bookmarkOverlay, fluid);
-                    System.out.println("Tinker's Search: Added to JEI bookmarks (alt): " + fluid.getDisplayName().getString());
+                    System.out.println("Tinker's Search: 已添加到 JEI 书签 (备用): " + fluid.getDisplayName().getString());
                     return true;
                 } catch (NoSuchMethodException e2) {
-                    System.err.println("Tinker's Search: No add method found for bookmarks");
+                    System.err.println("Tinker's Search: 未找到书签添加方法");
                 }
             }
         } catch (Exception e) {
-            System.err.println("Tinker's Search: Failed to add bookmark: " + e.getMessage());
+            System.err.println("Tinker's Search: 添加书签失败: " + e.getMessage());
         }
 
         return false;
@@ -373,8 +491,9 @@ public class PanelInteractionHandler {
                 int iconX = cardX + 3;
                 int iconY = cardY + (cardH - iconSize) / 2;
 
-                boolean isOnIcon = mouseX >= iconX && mouseX <= iconX + iconSize &&
-                        mouseY >= iconY && mouseY <= iconY + iconSize;
+                int padding = 2;
+                boolean isOnIcon = mouseX >= iconX - padding && mouseX <= iconX + iconSize + padding &&
+                        mouseY >= iconY - padding && mouseY <= iconY + iconSize + padding;
 
                 return new CardClickInfo(fluid, isOnIcon);
             }

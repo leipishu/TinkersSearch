@@ -21,7 +21,7 @@ ext {
 
 apply plugin: 'net.minecraftforge.gradle'
 
-version = '1.2.0'
+version = '1.2.2'
 group = 'top.leipishu.tinkerssearch'
 archivesBaseName = 'tinkerssearch'
 
