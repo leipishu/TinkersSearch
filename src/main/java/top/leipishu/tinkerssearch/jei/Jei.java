@@ -7,6 +7,7 @@ import mezz.jei.api.registration.IGuiHandlerRegistration;
 import mezz.jei.api.registration.IRecipeCatalystRegistration;
 import mezz.jei.api.registration.IRecipeRegistration;
 import mezz.jei.api.runtime.IJeiRuntime;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.client.renderer.Rect2i;
 import net.minecraft.resources.ResourceLocation;
@@ -44,13 +45,30 @@ public class Jei implements IModPlugin {
                     @Override
                     public List<Rect2i> getGuiExtraAreas(AbstractContainerScreen<?> screen) {
                         FloatingSearchPanel panel = TinkersSearch.getSearchPanel();
-                        if (panel == null || (!panel.isVisible() && !panel.isAnimating())) {
+                        if (panel == null) return Collections.emptyList();
+
+                        // 只有完全展开的面板才占用空间
+                        if (!panel.isVisible() || panel.isAnimating()) {
                             return Collections.emptyList();
                         }
+
                         int x = panel.getPanelX();
                         int y = panel.getPanelY();
                         int w = panel.getPanelWidth();
                         int h = panel.getPanelHeight();
+
+                        // 确保面板在屏幕范围内
+                        Minecraft mc = Minecraft.getInstance();
+                        if (mc == null || mc.getWindow() == null) {
+                            return Collections.emptyList();
+                        }
+                        int screenWidth = mc.getWindow().getGuiScaledWidth();
+                        int screenHeight = mc.getWindow().getGuiScaledHeight();
+
+                        if (x >= screenWidth || y >= screenHeight || x + w <= 0 || y + h <= 0) {
+                            return Collections.emptyList();
+                        }
+
                         return Collections.singletonList(new Rect2i(x, y, w, h));
                     }
 

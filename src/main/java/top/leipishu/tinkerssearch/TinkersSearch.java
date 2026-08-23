@@ -338,19 +338,11 @@ public class TinkersSearch {
 
         PoseStack poseStack = event.getPoseStack();
 
-        // ===== 1. 保存当前 PoseStack =====
         poseStack.pushPose();
-
-        // ===== 2. 提升 Z 层级到最前 =====
-        // Minecraft GUI 默认使用 0 作为基准，tooltip 通常用 400
-        // 这里用 500 确保在所有 vanilla 元素之上
         poseStack.translate(0, 0, 500);
 
-        // ===== 3. 清除深度缓冲（关键！）=====
-        // 这样之前屏幕渲染留下的深度值不会干扰我们的覆盖层
         GL11.glClear(GL11.GL_DEPTH_BUFFER_BIT);
 
-        // ===== 4. 保存 OpenGL 状态并设置安全状态 =====
         boolean depthTestWasEnabled = GL11.glIsEnabled(GL11.GL_DEPTH_TEST);
         boolean blendWasEnabled = GL11.glIsEnabled(GL11.GL_BLEND);
         boolean textureWasEnabled = GL11.glIsEnabled(GL11.GL_TEXTURE_2D);
@@ -360,20 +352,18 @@ public class TinkersSearch {
         RenderSystem.depthMask(false);
         RenderSystem.enableBlend();
         RenderSystem.defaultBlendFunc();
-        RenderSystem.enableTexture();  // ← 必须启用纹理！
+        RenderSystem.enableTexture();
         GlStateManager._disableScissorTest();
 
         try {
-            // ===== 5. 绘制 Tab 按钮 =====
+            // ===== Tab 按钮始终绘制（无论面板是否可见） =====
             drawTabButton(poseStack);
 
-            // ===== 6. 绘制面板 =====
+            // ===== 面板内容只在可见或动画中绘制 =====
             if (searchPanel.isVisible() || searchPanel.isAnimating()) {
                 searchPanel.render(poseStack, 0, 0, 0);
             }
-
         } finally {
-            // ===== 7. 恢复 OpenGL 状态 =====
             if (depthTestWasEnabled) RenderSystem.enableDepthTest();
             else RenderSystem.disableDepthTest();
 
@@ -386,15 +376,14 @@ public class TinkersSearch {
             if (scissorWasEnabled) GlStateManager._enableScissorTest();
             else GlStateManager._disableScissorTest();
 
-            // ===== 8. 恢复 PoseStack =====
             poseStack.popPose();
         }
     }
 
-    /**
-     * 独立绘制展开/收起按钮
-     */
     private void drawTabButton(PoseStack poseStack) {
+        // ===== 面板对象不存在时不绘制 =====
+        if (searchPanel == null) return;
+
         int panelHeight = searchPanel.getPanelHeight();
         int panelX = searchPanel.getActualPanelX();
         boolean isExpanded = searchPanel.isVisible() || searchPanel.isAnimating();
@@ -403,11 +392,24 @@ public class TinkersSearch {
         if (isExpanded) {
             btnX = panelX + searchPanel.getPanelWidth() - 1;
         } else {
+            // ===== 收起状态：按钮在屏幕左侧（x=0） =====
             btnX = 0;
         }
         btnY = (panelHeight - TAB_BUTTON_HEIGHT) / 2;
 
+        // ===== 确保按钮不超出屏幕左侧 =====
+        if (btnX < 0) {
+            btnX = 0;
+        }
+
         Minecraft mc = Minecraft.getInstance();
+        int screenWidth = mc.getWindow().getGuiScaledWidth();
+
+        // ===== 如果按钮完全在屏幕外，不绘制 =====
+        if (btnX + TAB_BUTTON_WIDTH < 0 || btnX > screenWidth) {
+            return;
+        }
+
         double mouseX = mc.mouseHandler.xpos() * mc.getWindow().getGuiScaledWidth() / mc.getWindow().getScreenWidth();
         double mouseY = mc.mouseHandler.ypos() * mc.getWindow().getGuiScaledHeight() / mc.getWindow().getScreenHeight();
         boolean hover = mouseX >= btnX && mouseX <= btnX + TAB_BUTTON_WIDTH &&
