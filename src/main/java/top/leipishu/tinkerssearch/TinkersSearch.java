@@ -256,6 +256,24 @@ public class TinkersSearch {
         }
     }
 
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
+    public void onRenderTooltipPre(RenderTooltipEvent.Pre event) {
+        // 仅当处于冶炼炉屏幕且面板存在
+        if (!isSmelteryScreen || searchPanel == null) return;
+
+        // 面板可见或动画中
+        if (searchPanel.isVisible() || searchPanel.isAnimating()) {
+            // 获取当前鼠标位置（屏幕坐标）
+            Minecraft mc = Minecraft.getInstance();
+            double mouseX = mc.mouseHandler.xpos() * mc.getWindow().getGuiScaledWidth() / mc.getWindow().getScreenWidth();
+            double mouseY = mc.mouseHandler.ypos() * mc.getWindow().getGuiScaledHeight() / mc.getWindow().getScreenHeight();
+
+            if (searchPanel.isPointInsidePanel(mouseX, mouseY)) {
+                event.setCanceled(true);  // 阻止 Tooltip 渲染
+            }
+        }
+    }
+
 
     /**
      * 检测 Tab 按钮点击

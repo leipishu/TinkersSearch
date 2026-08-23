@@ -2,5 +2,7 @@
   "gui.tinkerssearch.search_hint": "Search...",
   "gui.tinkerssearch.refresh": "↻ Refresh",
   "button.tinkerssearch.open": "Search",
-  "button.tinkerssearch.close": "Close"
+  "button.tinkerssearch.close": "Close",
+  "key.category.tinkerssearch": "Tinkers' Search",
+  "key.tinkerssearch.toggle_panel": "Toggle Panel"
 }
