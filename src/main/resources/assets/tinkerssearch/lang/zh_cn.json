@@ -6,7 +6,7 @@
   "gui.tinkerssearch.no_favorites": "暂无收藏",
   "gui.tinkerssearch.no_fluids": "暂无熔融物",
   "gui.tinkerssearch.no_match": "未找到匹配",
-  "gui.tinkerssearch.locked": "🔒 不在冶炼炉中",
+  "gui.tinkerssearch.locked": "无法使用",
   "key.category.tinkerssearch": "Tinkers' Search",
   "key.tinkerssearch.toggle_panel": "开关面板"
 }

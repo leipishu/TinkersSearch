@@ -37,7 +37,7 @@ public class FloatingSearchPanel extends AbstractWidget {
     private List<FluidStack> allFluids = new ArrayList<>();
     private List<FluidStack> displayedFluids = new ArrayList<>();
 
-    // ===== 收藏数据（新增） =====
+    // ===== 收藏数据 =====
     private List<FluidStack> allFavoriteFluids = new ArrayList<>();
     private List<FluidStack> displayedFavoriteFluids = new ArrayList<>();
 
@@ -51,7 +51,7 @@ public class FloatingSearchPanel extends AbstractWidget {
     private int scrollOffset = 0;
     private int maxScrollOffset = 0;
 
-    // ===== 收藏区域滚动（新增） =====
+    // ===== 收藏区域滚动 =====
     private int favScrollOffset = 0;
     private int maxFavScrollOffset = 0;
 
@@ -83,8 +83,9 @@ public class FloatingSearchPanel extends AbstractWidget {
     private Font cachedFont = null;
 
     // ===== 收藏区域和冶炼炉区域分隔 =====
-    private static final int SECTION_SPACING = 6;
+    private static final int SECTION_SPACING = 8;
     private static final int SECTION_LABEL_HEIGHT = 14;
+    private static final int TITLE_CARD_SPACING = 4; // 标题与卡片之间的间距
 
     public FloatingSearchPanel() {
         super(0, 0, PANEL_WIDTH, 100, new TextComponent("Search Panel"));
@@ -210,10 +211,10 @@ public class FloatingSearchPanel extends AbstractWidget {
         return null;
     }
 
-    // ==================== 区域位置计算（新增） ====================
+    // ==================== 区域位置计算 ====================
 
     private int getFavoriteAreaStartY() {
-        return CARDS_START_Y + SECTION_LABEL_HEIGHT + 2;
+        return CARDS_START_Y + SECTION_LABEL_HEIGHT + TITLE_CARD_SPACING;
     }
 
     private int getFavoriteAreaHeight() {
@@ -227,9 +228,10 @@ public class FloatingSearchPanel extends AbstractWidget {
     private int getSmelteryAreaStartY() {
         int favEndY = this.y + getFavoriteAreaStartY() + getFavoriteAreaHeight();
         if (displayedFavoriteFluids.isEmpty()) {
-            return this.y + CARDS_START_Y;
+            // 没有收藏时：从搜索框下方直接开始
+            return this.y + CARDS_START_Y + SECTION_LABEL_HEIGHT + TITLE_CARD_SPACING;
         }
-        return favEndY + SECTION_SPACING + SECTION_LABEL_HEIGHT + 2;
+        return favEndY + SECTION_SPACING + SECTION_LABEL_HEIGHT + TITLE_CARD_SPACING;
     }
 
     // ==================== 可见性控制 ====================
@@ -396,9 +398,15 @@ public class FloatingSearchPanel extends AbstractWidget {
             bottomFluidName = bottomFluid.getDisplayName().getString();
         }
 
-        // 构建收藏列表
-        Set<ResourceLocation> favSet = FavoritesManager.getFavorites();
-        for (ResourceLocation rl : favSet) {
+        // ===== 从 FavoritesManager 获取收藏列表 =====
+        List<FluidStack> favList = FavoritesManager.getFavorites();
+        for (FluidStack favFluid : favList) {
+            if (favFluid == null || favFluid.isEmpty()) continue;
+
+            ResourceLocation rl = favFluid.getFluid().getRegistryName();
+            if (rl == null) continue;
+
+            // 检查是否在冶炼炉中
             FluidStack matched = null;
             for (FluidStack fs : allFluids) {
                 if (fs.getFluid().getRegistryName().equals(rl)) {
@@ -406,16 +414,13 @@ public class FloatingSearchPanel extends AbstractWidget {
                     break;
                 }
             }
+
             if (matched != null) {
+                // 在冶炼炉中：使用冶炼炉中的 FluidStack（包含正确数量）
                 allFavoriteFluids.add(matched.copy());
             } else {
-                try {
-                    net.minecraft.world.level.material.Fluid fluid = net.minecraftforge.registries.ForgeRegistries.FLUIDS.getValue(rl);
-                    if (fluid != null) {
-                        FluidStack placeholder = new FluidStack(fluid, 0);
-                        allFavoriteFluids.add(placeholder);
-                    }
-                } catch (Exception ignored) {}
+                // 不在冶炼炉中：使用收藏中保存的 FluidStack（数量为 1，但显示时用锁定文本）
+                allFavoriteFluids.add(favFluid.copy());
             }
         }
 
@@ -474,7 +479,7 @@ public class FloatingSearchPanel extends AbstractWidget {
         }).start();
     }
 
-    // ==================== 卡片点击（核心交互） ====================
+    // ==================== 卡片点击 ====================
 
     public boolean moveFluidToBottom(FluidStack fluidStack) {
         if (fluidStack == null || fluidStack.isEmpty()) return false;
@@ -490,7 +495,7 @@ public class FloatingSearchPanel extends AbstractWidget {
     }
 
     /**
-     * 处理卡片点击 - 所有卡片交互都在这里
+     * 处理卡片点击
      */
     private boolean handleCardClick(double mouseX, double mouseY, int button) {
         if (!isVisible) return false;
@@ -499,7 +504,6 @@ public class FloatingSearchPanel extends AbstractWidget {
         int py = this.y;
         int pw = this.width;
 
-        // 判断点击在哪个区域
         int favStartY = py + getFavoriteAreaStartY();
         int favEndY = favStartY + getFavoriteAreaHeight();
         int smelteryStartY = py + getSmelteryAreaStartY();
@@ -510,7 +514,6 @@ public class FloatingSearchPanel extends AbstractWidget {
 
         if (!inFavArea && !inSmelteryArea) return false;
 
-        // 获取对应区域的列表
         List<FluidStack> list = inFavArea ? displayedFavoriteFluids : displayedFluids;
         int scrollOff = inFavArea ? favScrollOffset : scrollOffset;
         int areaStartY = inFavArea ? favStartY : smelteryStartY;
@@ -536,9 +539,9 @@ public class FloatingSearchPanel extends AbstractWidget {
                 FluidStack fluid = list.get(i);
                 if (fluid == null || fluid.isEmpty()) return false;
 
-                // 判断是否在炉中存在
+                // 判断是否在冶炼炉中存在
                 boolean existsInSmeltery = true;
-                if (inFavArea && fluid.getAmount() == 0) {
+                if (inFavArea) {
                     existsInSmeltery = false;
                     for (FluidStack fs : allFluids) {
                         if (fs.getFluid().getRegistryName().equals(fluid.getFluid().getRegistryName())) {
@@ -548,38 +551,39 @@ public class FloatingSearchPanel extends AbstractWidget {
                     }
                 }
 
-                // 收藏按钮（星形）
-                int starSize = 12;
-                int starX = cardX + cardW - starSize - 4;
-                int starY = cardY + 4;
-                boolean onStar = mouseX >= starX && mouseX <= starX + starSize &&
-                        mouseY >= starY && mouseY <= starY + starSize;
-                if (onStar) {
-                    ResourceLocation rl = fluid.getFluid().getRegistryName();
-                    if (rl != null) {
-                        FavoritesManager.toggleFavorite(rl);
-                        refreshMoltenFluids();
-                        return true;
-                    }
-                }
-
-                // 收藏区域且不存在于冶炼炉，阻止其他操作
-                if (inFavArea && !existsInSmeltery) {
-                    return true;
-                }
-
-                // 图标区域 -> JEI
+                // 判断是否点击了图标区域
                 int iconSize = ICON_SIZE;
                 int iconX = cardX + 3;
                 int iconY = cardY + (cardH - iconSize) / 2;
                 int padding = 2;
                 boolean onIcon = mouseX >= iconX - padding && mouseX <= iconX + iconSize + padding &&
                         mouseY >= iconY - padding && mouseY <= iconY + iconSize + padding;
+
+                // ===== 收藏按钮（星形）- 始终可点击 =====
+                int starSize = 12;
+                int starX = cardX + cardW - starSize - 4;
+                int starY = cardY + 4;
+                boolean onStar = mouseX >= starX && mouseX <= starX + starSize &&
+                        mouseY >= starY && mouseY <= starY + starSize;
+                if (onStar) {
+                    // 使用 FluidStack 切换收藏
+                    FavoritesManager.toggleFavorite(fluid);
+                    refreshMoltenFluids();
+                    return true;
+                }
+
+                // ===== 图标区域 -> JEI（始终可点击，无论是否在炉中） =====
                 if (onIcon && jeiAvailable) {
                     return interactionHandler.handleJeiIconClick(fluid, button);
                 }
 
-                // 卡片主体 -> 移动到底部（仅左键）
+                // ===== 收藏区域且不存在于冶炼炉：阻止卡片主体点击 =====
+                if (inFavArea && !existsInSmeltery) {
+                    // 只消费事件，不执行任何操作
+                    return true;
+                }
+
+                // ===== 卡片主体 -> 移动到底部（仅左键，且必须在炉中） =====
                 if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && !onIcon) {
                     return moveFluidToBottom(fluid);
                 }
@@ -618,12 +622,10 @@ public class FloatingSearchPanel extends AbstractWidget {
             return true;
         }
 
-        // 点击面板其他区域取消搜索框焦点
         if (interactionHandler.isSearchBoxFocused()) {
             interactionHandler.setSearchBoxFocused(false);
         }
 
-        // 处理卡片点击
         return handleCardClick(mouseX, mouseY, button);
     }
 
@@ -701,6 +703,7 @@ public class FloatingSearchPanel extends AbstractWidget {
 
         // ===== 收藏区域 =====
         if (!displayedFavoriteFluids.isEmpty()) {
+            // 收藏标签
             int favLabelY = py + CARDS_START_Y;
             font.draw(poseStack, "§6" + new TranslatableComponent("gui.tinkerssearch.favorites").getString(), px + 5, favLabelY, 0xFFFFFF);
 
@@ -716,12 +719,16 @@ public class FloatingSearchPanel extends AbstractWidget {
                 renderScrollBar(poseStack, px, favStartY, favAreaHeight, pw, favScrollOffset, maxFavScrollOffset);
             }
 
-            // ===== 分隔线 =====
+            // ===== 分隔线（仅在收藏不为空时显示） =====
             int sepY = favStartY + favAreaHeight + SECTION_SPACING;
             GuiComponent.fill(poseStack, px + 5, sepY, px + pw - 5 - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING, sepY + 1, 0xFF444444);
 
-            // ===== 冶炼炉标签 =====
+            // ===== 冶炼炉标签（有收藏时显示在分隔线下方） =====
             int smelterLabelY = sepY + SECTION_SPACING;
+            font.draw(poseStack, "§e" + new TranslatableComponent("gui.tinkerssearch.smeltery").getString(), px + 5, smelterLabelY, 0xFFFFFF);
+        } else {
+            // ===== 没有收藏时：直接显示冶炼炉标签 =====
+            int smelterLabelY = py + CARDS_START_Y;
             font.draw(poseStack, "§e" + new TranslatableComponent("gui.tinkerssearch.smeltery").getString(), px + 5, smelterLabelY, 0xFFFFFF);
         }
 
@@ -820,7 +827,7 @@ public class FloatingSearchPanel extends AbstractWidget {
         int endY = py + ph - 4;
 
         if (displayedFluids.isEmpty()) {
-            String msg = interactionHandler.getSearchKeyword().isEmpty() ? "§7暂无熔融物" : "§7未找到匹配";
+            String msg = interactionHandler.getSearchKeyword().isEmpty() ? "§7" + new TranslatableComponent("gui.tinkerssearch.no_fluids").getString() : "§7" + new TranslatableComponent("gui.tinkerssearch.no_match").getString();
             font.draw(poseStack, msg, px + 5, startY + scrollOffset + 10, 0x666666);
             return;
         }
@@ -874,25 +881,38 @@ public class FloatingSearchPanel extends AbstractWidget {
         }
     }
 
+
     /**
-     * 绘制单个卡片（支持收藏和冶炼炉两种模式）
+     * 绘制单个卡片
+     */
+    /**
+     * 绘制单个卡片
      */
     private void drawSingleCard(PoseStack poseStack, int x, int y, int w, int h, FluidStack fluid, boolean hover, Font font, boolean isFavorite) {
+        // ===== 获取流体名称 =====
         String fluidName = fluid.getDisplayName().getString();
 
-        // 判断是否在炉中存在
+        // 如果名称异常，使用注册名
+        ResourceLocation regName = fluid.getFluid().getRegistryName();
+        if (fluidName == null || fluidName.isEmpty() || fluidName.equals("Air") || fluidName.equals("empty")) {
+            if (regName != null) {
+                fluidName = regName.getPath();
+            }
+        }
+
+        // ===== 判断是否在冶炼炉中存在 =====
         boolean existsInSmeltery = true;
-        if (isFavorite && fluid.getAmount() == 0) {
+        if (isFavorite) {
             existsInSmeltery = false;
             for (FluidStack fs : allFluids) {
-                if (fs.getFluid().getRegistryName().equals(fluid.getFluid().getRegistryName())) {
+                if (fs.getFluid().getRegistryName().equals(regName)) {
                     existsInSmeltery = true;
                     break;
                 }
             }
         }
 
-        // 判断是否是最底部流体（收藏区域和冶炼炉区域都显示绿框）
+        // ===== 是否在底部（仅当存在于冶炼炉中） =====
         boolean isBottom = bottomFluidName != null && fluidName.equals(bottomFluidName) && existsInSmeltery;
 
         // ===== 卡片背景 =====
@@ -930,20 +950,26 @@ public class FloatingSearchPanel extends AbstractWidget {
         int nameColor = isBottom ? 0xFF00FF00 : 0xFFFFFF;
         font.draw(poseStack, truncatedName, textX, y + 4, nameColor);
 
-        // ===== 流体量 =====
-        int amount = fluid.getAmount();
-        String amtStr;
+        // ===== 显示数量或锁定状态 =====
         if (isFavorite && !existsInSmeltery) {
-            amtStr = "§8--";
-        } else if (amount >= 1000) {
-            amtStr = String.format("%.1fB", amount / 1000.0);
+            // 不在冶炼炉中：显示锁定文本
+            String locked = new TranslatableComponent("gui.tinkerssearch.locked").getString();
+            font.draw(poseStack, "§8" + locked, textX, y + 18, 0x888888);
         } else {
-            amtStr = amount + "mB";
+            // 在冶炼炉中：显示数量
+            int amount = fluid.getAmount();
+            String amtStr;
+            if (amount >= 1000) {
+                amtStr = String.format("%.1fB", amount / 1000.0);
+            } else {
+                amtStr = amount + "mB";
+            }
+            font.draw(poseStack, "§8" + amtStr, textX, y + 18, 0x888888);
         }
-        font.draw(poseStack, "§8" + amtStr, textX, y + 18, 0x888888);
 
         // ===== 收藏按钮（星形） =====
-        boolean isFav = FavoritesManager.isFavorite(fluid.getFluid().getRegistryName());
+        // 使用 isFavorite(fluid) 判断
+        boolean isFav = FavoritesManager.isFavorite(fluid);
         int starSize = 12;
         int starX = x + w - starSize - 4;
         int starY = y + 4;
@@ -951,66 +977,10 @@ public class FloatingSearchPanel extends AbstractWidget {
         int starColor = isFav ? 0xFFFFD700 : 0x666666;
         font.draw(poseStack, star, starX, starY, starColor);
 
-        // ===== 收藏区域且不存在于冶炼炉：蒙版 =====
-        if (isFavorite && !existsInSmeltery) {
-            GuiComponent.fill(poseStack, x + 1, y + 1, x + w - 1, y + h - 1, 0x88000000);
-            String locked = new TranslatableComponent("gui.tinkerssearch.locked").getString();
-            font.draw(poseStack, locked, x + w - font.width(locked) - 4, y + h - 12, 0xCCCCCC);
-        }
-
-        // ===== JEI 交互提示 =====
+        // ===== 悬停提示（仅当存在于冶炼炉中） =====
         if (hover && existsInSmeltery) {
-            if (jeiAvailable) {
-                font.draw(poseStack, "§7左键: 配方 右键: 用途", x + 4, y + h - 10, 0x666666);
-                font.draw(poseStack, "§7A键: 加入书签", x + 4, y + h - 2, 0x666666);
-            } else {
-                font.draw(poseStack, "§7左键卡片: 移至底部", x + 4, y + h - 6, 0x666666);
-            }
+            font.draw(poseStack, "§7左键: 移至底部", x + 4, y + h - 10, 0x666666);
         }
-    }
-
-    // ==================== 新增：仅渲染文字（用于覆盖冶炼炉） ====================
-
-    public void renderTextOnly(PoseStack poseStack) {
-        if (!isVisible && !isAnimating) return;
-
-        Minecraft mc = Minecraft.getInstance();
-        Font font = mc.font;
-
-        int px = this.x + animationOffset;
-        int py = this.y;
-        int pw = this.width;
-        int ph = this.height;
-
-        RenderSystem.disableDepthTest();
-        RenderSystem.enableBlend();
-        RenderSystem.defaultBlendFunc();
-        GlStateManager._disableScissorTest();
-        RenderSystem.disableTexture();
-        RenderSystem.setShaderColor(1.0f, 1.0f, 1.0f, 1.0f);
-
-        font.draw(poseStack, "§6Tinker's Search", px + 5, py + 5, 0xFFFFFF);
-
-        font.draw(poseStack, new TranslatableComponent("gui.tinkerssearch.refresh"),
-                px + REFRESH_BTN_X + 4, py + REFRESH_BTN_Y + 3, 0xCCCCCC);
-
-        int boxX = px + 5;
-        int boxY = py + SEARCH_BOX_Y;
-        String keyword = interactionHandler.getSearchKeyword();
-
-        if (keyword.isEmpty()) {
-            font.draw(poseStack, new TranslatableComponent("gui.tinkerssearch.search_hint"),
-                    boxX + 4, boxY + 4, 0x666666);
-        } else {
-            font.draw(poseStack, keyword, boxX + 4, boxY + 4, 0xFFFFFF);
-        }
-
-        int total = allFluids.size();
-        int matched = displayedFluids.size();
-        String countStr = "§8" + matched + "/" + total;
-        font.draw(poseStack, countStr, px + pw - 35, boxY + 4, 0x888888);
-
-        RenderSystem.enableTexture();
     }
 
     private void renderScrollBar(PoseStack poseStack, int px, int areaStartY, int areaHeight, int panelWidth,

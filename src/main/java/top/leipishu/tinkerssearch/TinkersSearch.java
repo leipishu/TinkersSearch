@@ -135,6 +135,13 @@ public class TinkersSearch {
     private void handleSmelteryClose() {
         if (isSmelteryScreen) {
             isSmelteryScreen = false;
+
+            // ===== 关闭搜索面板 =====
+            if (searchPanel != null && searchPanel.isVisible()) {
+                searchPanel.setVisible(false);
+                System.out.println("Tinker's Search: Panel closed due to smeltery screen closing");
+            }
+
             if (jeiAvailable) {
                 Jei.refreshExclusionAreas();
             }

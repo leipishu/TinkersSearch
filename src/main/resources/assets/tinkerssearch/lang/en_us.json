@@ -6,7 +6,7 @@
   "gui.tinkerssearch.no_favorites": "No favorites",
   "gui.tinkerssearch.no_fluids": "No fluids",
   "gui.tinkerssearch.no_match": "No matches",
-  "gui.tinkerssearch.locked": "🔒 Not in smeltery",
+  "gui.tinkerssearch.locked": "N/A",
   "key.category.tinkerssearch": "Tinkers' Search",
   "key.tinkerssearch.toggle_panel": "Toggle Panel"
 }
