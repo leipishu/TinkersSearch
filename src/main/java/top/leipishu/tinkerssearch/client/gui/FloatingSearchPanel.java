@@ -1,13 +1,13 @@
 package top.leipishu.tinkerssearch.client.gui;
 
 import com.mojang.blaze3d.platform.GlStateManager;
+import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiComponent;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.narration.NarrationElementOutput;
-import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.TextComponent;
 import net.minecraft.network.chat.TranslatableComponent;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -36,6 +36,9 @@ public class FloatingSearchPanel extends AbstractWidget {
     private BlockEntity smelteryTileEntity = null;
     private BlockEntity cachedTileEntity = null;
 
+    // ===== 最下方流体名称（用于高亮） =====
+    private String bottomFluidName = null;
+
     // ===== 滚动 =====
     private int scrollOffset = 0;
     private int maxScrollOffset = 0;
@@ -59,6 +62,13 @@ public class FloatingSearchPanel extends AbstractWidget {
     // ===== 按钮尺寸 =====
     public static final int TAB_BUTTON_WIDTH = 14;
     public static final int TAB_BUTTON_HEIGHT = 30;
+
+    // ===== 移动后刷新标记 =====
+    private boolean pendingHighlightUpdate = false;
+    private long pendingHighlightTime = 0;
+
+    // ===== 性能优化：缓存字体实例 =====
+    private Font cachedFont = null;
 
     public FloatingSearchPanel() {
         super(0, 0, PANEL_WIDTH, 100, new TextComponent("Search Panel"));
@@ -112,6 +122,7 @@ public class FloatingSearchPanel extends AbstractWidget {
 
         scrollOffset = 0;
         updateMaxScrollOffset();
+        cachedFont = mc.font;
     }
 
     public void forceUpdatePosition() {
@@ -169,39 +180,16 @@ public class FloatingSearchPanel extends AbstractWidget {
         return null;
     }
 
-    // ==================== JEI 界面检测 ====================
-
-    /**
-     * 检测 JEI 配方/用途界面是否打开
-     */
-    public boolean isJeiRecipeGuiOpen() {
-        if (!jeiAvailable) return false;
-
-        Minecraft mc = Minecraft.getInstance();
-        Screen screen = mc.screen;
-        if (screen == null) return false;
-
-        String className = screen.getClass().getName();
-        return className.contains("RecipesGui") ||
-                className.contains("JeiRecipe") ||
-                (className.contains("jei") && className.contains("Recipe"));
-    }
-
     // ==================== 可见性控制 ====================
 
     public void setVisible(boolean visible) {
-        // ===== 如果 JEI 界面打开，阻止关闭面板 =====
-        if (!visible && isJeiRecipeGuiOpen()) {
-            System.out.println("Tinker's Search: JEI recipe GUI open, preventing panel close");
-            return;
-        }
-
         if (this.isVisible == visible && !isAnimating) return;
         if (!visible && !this.isVisible && !isAnimating) return;
 
         if (!visible) {
             interactionHandler.setSearchBoxFocused(false);
             scrollOffset = 0;
+            pendingHighlightUpdate = false;
             targetOffset = -this.width;
             isAnimating = true;
             animationStartTime = System.currentTimeMillis();
@@ -221,12 +209,8 @@ public class FloatingSearchPanel extends AbstractWidget {
         setVisible(!this.isVisible);
     }
 
-    /**
-     * 强制恢复面板可见性（供外部调用，防止被意外重置）
-     */
     public void restoreVisibility() {
         if (isVisible && !visible) {
-            System.out.println("Tinker's Search: Restoring panel visibility");
             visible = true;
         }
     }
@@ -314,11 +298,17 @@ public class FloatingSearchPanel extends AbstractWidget {
     public void refreshMoltenFluids() {
         allFluids.clear();
         displayedFluids.clear();
+        bottomFluidName = null;
 
         BlockEntity target = smelteryTileEntity != null ? smelteryTileEntity : cachedTileEntity;
         if (target == null) return;
 
         allFluids = SmelteryDataHelper.getMoltenFluids(target);
+
+        FluidStack bottomFluid = SmelteryDataHelper.getBottomFluid(target);
+        if (bottomFluid != null) {
+            bottomFluidName = bottomFluid.getDisplayName().getString();
+        }
 
         String keyword = interactionHandler.getSearchKeyword();
         if (keyword == null || keyword.trim().isEmpty()) {
@@ -331,8 +321,33 @@ public class FloatingSearchPanel extends AbstractWidget {
 
         updateMaxScrollOffset();
         scrollOffset = 0;
+    }
 
-        System.out.println("Tinker's Search: Refreshed - found " + allFluids.size() + " fluids, displayed " + displayedFluids.size());
+    public void updateBottomFluidHighlight() {
+        BlockEntity target = smelteryTileEntity != null ? smelteryTileEntity : cachedTileEntity;
+        if (target == null) return;
+
+        FluidStack bottomFluid = SmelteryDataHelper.getBottomFluid(target);
+        if (bottomFluid != null) {
+            bottomFluidName = bottomFluid.getDisplayName().getString();
+        } else {
+            bottomFluidName = null;
+        }
+    }
+
+    public void scheduleHighlightUpdate() {
+        pendingHighlightUpdate = true;
+        pendingHighlightTime = System.currentTimeMillis();
+    }
+
+    private void checkPendingHighlightUpdate() {
+        if (!pendingHighlightUpdate) return;
+
+        long elapsed = System.currentTimeMillis() - pendingHighlightTime;
+        if (elapsed >= 500) {
+            pendingHighlightUpdate = false;
+            updateBottomFluidHighlight();
+        }
     }
 
     private void onFluidClicked(List<FluidStack> fluids) {
@@ -343,7 +358,6 @@ public class FloatingSearchPanel extends AbstractWidget {
             }
             Minecraft.getInstance().execute(() -> {
                 refreshMoltenFluids();
-                System.out.println("Tinker's Search: Post-click sync refresh complete");
             });
         }).start();
     }
@@ -352,7 +366,11 @@ public class FloatingSearchPanel extends AbstractWidget {
 
     public boolean moveFluidToBottom(FluidStack fluidStack) {
         if (fluidStack == null || fluidStack.isEmpty()) return false;
-        return SmelteryClickHandler.clickFluidByStack(fluidStack);
+        boolean success = SmelteryClickHandler.clickFluidByStack(fluidStack);
+        if (success) {
+            scheduleHighlightUpdate();
+        }
+        return success;
     }
 
     // ==================== 鼠标和键盘事件 ====================
@@ -372,23 +390,6 @@ public class FloatingSearchPanel extends AbstractWidget {
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         if (!isVisible) return false;
 
-        // ===== 如果搜索框获得焦点，拦截所有按键 =====
-        if (interactionHandler.isSearchBoxFocused()) {
-            // Backspace：删除字符
-            if (keyCode == GLFW.GLFW_KEY_BACKSPACE) {
-                return interactionHandler.handleKeyPressed(keyCode, scanCode, modifiers);
-            }
-            // Enter / ESC：取消焦点
-            if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_ESCAPE) {
-                interactionHandler.setSearchBoxFocused(false);
-                return true;
-            }
-            // 所有其他按键：让 charTyped 处理字符输入
-            // 返回 true 表示事件已消费，阻止快捷键
-            return true;
-        }
-
-        // ===== 搜索框未获得焦点时，正常处理 =====
         if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
             return false;
         }
@@ -410,29 +411,46 @@ public class FloatingSearchPanel extends AbstractWidget {
 
     @Override
     public void renderButton(PoseStack poseStack, int mouseX, int mouseY, float partialTick) {
-        // ===== 关键：每次渲染时恢复面板状态，防止被外部事件重置 =====
         if (isVisible && !visible) {
             visible = true;
         }
 
+        checkPendingHighlightUpdate();
         updateAnimation();
 
         if (!isVisible && !isAnimating) return;
 
         checkWindowResize();
 
+        // ===== 保存并重置 OpenGL 状态 =====
+        // 使用 GlStateManager 保存深度测试状态
+        // 注意：GlStateManager 没有直接的 isEnabled 方法，我们直接禁用然后恢复
+        // 因为无法可靠地检测当前状态，我们强制禁用，最后再启用
+        // 这样其他模组如果依赖深度测试，可能会受影响，但这是解决覆盖问题的最可靠方式
+
+        // 先保存当前 blend 状态（如果可以的话）
+        // 对于深度测试，我们直接禁用
+        RenderSystem.disableDepthTest();
+        RenderSystem.enableBlend();
+        RenderSystem.defaultBlendFunc();
+        GlStateManager._disableScissorTest();
+
         Minecraft mc = Minecraft.getInstance();
         Font font = mc.font;
+        if (cachedFont == null) cachedFont = font;
 
         int px = this.x + animationOffset;
         int py = this.y;
         int pw = this.width;
         int ph = this.height;
 
-        if (px + pw < 0) return;
+        if (px + pw < 0) {
+            RenderSystem.enableDepthTest();
+            return;
+        }
 
-        // ===== 背景 =====
-        GuiComponent.fill(poseStack, px, py, px + pw, py + ph, 0xAA1A1A1A);
+        // ===== 背景（完全不透明） =====
+        GuiComponent.fill(poseStack, px, py, px + pw, py + ph, 0xFF1A1A1A);
 
         // ===== 边框 =====
         GuiComponent.fill(poseStack, px, py, px + 1, py + ph, 0x33FFFFFF);
@@ -444,15 +462,134 @@ public class FloatingSearchPanel extends AbstractWidget {
         renderRefreshButton(poseStack, px, py, mouseX, mouseY, font);
         renderSearchBox(poseStack, px, py, pw, font);
 
+        // ===== 卡片裁剪区域 =====
         int clipStartY = py + CARDS_START_Y;
         int clipEndY = py + ph - 4;
-        enableScissor(px + 5, clipStartY, pw - 10 - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING, clipEndY - clipStartY);
+        int clipWidth = pw - 10 - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING;
+        int clipHeight = clipEndY - clipStartY;
+
+        GlStateManager._enableScissorTest();
+        enableScissor(px + 5, clipStartY, clipWidth, clipHeight);
+
+        // 再次确保深度测试禁用
+        RenderSystem.disableDepthTest();
 
         renderCards(poseStack, px, py, pw, ph, mouseX, mouseY, font);
 
-        disableScissor();
+        GlStateManager._disableScissorTest();
 
         renderScrollBar(poseStack, px, py, pw, ph);
+
+        // ===== 恢复 OpenGL 状态 =====
+        RenderSystem.enableDepthTest();
+    }
+
+    // ==================== 新增：仅渲染文字（用于覆盖冶炼炉） ====================
+
+    /**
+     * 仅渲染面板中的文字内容
+     * 用于在 onScreenDrawPost 中强制重绘文字，覆盖冶炼炉 UI
+     */
+    public void renderTextOnly(PoseStack poseStack) {
+        if (!isVisible && !isAnimating) return;
+
+        Minecraft mc = Minecraft.getInstance();
+        Font font = mc.font;
+
+        int px = this.x + animationOffset;
+        int py = this.y;
+        int pw = this.width;
+        int ph = this.height;
+
+        // 强制重置渲染状态
+        RenderSystem.disableDepthTest();
+        RenderSystem.enableBlend();
+        RenderSystem.defaultBlendFunc();
+        GlStateManager._disableScissorTest();
+        RenderSystem.disableTexture();
+        RenderSystem.setShaderColor(1.0f, 1.0f, 1.0f, 1.0f);
+
+        // 1. 重新绘制标题
+        font.draw(poseStack, "§6Tinker's Search", px + 5, py + 5, 0xFFFFFF);
+
+        // 2. 重新绘制刷新按钮文字
+        font.draw(poseStack, new TranslatableComponent("gui.tinkerssearch.refresh"),
+                px + REFRESH_BTN_X + 4, py + REFRESH_BTN_Y + 3, 0xCCCCCC);
+
+        // 3. 重新绘制搜索框文字
+        int boxX = px + 5;
+        int boxY = py + SEARCH_BOX_Y;
+        String keyword = interactionHandler.getSearchKeyword();
+
+        if (keyword.isEmpty()) {
+            font.draw(poseStack, new TranslatableComponent("gui.tinkerssearch.search_hint"),
+                    boxX + 4, boxY + 4, 0x666666);
+        } else {
+            font.draw(poseStack, keyword, boxX + 4, boxY + 4, 0xFFFFFF);
+        }
+
+        // 4. 重新绘制数量统计
+        int total = allFluids.size();
+        int matched = displayedFluids.size();
+        String countStr = "§8" + matched + "/" + total;
+        font.draw(poseStack, countStr, px + pw - 35, boxY + 4, 0x888888);
+
+        // 5. 重新绘制所有卡片文字（核心：覆盖冶炼炉标尺）
+        if (displayedFluids.isEmpty()) {
+            String msg = interactionHandler.getSearchKeyword().isEmpty() ? "§7暂无熔融物" : "§7未找到匹配";
+            font.draw(poseStack, msg, px + 5, py + CARDS_START_Y - scrollOffset + 10, 0x666666);
+            RenderSystem.enableTexture();
+            return;
+        }
+
+        int cardW = (pw - 10 - CARD_SPACING - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING) / ITEMS_PER_ROW;
+        int cardH = CARD_HEIGHT;
+        int startY = py + CARDS_START_Y - scrollOffset;
+        int endY = py + ph - 4;
+
+        for (int i = 0; i < displayedFluids.size(); i++) {
+            int row = i / ITEMS_PER_ROW;
+            int col = i % ITEMS_PER_ROW;
+            int cardX = px + 5 + col * (cardW + CARD_SPACING);
+            int cardY = startY + row * (cardH + CARD_SPACING);
+
+            if (cardY + cardH < py + CARDS_START_Y || cardY > endY) {
+                continue;
+            }
+
+            FluidStack fluid = displayedFluids.get(i);
+            String fluidName = fluid.getDisplayName().getString();
+            boolean isBottom = bottomFluidName != null && fluidName.equals(bottomFluidName);
+
+            // 流体名称
+            String displayName = fluidName.replace("Molten ", "").replace("熔融", "");
+            int textX = cardX + ICON_SIZE + ICON_TEXT_GAP + 3;
+            int maxTextW = cardW - ICON_SIZE - ICON_TEXT_GAP - 8;
+            String truncatedName = truncateTextWithEllipsis(font, displayName, maxTextW);
+            int nameColor = isBottom ? 0xFF00FF00 : 0xFFFFFF;
+            font.draw(poseStack, truncatedName, textX, cardY + 4, nameColor);
+
+            // 流体量
+            int amount = fluid.getAmount();
+            String amtStr = amount >= 1000 ? String.format("%.1fB", amount / 1000.0) : amount + "mB";
+            font.draw(poseStack, "§8" + amtStr, textX, cardY + 18, 0x888888);
+
+            // 悬停提示（需要获取当前鼠标位置）
+            Minecraft mc2 = Minecraft.getInstance();
+            int mouseX = (int)(mc2.mouseHandler.xpos() * mc2.getWindow().getGuiScaledWidth() / mc2.getWindow().getScreenWidth());
+            int mouseY2 = (int)(mc2.mouseHandler.ypos() * mc2.getWindow().getGuiScaledHeight() / mc2.getWindow().getScreenHeight());
+
+            if (isHovered(cardX, cardY, cardW, cardH, mouseX, mouseY2)) {
+                if (jeiAvailable) {
+                    font.draw(poseStack, "§7左键: 配方 右键: 用途", cardX + 4, cardY + cardH - 10, 0x666666);
+                    font.draw(poseStack, "§7A键: 加入书签", cardX + 4, cardY + cardH - 2, 0x666666);
+                } else {
+                    font.draw(poseStack, "§7左键卡片: 移至底部", cardX + 4, cardY + cardH - 6, 0x666666);
+                }
+            }
+        }
+
+        RenderSystem.enableTexture();
     }
 
     // ==================== 渲染辅助方法 ====================
@@ -462,14 +599,9 @@ public class FloatingSearchPanel extends AbstractWidget {
         int scale = (int) mc.getWindow().getGuiScale();
         int screenX = x * scale;
         int screenY = mc.getWindow().getScreenHeight() - (y + height) * scale;
-        int screenW = width * scale;
-        int screenH = height * scale;
-        GlStateManager._enableScissorTest();
+        int screenW = Math.max(0, width * scale);
+        int screenH = Math.max(0, height * scale);
         GlStateManager._scissorBox(screenX, screenY, screenW, screenH);
-    }
-
-    private void disableScissor() {
-        GlStateManager._disableScissorTest();
     }
 
     private void renderTitleBar(PoseStack poseStack, int px, int py, int pw, Font font) {
@@ -556,53 +688,107 @@ public class FloatingSearchPanel extends AbstractWidget {
                 continue;
             }
 
-            drawSingleCard(poseStack, cardX, cardY, cardW, cardH, displayedFluids.get(i), mouseX, mouseY, font);
+            FluidStack fluid = displayedFluids.get(i);
+            boolean isHover = isHovered(cardX, cardY, cardW, cardH, mouseX, mouseY);
+            drawSingleCard(poseStack, cardX, cardY, cardW, cardH, fluid, isHover, font);
         }
     }
 
-    private void drawSingleCard(PoseStack poseStack, int x, int y, int w, int h, FluidStack fluid, int mouseX, int mouseY, Font font) {
-        boolean hover = isHovered(x, y, w, h, mouseX, mouseY);
+    /**
+     * 绘制单个卡片
+     */
+    private void drawSingleCard(PoseStack poseStack, int x, int y, int w, int h, FluidStack fluid, boolean hover, Font font) {
+        String fluidName = fluid.getDisplayName().getString();
+        boolean isBottom = bottomFluidName != null && fluidName.equals(bottomFluidName);
 
-        // 卡片背景
+        // ===== 卡片背景（完全不透明，覆盖后面的冶炼炉 UI） =====
         int bg = hover ? 0xFF3A3A3A : 0xFF222222;
         GuiComponent.fill(poseStack, x, y, x + w, y + h, bg);
 
-        // 卡片边框
-        int border = hover ? 0xFF888888 : 0xFF333333;
-        GuiComponent.fill(poseStack, x, y, x + w, y + 1, border);
-        GuiComponent.fill(poseStack, x, y + h - 1, x + w, y + h, border);
-        GuiComponent.fill(poseStack, x, y, x + 1, y + h, border);
-        GuiComponent.fill(poseStack, x + w - 1, y, x + w, y + h, border);
+        // ===== 卡片边框 =====
+        if (isBottom) {
+            int green = 0xFF00FF00;
+            GuiComponent.fill(poseStack, x, y, x + w, y + 1, green);
+            GuiComponent.fill(poseStack, x, y + h - 1, x + w, y + h, green);
+            GuiComponent.fill(poseStack, x, y, x + 1, y + h, green);
+            GuiComponent.fill(poseStack, x + w - 1, y, x + w, y + h, green);
+        } else {
+            int border = hover ? 0xFF888888 : 0xFF333333;
+            GuiComponent.fill(poseStack, x, y, x + w, y + 1, border);
+            GuiComponent.fill(poseStack, x, y + h - 1, x + w, y + h, border);
+            GuiComponent.fill(poseStack, x, y, x + 1, y + h, border);
+            GuiComponent.fill(poseStack, x + w - 1, y, x + w, y + h, border);
+        }
 
         // ===== 流体图标 =====
         int iconSize = ICON_SIZE;
         int iconX = x + 3;
         int iconY = y + (h - iconSize) / 2;
-
-        // 直接使用 SmelteryDataHelper 渲染
         SmelteryDataHelper.drawFluidIcon(poseStack, iconX, iconY, fluid, iconSize);
 
-        // 流体名称
+        // ===== 流体名称（带省略号） =====
         int textX = iconX + iconSize + ICON_TEXT_GAP;
-        int maxTextW = w - iconSize - ICON_TEXT_GAP - 6;
+        int maxTextW = w - iconSize - ICON_TEXT_GAP - 8;
 
-        String name = fluid.getDisplayName().getString()
-                .replace("Molten ", "").replace("熔融", "");
-        name = truncateText(font, name, maxTextW);
-        font.draw(poseStack, name, textX, y + 4, 0xFFFFFF);
+        String displayName = fluidName.replace("Molten ", "").replace("熔融", "");
+        String truncatedName = truncateTextWithEllipsis(font, displayName, maxTextW);
 
-        // 流体量
+        int nameColor = isBottom ? 0xFF00FF00 : 0xFFFFFF;
+        font.draw(poseStack, truncatedName, textX, y + 4, nameColor);
+
+        // ===== 流体量 =====
         int amount = fluid.getAmount();
         String amtStr = amount >= 1000 ? String.format("%.1fB", amount / 1000.0) : amount + "mB";
         font.draw(poseStack, "§8" + amtStr, textX, y + 18, 0x888888);
 
-        // JEI 交互提示
+        // ===== JEI 交互提示 =====
         if (jeiAvailable && hover) {
-            font.draw(poseStack, "§7左键: JEI配方 右键: JEI用途", x + 4, y + h - 10, 0x666666);
+            font.draw(poseStack, "§7左键: 配方 右键: 用途", x + 4, y + h - 10, 0x666666);
             font.draw(poseStack, "§7A键: 加入书签", x + 4, y + h - 2, 0x666666);
         } else if (hover) {
             font.draw(poseStack, "§7左键卡片: 移至底部", x + 4, y + h - 6, 0x666666);
         }
+    }
+
+    /**
+     * 带省略号的文本截断
+     */
+    private String truncateTextWithEllipsis(Font font, String text, int maxWidth) {
+        if (maxWidth <= 0) return "";
+
+        int textWidth = font.width(text);
+        if (textWidth <= maxWidth) {
+            return text;
+        }
+
+        String ellipsis = "...";
+        int ellipsisWidth = font.width(ellipsis);
+        if (ellipsisWidth >= maxWidth) {
+            return "";
+        }
+
+        int left = 0;
+        int right = text.length();
+        int bestLength = 0;
+
+        while (left <= right) {
+            int mid = (left + right) / 2;
+            String testStr = text.substring(0, mid) + ellipsis;
+            int testWidth = font.width(testStr);
+
+            if (testWidth <= maxWidth) {
+                bestLength = mid;
+                left = mid + 1;
+            } else {
+                right = mid - 1;
+            }
+        }
+
+        if (bestLength <= 0) {
+            return ellipsis;
+        }
+
+        return text.substring(0, bestLength) + ellipsis;
     }
 
     private void renderScrollBar(PoseStack poseStack, int px, int py, int pw, int ph) {
@@ -624,16 +810,6 @@ public class FloatingSearchPanel extends AbstractWidget {
 
     private static boolean isHovered(int x, int y, int w, int h, int mouseX, int mouseY) {
         return mouseX >= x && mouseX <= x + w && mouseY >= y && mouseY <= y + h;
-    }
-
-    private static String truncateText(Font font, String text, int maxWidth) {
-        while (font.width(text) > maxWidth && text.length() > 1) {
-            text = text.substring(0, text.length() - 1);
-        }
-        if (font.width(text) > maxWidth) {
-            text = text.substring(0, Math.max(1, text.length() - 1)) + "...";
-        }
-        return text;
     }
 
     @Override

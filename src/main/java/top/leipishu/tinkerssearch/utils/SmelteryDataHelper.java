@@ -9,6 +9,8 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.material.Fluid;
 import net.minecraftforge.fluids.FluidStack;
+import net.minecraftforge.fluids.capability.CapabilityFluidHandler;
+import net.minecraftforge.fluids.capability.IFluidHandler;
 import slimeknights.tconstruct.smeltery.block.entity.controller.HeatingStructureBlockEntity;
 import slimeknights.tconstruct.smeltery.block.entity.tank.SmelteryTank;
 
@@ -17,6 +19,9 @@ import java.util.List;
 
 public class SmelteryDataHelper {
 
+    /**
+     * 获取冶炼炉中所有熔融流体
+     */
     public static List<FluidStack> getMoltenFluids(BlockEntity tileEntity) {
         List<FluidStack> fluids = new ArrayList<>();
         if (tileEntity == null) {
@@ -42,15 +47,93 @@ public class SmelteryDataHelper {
         return fluids;
     }
 
+    /**
+     * 获取冶炼炉中最下方的流体
+     * 槽位 0 是最底部
+     */
+    public static FluidStack getBottomFluid(BlockEntity tileEntity) {
+        if (tileEntity == null) return null;
+
+        // ===== 方法1：通过 HeatingStructureBlockEntity 获取 =====
+        if (tileEntity instanceof HeatingStructureBlockEntity) {
+            HeatingStructureBlockEntity controller = (HeatingStructureBlockEntity) tileEntity;
+            SmelteryTank<?> tank = controller.getTank();
+            if (tank != null && tank.getTanks() > 0) {
+                // 槽位 0 是最底部
+                FluidStack fluid = tank.getFluidInTank(0);
+                if (fluid != null && !fluid.isEmpty()) {
+                    return fluid;
+                }
+                // 如果槽位 0 为空，遍历查找第一个非空
+                for (int i = 0; i < tank.getTanks(); i++) {
+                    FluidStack f = tank.getFluidInTank(i);
+                    if (f != null && !f.isEmpty()) {
+                        return f;
+                    }
+                }
+            }
+        }
+
+        // ===== 方法2：通过 Capability 获取 =====
+        FluidStack bottom = getBottomFluidFromCapability(tileEntity);
+        if (bottom != null) return bottom;
+
+        return null;
+    }
+
+    /**
+     * 通过 Capability 获取最下方流体
+     */
+    private static FluidStack getBottomFluidFromCapability(BlockEntity tileEntity) {
+        if (tileEntity == null) return null;
+
+        try {
+            IFluidHandler fluidHandler = tileEntity.getCapability(
+                    CapabilityFluidHandler.FLUID_HANDLER_CAPABILITY
+            ).orElse(null);
+
+            if (fluidHandler == null) return null;
+
+            int tankCount = fluidHandler.getTanks();
+            if (tankCount == 0) return null;
+
+            // 槽位 0 是最底部
+            FluidStack fluid = fluidHandler.getFluidInTank(0);
+            if (fluid != null && !fluid.isEmpty()) {
+                return fluid;
+            }
+
+            // 如果槽位 0 为空，遍历查找第一个非空
+            for (int i = 0; i < tankCount; i++) {
+                FluidStack f = fluidHandler.getFluidInTank(i);
+                if (f != null && !f.isEmpty()) {
+                    return f;
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("Tinker's Search: Capability bottom fluid error: " + e.getMessage());
+        }
+
+        return null;
+    }
+
+    /**
+     * 获取最下方流体的名称（用于高亮匹配）
+     */
+    public static String getBottomFluidName(BlockEntity tileEntity) {
+        FluidStack bottom = getBottomFluid(tileEntity);
+        if (bottom == null) return null;
+        return bottom.getDisplayName().getString();
+    }
+
     private static List<FluidStack> getFluidsFromCapability(BlockEntity tileEntity) {
         List<FluidStack> fluids = new ArrayList<>();
         if (tileEntity == null) return fluids;
 
         try {
-            net.minecraftforge.fluids.capability.IFluidHandler fluidHandler =
-                    tileEntity.getCapability(
-                            net.minecraftforge.fluids.capability.CapabilityFluidHandler.FLUID_HANDLER_CAPABILITY
-                    ).orElse(null);
+            IFluidHandler fluidHandler = tileEntity.getCapability(
+                    CapabilityFluidHandler.FLUID_HANDLER_CAPABILITY
+            ).orElse(null);
 
             if (fluidHandler == null) return fluids;
 
@@ -68,6 +151,9 @@ public class SmelteryDataHelper {
         return fluids;
     }
 
+    /**
+     * 绘制流体图标
+     */
     public static void drawFluidIcon(PoseStack poseStack, int x, int y, FluidStack fluidStack, int size) {
         if (fluidStack == null || fluidStack.isEmpty()) return;
 

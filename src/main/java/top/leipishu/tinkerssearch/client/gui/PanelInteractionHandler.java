@@ -301,13 +301,13 @@ public class PanelInteractionHandler {
                 // 根据按钮选择模式
                 Object mode;
                 if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
-                    // 左键：INPUT - 显示配方
-                    mode = Enum.valueOf((Class<Enum>) focusModeClass, "INPUT");
-                    System.out.println("Tinker's Search: JEI Focus - Show Recepie (INPUT) for " + fluid.getDisplayName().getString());
-                } else if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
-                    // 右键：OUTPUT - 显示用途
+                    // ===== 左键：试试 OUTPUT（显示配方） =====
                     mode = Enum.valueOf((Class<Enum>) focusModeClass, "OUTPUT");
-                    System.out.println("Tinker's Search: JEI Focus - Show Use (OUTPUT) for " + fluid.getDisplayName().getString());
+                    System.out.println("Tinker's Search: 左键 → OUTPUT for " + fluid.getDisplayName().getString());
+                } else if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
+                    // ===== 右键：试试 INPUT（显示用途） =====
+                    mode = Enum.valueOf((Class<Enum>) focusModeClass, "INPUT");
+                    System.out.println("Tinker's Search: 右键 → INPUT for " + fluid.getDisplayName().getString());
                 } else {
                     return false;
                 }
@@ -367,18 +367,33 @@ public class PanelInteractionHandler {
         try {
             Minecraft mc = Minecraft.getInstance();
             long windowHandle = mc.getWindow().getWindow();
-            int key = button == GLFW.GLFW_MOUSE_BUTTON_LEFT ? GLFW.GLFW_KEY_R : GLFW.GLFW_KEY_U;
-            String keyName = button == GLFW.GLFW_MOUSE_BUTTON_LEFT ? "R" : "U";
+
+            int key;
+            String keyName;
+            String action;
+
+            if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+                // ===== 左键：R 键 = 显示配方 =====
+                key = GLFW.GLFW_KEY_R;
+                keyName = "R";
+                action = "配方";
+            } else if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
+                // ===== 右键：U 键 = 显示用途 =====
+                key = GLFW.GLFW_KEY_U;
+                keyName = "U";
+                action = "用途";
+            } else {
+                return false;
+            }
 
             mc.keyboardHandler.keyPress(windowHandle, key, 0, 1, 0);
             mc.keyboardHandler.keyPress(windowHandle, key, 0, 0, 0);
 
-            System.out.println("Tinker's Search: 回退 - 模拟 " + keyName + " 键 for " + fluid.getDisplayName().getString());
+            System.out.println("Tinker's Search: 模拟 " + action + " (" + keyName + "键)");
             return true;
 
         } catch (Exception e) {
-            System.err.println("Tinker's Search: 回退失败: " + e.getMessage());
-            e.printStackTrace();
+            System.err.println("Tinker's Search: 模拟按键失败: " + e.getMessage());
         }
         return false;
     }
