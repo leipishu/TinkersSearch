@@ -1,8 +1,12 @@
 {
   "gui.tinkerssearch.search_hint": "搜索...",
   "gui.tinkerssearch.refresh": "⟳刷新",
-  "button.tinkerssearch.open": "搜索",
-  "button.tinkerssearch.close": "关闭",
+  "gui.tinkerssearch.favorites": "★ 收藏",
+  "gui.tinkerssearch.smeltery": "🔥 冶炼炉",
+  "gui.tinkerssearch.no_favorites": "暂无收藏",
+  "gui.tinkerssearch.no_fluids": "暂无熔融物",
+  "gui.tinkerssearch.no_match": "未找到匹配",
+  "gui.tinkerssearch.locked": "🔒 不在冶炼炉中",
   "key.category.tinkerssearch": "Tinkers' Search",
   "key.tinkerssearch.toggle_panel": "开关面板"
 }

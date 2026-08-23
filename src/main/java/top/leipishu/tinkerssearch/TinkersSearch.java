@@ -249,7 +249,8 @@ public class TinkersSearch {
                     event.setCanceled(true);
                     return;
                 }
-                interactionHandler.handleMouseClicked(mouseX, mouseY, event.getButton());
+                // ===== 直接调用面板的鼠标点击方法 =====
+                searchPanel.mouseClicked(mouseX, mouseY, event.getButton());
                 event.setCanceled(true);
                 return;
             }

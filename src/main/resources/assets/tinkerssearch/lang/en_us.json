@@ -1,8 +1,12 @@
 {
   "gui.tinkerssearch.search_hint": "Search...",
   "gui.tinkerssearch.refresh": "↻ Refresh",
-  "button.tinkerssearch.open": "Search",
-  "button.tinkerssearch.close": "Close",
+  "gui.tinkerssearch.favorites": "★ Favorites",
+  "gui.tinkerssearch.smeltery": "🔥 Smeltery",
+  "gui.tinkerssearch.no_favorites": "No favorites",
+  "gui.tinkerssearch.no_fluids": "No fluids",
+  "gui.tinkerssearch.no_match": "No matches",
+  "gui.tinkerssearch.locked": "🔒 Not in smeltery",
   "key.category.tinkerssearch": "Tinkers' Search",
   "key.tinkerssearch.toggle_panel": "Toggle Panel"
 }

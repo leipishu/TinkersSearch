@@ -263,7 +263,7 @@ public class PanelInteractionHandler {
      * 使用 JEI Focus API（无按键冲突）
      */
     @SuppressWarnings({"unchecked", "rawtypes"})
-    private boolean handleJeiIconClick(FluidStack fluid, int button) {
+    public boolean handleJeiIconClick(FluidStack fluid, int button) {
         if (!jeiAvailable) return false;
 
         // 重新获取 runtime
