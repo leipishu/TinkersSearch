@@ -180,27 +180,32 @@ public class TinkersSearch {
         }
     }
 
+    // 在 TinkersSearch.java 中
     @SubscribeEvent(priority = EventPriority.HIGHEST)
-    public void onKeyInput(InputEvent.KeyInputEvent event) {
+    public void onKeyboardKeyPressedPre(ScreenEvent.KeyboardKeyPressedEvent.Pre event) {
         if (searchPanel == null) return;
+        if (!searchPanel.isVisible()) return;
+        if (!interactionHandler.isSearchBoxFocused()) return;
 
-        if (searchPanel.isVisible()) {
-            if (event.getKey() == GLFW.GLFW_KEY_ESCAPE && event.getAction() == GLFW.GLFW_PRESS) {
-                if (interactionHandler.isSearchBoxFocused()) {
-                    interactionHandler.setSearchBoxFocused(false);
-                }
-                return;
-            }
+        int keyCode = event.getKeyCode();
 
-            PanelInteractionHandler handler = searchPanel.getInteractionHandler();
-            if (handler != null) {
-                if (event.getAction() == GLFW.GLFW_PRESS) {
-                    if (handler.handleKeyPressed(event.getKey(), event.getScanCode(), event.getModifiers())) {
-                        return;
-                    }
-                }
+        // Backspace：让 PanelInteractionHandler 处理删除字符
+        if (keyCode == GLFW.GLFW_KEY_BACKSPACE) {
+            if (interactionHandler.handleKeyPressed(keyCode, event.getScanCode(), event.getModifiers())) {
+                event.setCanceled(true);
             }
+            return;
         }
+
+        // Enter / Escape：取消搜索框焦点
+        if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_ESCAPE) {
+            interactionHandler.setSearchBoxFocused(false);
+            event.setCanceled(true);
+            return;
+        }
+
+        // 其他所有按键：在这里直接拦截，阻止触发任何快捷键
+        event.setCanceled(true);
     }
 
     private void togglePanel() {

@@ -707,15 +707,23 @@ public class FloatingSearchPanel extends AbstractWidget {
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         if (!isVisible) return false;
 
-        if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
-            if (interactionHandler.isSearchBoxFocused()) {
+        if (interactionHandler.isSearchBoxFocused()) {
+            if (keyCode == GLFW.GLFW_KEY_BACKSPACE) {
+                return interactionHandler.handleKeyPressed(keyCode, scanCode, modifiers);
+            }
+            if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER) {
                 interactionHandler.setSearchBoxFocused(false);
                 return true;
             }
-            if (isAlloyMode && alloyHandler.getSelectedMaterial() != null) {
-                alloyHandler.backToMaterials();
+            if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+                interactionHandler.setSearchBoxFocused(false);
                 return true;
             }
+            // 其他所有按键：返回 true 阻止传播，但不调用 event.setCanceled
+            return true;
+        }
+
+        if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
             return false;
         }
 
