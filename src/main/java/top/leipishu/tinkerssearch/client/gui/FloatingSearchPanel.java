@@ -15,9 +15,15 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraftforge.fluids.FluidStack;
 import net.minecraftforge.fml.ModList;
-import org.lwjgl.glfw.GLFW;
 import slimeknights.tconstruct.smeltery.block.entity.controller.HeatingStructureBlockEntity;
-import slimeknights.tconstruct.smeltery.block.entity.controller.SmelteryBlockEntity;
+import slimeknights.tconstruct.smeltery.block.entity.module.FuelModule;
+import net.minecraft.world.level.Level;
+import net.minecraft.core.BlockPos;
+import net.minecraftforge.fluids.capability.IFluidHandler;
+import net.minecraftforge.fluids.capability.CapabilityFluidHandler;
+import java.util.function.Supplier;
+import net.minecraft.world.level.material.Fluid;
+import org.lwjgl.glfw.GLFW;
 import top.leipishu.tinkerssearch.alloy.AlloyQueryHandler;
 import top.leipishu.tinkerssearch.alloy.AlloyRecipeData;
 import top.leipishu.tinkerssearch.alloy.AlloyResultCalculator;
@@ -275,6 +281,10 @@ public class FloatingSearchPanel extends AbstractWidget {
             animationStartTime = System.currentTimeMillis();
         } else {
             updatePanelPosition();
+
+            // ===== 关键：打开面板时立即刷新温度 =====
+            refreshSmelteryTemperature();
+
             refreshMoltenFluids();
             this.isVisible = true;
             this.visible = true;
@@ -424,7 +434,9 @@ public class FloatingSearchPanel extends AbstractWidget {
 
         if (keyword != null && keyword.startsWith("/a/")) {
             String searchTerm = keyword.substring(3).trim();
+            // ===== 使用最新温度 =====
             int currentTemp = getCurrentSmelteryTemperature();
+            alloyHandler.refreshTemperature(currentTemp);
             System.out.println("Tinker's Search: Entering alloy mode, temperature = " + currentTemp + "°C");
             alloyHandler.performQuery(searchTerm, allFluids, currentTemp);
             isAlloyMode = true;
@@ -926,184 +938,108 @@ public class FloatingSearchPanel extends AbstractWidget {
     // ==================== 温度获取 ====================
 
     public int getCurrentSmelteryTemperature() {
-        // ===== 优先从当前 Screen 获取最新的 BlockEntity =====
-        BlockEntity target = null;
-
         Minecraft mc = Minecraft.getInstance();
         Screen screen = mc.screen;
-        if (screen != null) {
-            String className = screen.getClass().getName();
-            if (className.contains("SmelteryScreen") || className.contains("smeltery") || className.contains("alloyer")) {
-                String[] fieldNames = {"te", "tileEntity", "blockEntity", "smeltery", "tile"};
-                for (String name : fieldNames) {
-                    try {
-                        Field field = screen.getClass().getDeclaredField(name);
-                        field.setAccessible(true);
-                        Object obj = field.get(screen);
-                        if (obj instanceof BlockEntity) {
-                            target = (BlockEntity) obj;
-                            this.smelteryTileEntity = target;
-                            this.cachedTileEntity = target;
-                            System.out.println("Tinker's Search: Temperature - retrieved entity from screen via '" + name + "': " + target.getClass().getSimpleName());
-                            break;
-                        }
-                    } catch (Exception ignored) {}
-                }
-            }
-        }
 
-        // 如果 Screen 中获取失败，回退到缓存
-        if (target == null) {
-            target = smelteryTileEntity != null ? smelteryTileEntity : cachedTileEntity;
-        }
-
-        if (target == null) {
-            System.out.println("Tinker's Search: Temperature - no smeltery entity found, returning 0");
+        if (screen == null) {
             return 0;
         }
 
-        String entityType = target.getClass().getSimpleName();
-        System.out.println("Tinker's Search: Temperature - entity type: " + entityType);
+        BlockEntity target = null;
+        String[] fieldNames = {"te", "tileEntity", "blockEntity", "smeltery", "tile"};
+        for (String name : fieldNames) {
+            try {
+                Field field = screen.getClass().getDeclaredField(name);
+                field.setAccessible(true);
+                Object obj = field.get(screen);
+                if (obj instanceof BlockEntity) {
+                    target = (BlockEntity) obj;
+                    this.smelteryTileEntity = target;
+                    this.cachedTileEntity = target;
+                    break;
+                }
+            } catch (Exception ignored) {}
+        }
+
+        if (target == null) {
+            return 0;
+        }
 
         try {
-            // ===== 方法1: SmelteryBlockEntity =====
-            if (target instanceof SmelteryBlockEntity) {
-                SmelteryBlockEntity smeltery = (SmelteryBlockEntity) target;
+            if (target instanceof HeatingStructureBlockEntity) {
+                HeatingStructureBlockEntity controller = (HeatingStructureBlockEntity) target;
 
-                // 1a: 通过 fuelModule.getTemperature()
-                try {
-                    Field fuelModuleField = HeatingStructureBlockEntity.class.getDeclaredField("fuelModule");
-                    fuelModuleField.setAccessible(true);
-                    Object fuelModule = fuelModuleField.get(smeltery);
-
-                    if (fuelModule != null) {
-                        Method getTempMethod = fuelModule.getClass().getMethod("getTemperature");
-                        int temp = (int) getTempMethod.invoke(fuelModule);
-                        System.out.println("Tinker's Search: Temperature via fuelModule.getTemperature = " + temp + "°C");
-                        if (temp > 0 && temp < 2000) {
-                            return temp;
-                        }
-                    }
-                } catch (Exception e) {
-                    System.out.println("Tinker's Search: fuelModule.getTemperature failed: " + e.getMessage());
-                }
-
-                // 1b: 通过燃料的 currentFuel 获取实际温度
-                try {
-                    Field fuelModuleField = HeatingStructureBlockEntity.class.getDeclaredField("fuelModule");
-                    fuelModuleField.setAccessible(true);
-                    Object fuelModule = fuelModuleField.get(smeltery);
-
-                    if (fuelModule != null) {
-                        Field currentFuelField = fuelModule.getClass().getDeclaredField("currentFuel");
-                        currentFuelField.setAccessible(true);
-                        Object currentFuel = currentFuelField.get(fuelModule);
-
-                        if (currentFuel != null) {
-                            Method getTempMethod = currentFuel.getClass().getMethod("getTemperature");
-                            int temp = (int) getTempMethod.invoke(currentFuel);
-                            System.out.println("Tinker's Search: Temperature via currentFuel.getTemperature = " + temp + "°C");
-                            if (temp > 0) {
-                                return temp;
-                            }
-                        }
-                    }
-                } catch (Exception e) {
-                    System.out.println("Tinker's Search: currentFuel method failed: " + e.getMessage());
-                }
-            }
-
-            // ===== 方法2: AlloyerBlockEntity =====
-            if (entityType.equals("AlloyerBlockEntity")) {
-                try {
-                    Field fuelModuleField = target.getClass().getDeclaredField("fuelModule");
-                    fuelModuleField.setAccessible(true);
-                    Object fuelModule = fuelModuleField.get(target);
-
-                    if (fuelModule != null) {
-                        Method getTempMethod = fuelModule.getClass().getMethod("getTemperature");
-                        int temp = (int) getTempMethod.invoke(fuelModule);
-                        System.out.println("Tinker's Search: Temperature via AlloyerBlockEntity.fuelModule = " + temp + "°C");
-                        if (temp > 0) {
-                            return temp;
-                        }
-                    }
-                } catch (Exception e) {
-                    System.out.println("Tinker's Search: AlloyerBlockEntity fuelModule failed: " + e.getMessage());
-                }
-
-                // AlloyerBlockEntity 的 currentFuel
-                try {
-                    Field fuelModuleField = target.getClass().getDeclaredField("fuelModule");
-                    fuelModuleField.setAccessible(true);
-                    Object fuelModule = fuelModuleField.get(target);
-
-                    if (fuelModule != null) {
-                        Field currentFuelField = fuelModule.getClass().getDeclaredField("currentFuel");
-                        currentFuelField.setAccessible(true);
-                        Object currentFuel = currentFuelField.get(fuelModule);
-
-                        if (currentFuel != null) {
-                            Method getTempMethod = currentFuel.getClass().getMethod("getTemperature");
-                            int temp = (int) getTempMethod.invoke(currentFuel);
-                            System.out.println("Tinker's Search: Temperature via Alloyer currentFuel.getTemperature = " + temp + "°C");
-                            if (temp > 0) {
-                                return temp;
-                            }
-                        }
-                    }
-                } catch (Exception e) {
-                    System.out.println("Tinker's Search: Alloyer currentFuel failed: " + e.getMessage());
-                }
-            }
-
-            // ===== 方法3: 通用查找 =====
-            try {
-                Field fuelModuleField = target.getClass().getDeclaredField("fuelModule");
-                fuelModuleField.setAccessible(true);
-                Object fuelModule = fuelModuleField.get(target);
-
+                // ===== 获取燃料模块 =====
+                FuelModule fuelModule = controller.getFuelModule();
                 if (fuelModule != null) {
-                    try {
-                        Method getTempMethod = fuelModule.getClass().getMethod("getTemperature");
-                        int temp = (int) getTempMethod.invoke(fuelModule);
-                        System.out.println("Tinker's Search: Temperature via generic fuelModule = " + temp + "°C");
-                        if (temp > 0 && temp < 2000) {
-                            return temp;
-                        }
-                    } catch (Exception e) {}
+                    // 方法1: 正在燃烧的温度
+                    int temp = fuelModule.getTemperature();
+                    if (temp > 0) {
+                        System.out.println("Tinker's Search: Burning temperature = " + temp + "°C");
+                        return temp;
+                    }
 
-                    try {
-                        Field currentFuelField = fuelModule.getClass().getDeclaredField("currentFuel");
-                        currentFuelField.setAccessible(true);
-                        Object currentFuel = currentFuelField.get(fuelModule);
-                        if (currentFuel != null) {
-                            Method getTempMethod = currentFuel.getClass().getMethod("getTemperature");
-                            int temp = (int) getTempMethod.invoke(currentFuel);
-                            System.out.println("Tinker's Search: Temperature via generic currentFuel = " + temp + "°C");
-                            if (temp > 0) {
-                                return temp;
+                    // 方法2: 获取燃料槽里的燃料温度
+                    // FuelModule 里有 tankSupplier，获取燃料槽位置
+                    Field tankSupplierField = FuelModule.class.getDeclaredField("tankSupplier");
+                    tankSupplierField.setAccessible(true);
+                    Supplier<List<BlockPos>> tankSupplier = (Supplier<List<BlockPos>>) tankSupplierField.get(fuelModule);
+                    List<BlockPos> tankPositions = tankSupplier.get();
+
+                    if (tankPositions != null && !tankPositions.isEmpty()) {
+                        Level level = controller.getLevel();
+                        for (BlockPos pos : tankPositions) {
+                            BlockEntity te = level.getBlockEntity(pos);
+                            if (te != null) {
+                                IFluidHandler fluidHandler = te.getCapability(CapabilityFluidHandler.FLUID_HANDLER_CAPABILITY)
+                                        .orElse(null);
+                                if (fluidHandler != null) {
+                                    FluidStack fluid = fluidHandler.getFluidInTank(0);
+                                    if (!fluid.isEmpty()) {
+                                        // 从燃料流体获取温度
+                                        try {
+                                            Class<?> fuelLookupClass = Class.forName("slimeknights.tconstruct.library.recipe.fuel.MeltingFuelLookup");
+                                            Method findFuelMethod = fuelLookupClass.getMethod("findFuel", Fluid.class);
+                                            Object fuel = findFuelMethod.invoke(null, fluid.getFluid());
+
+                                            if (fuel != null) {
+                                                Method getTempMethod = fuel.getClass().getMethod("getTemperature");
+                                                int fuelTemp = (int) getTempMethod.invoke(fuel);
+                                                if (fuelTemp > 0) {
+                                                    System.out.println("Tinker's Search: Fuel tank temperature = " + fuelTemp + "°C");
+                                                    return fuelTemp;
+                                                }
+                                            }
+                                        } catch (Exception ignored) {}
+                                    }
+                                }
                             }
                         }
-                    } catch (Exception e) {}
+                    }
                 }
-            } catch (Exception e) {}
-
-            // ===== 方法4: 直接调用 getTemperature =====
-            try {
-                Method getTempMethod = target.getClass().getMethod("getTemperature");
-                int temp = (int) getTempMethod.invoke(target);
-                System.out.println("Tinker's Search: Temperature via direct getTemperature = " + temp + "°C");
-                return temp;
-            } catch (NoSuchMethodException e) {}
-
+            }
         } catch (Exception e) {
-            System.err.println("Tinker's Search: Failed to get temperature: " + e.getMessage());
+            System.out.println("Tinker's Search: Temperature read failed: " + e.getMessage());
             e.printStackTrace();
         }
 
-        System.out.println("Tinker's Search: Temperature - all methods failed, returning 0");
         return 0;
+    }
+
+    /**
+     * 刷新冶炼炉温度并更新到 alloyHandler
+     */
+    private void refreshSmelteryTemperature() {
+        int currentTemp = getCurrentSmelteryTemperature();
+        alloyHandler.refreshTemperature(currentTemp);
+        System.out.println("Tinker's Search: Refreshed temperature: " + currentTemp + "°C");
+    }
+
+    /**
+     * 外部调用刷新温度（用于 TinkersSearch 切换面板时）
+     */
+    public void refreshTemperature() {
+        refreshSmelteryTemperature();
     }
 
     // ==================== 合金模式渲染 ====================
@@ -1565,8 +1501,7 @@ public class FloatingSearchPanel extends AbstractWidget {
                         mouseY >= cardY && mouseY <= cardY + cardH) {
                     if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
                         int currentTemp = getCurrentSmelteryTemperature();
-                        System.out.println("Tinker's Search: Card clicked - selecting material: " +
-                                materials.get(i).getDisplayName().getString() + ", temperature = " + currentTemp + "°C");
+                        alloyHandler.refreshTemperature(currentTemp);
                         alloyHandler.selectMaterial(materials.get(i), allFluids, currentTemp);
                         return true;
                     }

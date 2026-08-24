@@ -69,7 +69,7 @@ public class TinkersSearch {
         boolean isSmeltery = isSmelteryScreen(screen);
 
         if (isSmeltery) {
-            handleSmelteryOpen(screen);
+            handleSmelteryOpen(screen);  // 调用唯一的方法
             addPanelToRenderables(screen);
         } else {
             handleSmelteryClose();
@@ -106,6 +106,8 @@ public class TinkersSearch {
 
         if (searchPanel.isVisible()) {
             if (!hasInitialized) {
+                // ===== 刷新温度（现在可以访问） =====
+                searchPanel.refreshTemperature();
                 searchPanel.refreshMoltenFluids();
                 hasInitialized = true;
             }
@@ -207,6 +209,10 @@ public class TinkersSearch {
 
         if (searchPanel.isVisible()) {
             searchPanel.forceUpdatePosition();
+
+            // ===== 刷新温度（现在可以访问） =====
+            searchPanel.refreshTemperature();
+
             if (smelteryBlockEntity != null) {
                 searchPanel.refreshMoltenFluids();
             } else {

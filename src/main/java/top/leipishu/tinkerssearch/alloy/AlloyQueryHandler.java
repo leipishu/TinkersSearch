@@ -15,6 +15,11 @@ public class AlloyQueryHandler {
     private String currentSearchTerm = "";
     private boolean isQueryMode = false;
 
+    // ===== 温度缓存 =====
+    private int lastKnownTemperature = 0;
+    private long lastTemperatureUpdate = 0;
+    private static final long TEMPERATURE_CACHE_DURATION = 200;
+
     public static AlloyQueryHandler getInstance() {
         if (instance == null) {
             instance = new AlloyQueryHandler();
@@ -22,11 +27,22 @@ public class AlloyQueryHandler {
         return instance;
     }
 
+    // ===== 温度刷新方法 =====
+    public void refreshTemperature(int currentTemperature) {
+        this.lastKnownTemperature = currentTemperature;
+        this.lastTemperatureUpdate = System.currentTimeMillis();
+    }
+
+    public int getLastKnownTemperature() {
+        return lastKnownTemperature;
+    }
+
     public void performQuery(String searchTerm, List<FluidStack> availableFluids, int currentTemperature) {
         this.currentSearchTerm = searchTerm;
         this.isQueryMode = true;
         this.selectedMaterial = null;
         this.currentResults.clear();
+        this.lastKnownTemperature = currentTemperature;
 
         allMaterials = TinkersAlloyReader.getAllSmelteryFluids();
         filteredMaterials = filterMaterials(allMaterials, searchTerm);
@@ -50,17 +66,22 @@ public class AlloyQueryHandler {
         return result;
     }
 
+    // ===== 无参版本：使用缓存温度 =====
+    public void selectMaterial(FluidStack material, List<FluidStack> availableFluids) {
+        selectMaterial(material, availableFluids, lastKnownTemperature);
+    }
+
     public void selectMaterial(FluidStack material, List<FluidStack> availableFluids, int currentTemperature) {
         this.selectedMaterial = material;
         this.currentResults.clear();
+        this.lastKnownTemperature = currentTemperature;
 
         // ===== 将搜索的材料视为足量（加入可用流体列表） =====
         List<FluidStack> simulatedFluids = new ArrayList<>(availableFluids);
-        // 检查是否已存在，如果存在则更新为足量（10000mB），否则添加
         boolean found = false;
         for (FluidStack fs : simulatedFluids) {
             if (fs.getFluid().getRegistryName().equals(material.getFluid().getRegistryName())) {
-                fs.setAmount(10000); // 设为足量
+                fs.setAmount(10000);
                 found = true;
                 break;
             }
@@ -98,6 +119,7 @@ public class AlloyQueryHandler {
         this.filteredMaterials.clear();
         this.allMaterials.clear();
         this.currentSearchTerm = "";
+        this.lastKnownTemperature = 0;
     }
 
     public boolean isQueryMode() { return isQueryMode; }
