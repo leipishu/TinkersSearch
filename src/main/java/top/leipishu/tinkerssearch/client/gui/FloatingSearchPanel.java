@@ -432,14 +432,11 @@ public class FloatingSearchPanel extends AbstractWidget {
     public void refreshMoltenFluids() {
         String keyword = interactionHandler.getSearchKeyword();
 
-        // 在 refreshMoltenFluids() 中
         if (keyword != null && keyword.startsWith("/a/")) {
-            // 先刷新 allFluids
             BlockEntity target = smelteryTileEntity != null ? smelteryTileEntity : cachedTileEntity;
             if (target != null) {
                 allFluids = SmelteryDataHelper.getMoltenFluids(target);
             }
-
             String searchTerm = keyword.substring(3).trim();
             int currentTemp = getCurrentSmelteryTemperature();
             alloyHandler.refreshTemperature(currentTemp);
@@ -453,9 +450,57 @@ public class FloatingSearchPanel extends AbstractWidget {
                 alloyHandler.exitQueryMode();
                 interactionHandler.setSearchKeyword("");
                 interactionHandler.setSearchBoxFocused(false);
+
+                // ===== 关键修复：强制重新获取冶炼炉数据 =====
+                BlockEntity target = smelteryTileEntity != null ? smelteryTileEntity : cachedTileEntity;
+                if (target != null) {
+                    allFluids = SmelteryDataHelper.getMoltenFluids(target);
+
+                    // 重新构建收藏列表
+                    allFavoriteFluids.clear();
+                    displayedFavoriteFluids.clear();
+                    List<FluidStack> favList = FavoritesManager.getFavorites();
+                    for (FluidStack favFluid : favList) {
+                        if (favFluid == null || favFluid.isEmpty()) continue;
+                        ResourceLocation rl = favFluid.getFluid().getRegistryName();
+                        if (rl == null) continue;
+                        FluidStack matched = null;
+                        for (FluidStack fs : allFluids) {
+                            if (fs.getFluid().getRegistryName().equals(rl)) {
+                                matched = fs;
+                                break;
+                            }
+                        }
+                        if (matched != null) {
+                            allFavoriteFluids.add(matched.copy());
+                        } else {
+                            allFavoriteFluids.add(favFluid.copy());
+                        }
+                    }
+
+                    // 获取底部流体
+                    FluidStack bottomFluid = SmelteryDataHelper.getBottomFluid(target);
+                    if (bottomFluid != null) {
+                        bottomFluidName = bottomFluid.getDisplayName().getString();
+                    } else {
+                        bottomFluidName = null;
+                    }
+
+                    // 构建显示列表（关键词为空，显示全部）
+                    displayedFluids = new ArrayList<>(allFluids);
+                    displayedFavoriteFluids = new ArrayList<>(allFavoriteFluids);
+
+                    interactionHandler.setDataRefs(allFluids, displayedFluids);
+                    updateMaxScrollOffset();
+                    scrollOffset = 0;
+                    favScrollOffset = 0;
+                    System.out.println("Tinker's Search: Exited alloy mode, displayed " + displayedFluids.size() + " fluids");
+                    return;
+                }
             }
         }
 
+        // ===== 正常模式刷新（原有逻辑） =====
         allFluids.clear();
         displayedFluids.clear();
         allFavoriteFluids.clear();
@@ -475,10 +520,8 @@ public class FloatingSearchPanel extends AbstractWidget {
         List<FluidStack> favList = FavoritesManager.getFavorites();
         for (FluidStack favFluid : favList) {
             if (favFluid == null || favFluid.isEmpty()) continue;
-
             ResourceLocation rl = favFluid.getFluid().getRegistryName();
             if (rl == null) continue;
-
             FluidStack matched = null;
             for (FluidStack fs : allFluids) {
                 if (fs.getFluid().getRegistryName().equals(rl)) {
@@ -486,7 +529,6 @@ public class FloatingSearchPanel extends AbstractWidget {
                     break;
                 }
             }
-
             if (matched != null) {
                 allFavoriteFluids.add(matched.copy());
             } else {
@@ -503,7 +545,6 @@ public class FloatingSearchPanel extends AbstractWidget {
         }
 
         interactionHandler.setDataRefs(allFluids, displayedFluids);
-
         updateMaxScrollOffset();
         scrollOffset = 0;
         favScrollOffset = 0;
@@ -1260,7 +1301,10 @@ public class FloatingSearchPanel extends AbstractWidget {
             for (int i = 0; i < missing.size(); i++) {
                 if (i > 0) sb.append(", ");
                 AlloyRecipeData.AlloyFeasibility.MissingFluid mf = missing.get(i);
-                String name = mf.fluid.getDisplayName().getString().replace("Molten ", "");
+                // ===== 统一移除 "Molten " 和 "熔融" 前缀 =====
+                String name = mf.fluid.getDisplayName().getString()
+                        .replace("Molten ", "")
+                        .replace("熔融", "");
                 sb.append(name).append("(").append(mf.available).append("/").append(mf.needed).append("mB)");
             }
             String missingStr = sb.toString();
@@ -1271,7 +1315,10 @@ public class FloatingSearchPanel extends AbstractWidget {
         }
 
         if (result.getNext() != null) {
-            String childName = result.getNext().getRecipe().getResult().getDisplayName().getString().replace("Molten ", "");
+            // ===== 统一移除 "Molten " 和 "熔融" 前缀 =====
+            String childName = result.getNext().getRecipe().getResult().getDisplayName().getString()
+                    .replace("Molten ", "")
+                    .replace("熔融", "");
             String childStr = "§e" + new TranslatableComponent("gui.tinkerssearch.alloy_child").getString().replace("%s", childName);
             int maxChildWidth = w - 8;
             String truncatedChild = truncateTextWithEllipsis(font, childStr, maxChildWidth);
@@ -1283,7 +1330,6 @@ public class FloatingSearchPanel extends AbstractWidget {
         if (feasibility.isFeasible() && result.getNext() == null) {
             int maxTimes = feasibility.getMaxTimes();
             if (maxTimes > 0) {
-                // 使用 TranslatableComponent 的参数功能
                 String timesText = new TranslatableComponent("gui.tinkerssearch.alloy_times", maxTimes).getString();
                 String timesStr = "§e" + timesText;
                 String truncatedTimes = truncateTextWithEllipsis(font, timesStr, w - 8);

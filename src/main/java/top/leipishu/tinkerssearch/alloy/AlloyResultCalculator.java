@@ -20,7 +20,6 @@ public class AlloyResultCalculator {
             for (AlloyRecipeData.FluidIngredientData input : recipe.getInputs()) {
                 FluidStack inputFluid = input.getFluid();
                 if (inputFluid.getFluid().getRegistryName().equals(selectedFluid.getFluid().getRegistryName())) {
-                    // ===== 调用时传入 6 个参数 =====
                     AlloyChainResult chain = buildChain(recipe, availableFluids, currentTemperature, allRecipes, 0, selectedFluid);
                     if (chain != null) {
                         results.add(chain);
@@ -58,7 +57,6 @@ public class AlloyResultCalculator {
         AlloyChainResult childResult = null;
         if (!childRecipes.isEmpty()) {
             for (AlloyRecipeData child : childRecipes) {
-                // ===== 递归调用：同样传入 6 个参数 =====
                 AlloyChainResult childChain = buildChain(child, availableFluids, currentTemperature, allRecipes, depth + 1, selectedFluid);
                 if (childChain != null) {
                     childResult = childChain;
@@ -117,11 +115,16 @@ public class AlloyResultCalculator {
             for (int i = 0; i < inputs.size(); i++) {
                 if (i > 0) sb.append(" + ");
                 FluidStack fs = inputs.get(i).getFluid();
-                String name = fs.getDisplayName().getString().replace("Molten ", "");
+                // ===== 统一移除 "Molten " 和 "熔融" 前缀 =====
+                String name = fs.getDisplayName().getString()
+                        .replace("Molten ", "")
+                        .replace("熔融", "");
                 sb.append(name);
             }
             sb.append(" = ");
-            String resultName = recipe.getResult().getDisplayName().getString().replace("Molten ", "");
+            String resultName = recipe.getResult().getDisplayName().getString()
+                    .replace("Molten ", "")
+                    .replace("熔融", "");
             sb.append(resultName);
             return sb.toString();
         }

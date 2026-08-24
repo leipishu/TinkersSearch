@@ -15,7 +15,6 @@ public class AlloyQueryHandler {
     private String currentSearchTerm = "";
     private boolean isQueryMode = false;
 
-    // ===== 温度缓存 =====
     private int lastKnownTemperature = 0;
     private long lastTemperatureUpdate = 0;
     private static final long TEMPERATURE_CACHE_DURATION = 200;
@@ -27,7 +26,6 @@ public class AlloyQueryHandler {
         return instance;
     }
 
-    // ===== 温度刷新方法 =====
     public void refreshTemperature(int currentTemperature) {
         this.lastKnownTemperature = currentTemperature;
         this.lastTemperatureUpdate = System.currentTimeMillis();
@@ -57,16 +55,22 @@ public class AlloyQueryHandler {
         String lowerSearch = searchTerm.toLowerCase();
 
         for (FluidStack fs : materials) {
-            String name = fs.getDisplayName().getString().toLowerCase()
-                    .replace("molten ", "");
-            if (name.contains(lowerSearch)) {
+            String displayName = fs.getDisplayName().getString()
+                    .toLowerCase()
+                    .replace("molten ", "")
+                    .replace("熔融", "");
+
+            String registryName = fs.getFluid().getRegistryName() != null
+                    ? fs.getFluid().getRegistryName().getPath().toLowerCase()
+                    : "";
+
+            if (displayName.contains(lowerSearch) || registryName.contains(lowerSearch)) {
                 result.add(fs);
             }
         }
         return result;
     }
 
-    // ===== 无参版本：使用缓存温度 =====
     public void selectMaterial(FluidStack material, List<FluidStack> availableFluids) {
         selectMaterial(material, availableFluids, lastKnownTemperature);
     }
@@ -76,8 +80,14 @@ public class AlloyQueryHandler {
         this.currentResults.clear();
         this.lastKnownTemperature = currentTemperature;
 
-        // ===== 将搜索的材料视为足量（加入可用流体列表） =====
-        List<FluidStack> simulatedFluids = new ArrayList<>(availableFluids);
+        // ===== 深拷贝：复制每个 FluidStack 对象，避免污染原始数据 =====
+        List<FluidStack> simulatedFluids = new ArrayList<>();
+        for (FluidStack fs : availableFluids) {
+            FluidStack copy = fs.copy();
+            simulatedFluids.add(copy);
+        }
+
+        // 将搜索的材料视为足量
         boolean found = false;
         for (FluidStack fs : simulatedFluids) {
             if (fs.getFluid().getRegistryName().equals(material.getFluid().getRegistryName())) {
