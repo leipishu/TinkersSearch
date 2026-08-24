@@ -44,7 +44,7 @@
 
 ### 📥 下载
 
-- **[Modrinth](https://modrinth.com/mod/tinkers-search)**（推荐）
+- **[Modrinth](https://modrinth.com/mod/tinkers-search)**（审核中）
 - **[CurseForge](https://www.curseforge.com/minecraft/mc-mods/tinkers-search)**
 - GitHub Releases
 
@@ -116,7 +116,7 @@ cd TinkersSearch
 
 ### 📥 Download
 
-- **[Modrinth](https://modrinth.com/mod/tinkers-search)** (Recommended)
+- **[Modrinth](https://modrinth.com/mod/tinkers-search)** (Under review)
 - **[CurseForge](https://www.curseforge.com/minecraft/mc-mods/tinkers-search)**
 - GitHub Releases
 
