@@ -1,0 +1,61 @@
+name: Improvement / 优化建议
+description: Suggest an improvement for existing features / 为现有功能提出优化建议
+title: "[Improve] "
+labels: ["improvement", "status: pending"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## ⚠️ Please confirm before submitting / 提交前请确认
+
+        - [ ] I have searched for existing suggestions / 我已搜索过现有建议
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which area does this improvement affect? / 该优化涉及哪个方面？
+      options:
+        - Panel / 搜索面板
+        - Alloy Mode / 合金模式
+        - Favorites / 收藏功能
+        - JEI Integration / JEI 集成
+        - Performance / 性能
+        - UI / 界面
+        - Other / 其他
+    validations:
+      required: true
+
+  - type: textarea
+    id: current
+    attributes:
+      label: Current Behavior / 当前行为
+      description: What does the current implementation do? / 当前实现是什么样的？
+      placeholder: |
+        English: Currently, the panel...
+        中文：当前面板...
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Proposed Improvement / 建议的优化方案
+      description: How do you want it to be improved? / 你希望如何优化？
+      placeholder: |
+        English: It would be better if...
+        中文：如果...会更好
+    validations:
+      required: true
+
+  - type: textarea
+    id: reason
+    attributes:
+      label: Reason / 理由
+      description: Why is this improvement needed? / 为什么需要这个优化？
+      placeholder: |
+        English: This would improve... because...
+        中文：这将改善...因为...
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context / 额外上下文
+      description: Add any other context, screenshots, or examples / 添加其他上下文、截图或示例

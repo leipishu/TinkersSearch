@@ -1,0 +1,44 @@
+name: Feature Request / 新功能请求
+description: Suggest an idea for TinkersSearch / 为 TinkersSearch 提供建议
+title: "[Feature] "
+labels: ["enhancement", "status: pending"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## ⚠️ Please confirm before submitting / 提交前请确认
+
+        - [ ] I have searched for existing requests / 我已搜索过现有请求
+        - [ ] This feature does not already exist / 该功能尚未存在
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Is your feature request related to a problem? / 该功能与某个问题相关吗？
+      description: Please describe the problem you're facing / 描述你遇到的问题
+      placeholder: |
+        English: I'm always frustrated when...
+        中文：我总是感到困扰，因为...
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Describe the solution you'd like / 描述你期望的解决方案
+      description: What do you want to happen? / 你希望发生什么？
+      placeholder: |
+        English: I would like to see...
+        中文：我希望看到...
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Describe alternatives you've considered / 描述你考虑过的替代方案
+      description: Any other solutions or workarounds? / 有其他解决方案或变通方法吗？
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context / 额外上下文
+      description: Add any other context, screenshots, or examples / 添加其他上下文、截图或示例

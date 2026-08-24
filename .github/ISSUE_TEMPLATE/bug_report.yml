@@ -1,0 +1,103 @@
+name: Bug Report / 缺陷报告
+description: Report a bug to help us improve / 报告一个问题来帮助我们改进
+title: "[Bug] "
+labels: ["bug", "status: pending"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## ⚠️ Please confirm before submitting / 提交前请确认
+
+        - [ ] I have searched for existing issues / 我已搜索过现有问题
+        - [ ] I am using the latest version / 我使用的是最新版本
+        - [ ] I have tested without other mods (except dependencies) / 我已在无其他模组的环境下测试（依赖模组除外）
+
+  - type: dropdown
+    id: version
+    attributes:
+      label: Mod Version / 模组版本
+      description: Which version of TinkersSearch are you using? / 你正在使用哪个版本？
+      options:
+        - 1.5.1 (Latest / 最新)
+        - 1.5.0
+        - 1.4.2
+        - 1.4.1
+        - Older / 更旧版本
+        - I don't know / 不知道
+    validations:
+      required: true
+
+  - type: dropdown
+    id: mc_version
+    attributes:
+      label: Minecraft Version / 游戏版本
+      options:
+        - 1.20.1
+        - 1.19.2
+        - 1.18.2
+        - 1.16.5
+        - Other / 其他
+    validations:
+      required: true
+
+  - type: dropdown
+    id: loader
+    attributes:
+      label: Mod Loader / 模组加载器
+      options:
+        - Forge
+        - Fabric
+        - NeoForge
+    validations:
+      required: true
+
+  - type: dropdown
+    id: jei
+    attributes:
+      label: JEI Status / JEI 状态
+      description: Is JEI installed? / 是否安装了 JEI？
+      options:
+        - Installed / 已安装
+        - Not installed / 未安装
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Issue Description / 问题描述
+      description: What happened? What did you expect to happen? / 发生了什么？你期望发生什么？
+      placeholder: |
+        English:
+        When I click X, Y happens. I expected Z.
+
+        中文：
+        当我点击 X 时，发生了 Y，我期望的是 Z。
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce / 复现步骤
+      description: How can we reproduce this issue? / 我们如何复现此问题？
+      placeholder: |
+        1. Open smeltery GUI / 打开冶炼炉界面
+        2. Enter "/a/copper" in search box / 在搜索框输入 "/a/copper"
+        3. Click on copper / 点击铜
+        4. Observe the error / 观察错误
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / 日志
+      description: Please paste any relevant error logs (latest.log or crash report) / 请粘贴相关错误日志
+      render: shell
+      placeholder: Paste your logs here / 在此粘贴日志
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots / 截图
+      description: If applicable, add screenshots to help explain / 如有截图请添加
+      placeholder: Drag and drop images here / 拖拽图片到此处

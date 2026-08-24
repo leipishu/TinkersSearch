@@ -1,0 +1,26 @@
+name: Sync Labels
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - '.github/labels.yml'
+  workflow_dispatch:
+
+jobs:
+  sync-labels:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Sync Labels
+        uses: kjanat/github-labelmanager@v1
+        with:
+          token: ${{ github.token }}
+          config-path: .github/labels.yml
