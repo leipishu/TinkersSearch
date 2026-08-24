@@ -432,12 +432,17 @@ public class FloatingSearchPanel extends AbstractWidget {
     public void refreshMoltenFluids() {
         String keyword = interactionHandler.getSearchKeyword();
 
+        // 在 refreshMoltenFluids() 中
         if (keyword != null && keyword.startsWith("/a/")) {
+            // 先刷新 allFluids
+            BlockEntity target = smelteryTileEntity != null ? smelteryTileEntity : cachedTileEntity;
+            if (target != null) {
+                allFluids = SmelteryDataHelper.getMoltenFluids(target);
+            }
+
             String searchTerm = keyword.substring(3).trim();
-            // ===== 使用最新温度 =====
             int currentTemp = getCurrentSmelteryTemperature();
             alloyHandler.refreshTemperature(currentTemp);
-            System.out.println("Tinker's Search: Entering alloy mode, temperature = " + currentTemp + "°C");
             alloyHandler.performQuery(searchTerm, allFluids, currentTemp);
             isAlloyMode = true;
             alloyScrollOffset = 0;
