@@ -63,19 +63,19 @@ labels:
   # Priority Labels / 优先级标签
   # ============================================================================
 
-  - name: "priority: critical"
+  - name: "🟪 priority: critical"
     color: "ffffff"
     description: "🟪 Critical / 严重"
 
-  - name: "priority: high"
+  - name: "🟧 priority: high"
     color: "ffffff"
     description: "🟧 High / 高"
 
-  - name: "priority: medium"
+  - name: "🟨 priority: medium"
     color: "ffffff"
     description: "🟨 Medium / 中"
 
-  - name: "priority: low"
+  - name: "🟩 priority: low"
     color: "ffffff"
     description: "🟩 Low / 低"
 
@@ -106,10 +106,6 @@ labels:
   - name: "platform: forge"
     color: "e04e4e"
     description: "Forge"
-
-  - name: "platform: fabric"
-    color: "6b8c42"
-    description: "Fabric"
 
   - name: "platform: neoforge"
     color: "e04e4e"
