@@ -1,131 +1,132 @@
-# ============================================================================
-# Type Labels / 类型标签
-# ============================================================================
+labels:
+  # ============================================================================
+  # Type Labels / 类型标签
+  # ============================================================================
 
-- name: "bug"
-  color: "d73a4a"
-  description: "Bug / 缺陷"
+  - name: "bug"
+    color: "d73a4a"
+    description: "Bug / 缺陷"
 
-- name: "enhancement"
-  color: "a2eeef"
-  description: "New feature / 新功能"
+  - name: "enhancement"
+    color: "a2eeef"
+    description: "New feature / 新功能"
 
-- name: "improvement"
-  color: "d4c5f9"
-  description: "Improvement / 优化"
+  - name: "improvement"
+    color: "d4c5f9"
+    description: "Improvement / 优化"
 
-- name: "documentation"
-  color: "0075ca"
-  description: "Documentation / 文档"
+  - name: "documentation"
+    color: "0075ca"
+    description: "Documentation / 文档"
 
-- name: "question"
-  color: "d876e3"
-  description: "Question / 问题"
+  - name: "question"
+    color: "d876e3"
+    description: "Question / 问题"
 
-# ============================================================================
-# Status Labels / 状态标签
-# ============================================================================
+  # ============================================================================
+  # Status Labels / 状态标签
+  # ============================================================================
 
-- name: "status: pending"
-  color: "fbca04"
-  description: "Pending triage / 待处理"
+  - name: "status: pending"
+    color: "fbca04"
+    description: "Pending triage / 待处理"
 
-- name: "status: confirmed"
-  color: "0e8a16"
-  description: "Confirmed / 已确认"
+  - name: "status: confirmed"
+    color: "0e8a16"
+    description: "Confirmed / 已确认"
 
-- name: "status: in-progress"
-  color: "fbcb04"
-  description: "In progress / 开发中"
+  - name: "status: in-progress"
+    color: "fbcb04"
+    description: "In progress / 开发中"
 
-- name: "status: help-wanted"
-  color: "1d76db"
-  description: "Help wanted / 需要帮助"
+  - name: "status: help-wanted"
+    color: "1d76db"
+    description: "Help wanted / 需要帮助"
 
-- name: "status: wontfix"
-  color: "ffffff"
-  description: "Won't fix / 将不会修复"
+  - name: "status: wontfix"
+    color: "ffffff"
+    description: "Won't fix / 将不会修复"
 
-- name: "status: duplicate"
-  color: "cfd8dc"
-  description: "Duplicate / 重复"
+  - name: "status: duplicate"
+    color: "cfd8dc"
+    description: "Duplicate / 重复"
 
-- name: "status: invalid"
-  color: "e4e669"
-  description: "Invalid / 无效"
+  - name: "status: invalid"
+    color: "e4e669"
+    description: "Invalid / 无效"
 
-- name: "status: done"
-  color: "0e8a16"
-  description: "Done / 已完成"
+  - name: "status: done"
+    color: "0e8a16"
+    description: "Done / 已完成"
 
-# ============================================================================
-# Priority Labels / 优先级标签
-# ============================================================================
+  # ============================================================================
+  # Priority Labels / 优先级标签
+  # ============================================================================
 
-- name: "priority: critical"
-  color: "ffffff"
-  description: "🟪 Critical / 严重"
+  - name: "priority: critical"
+    color: "ffffff"
+    description: "🟪 Critical / 严重"
 
-- name: "priority: high"
-  color: "ffffff"
-  description: "🟧 High / 高"
+  - name: "priority: high"
+    color: "ffffff"
+    description: "🟧 High / 高"
 
-- name: "priority: medium"
-  color: "ffffff"
-  description: "🟨 Medium / 中"
+  - name: "priority: medium"
+    color: "ffffff"
+    description: "🟨 Medium / 中"
 
-- name: "priority: low"
-  color: "ffffff"
-  description: "🟩 Low / 低"
+  - name: "priority: low"
+    color: "ffffff"
+    description: "🟩 Low / 低"
 
-# ============================================================================
-# Module Labels / 模块标签
-# ============================================================================
+  # ============================================================================
+  # Module Labels / 模块标签
+  # ============================================================================
 
-- name: "module: panel"
-  color: "006b75"
-  description: "Search panel / 搜索面板"
+  - name: "module: panel"
+    color: "006b75"
+    description: "Search panel / 搜索面板"
 
-- name: "module: alloy"
-  color: "006b75"
-  description: "Alloy mode / 合金模式"
+  - name: "module: alloy"
+    color: "006b75"
+    description: "Alloy mode / 合金模式"
 
-- name: "module: favorites"
-  color: "006b75"
-  description: "Favorites / 收藏功能"
+  - name: "module: favorites"
+    color: "006b75"
+    description: "Favorites / 收藏功能"
 
-- name: "module: jei"
-  color: "006b75"
-  description: "JEI integration / JEI 集成"
+  - name: "module: jei"
+    color: "006b75"
+    description: "JEI integration / JEI 集成"
 
-# ============================================================================
-# Platform Labels / 平台标签
-# ============================================================================
+  # ============================================================================
+  # Platform Labels / 平台标签
+  # ============================================================================
 
-- name: "platform: forge"
-  color: "e04e4e"
-  description: "Forge"
+  - name: "platform: forge"
+    color: "e04e4e"
+    description: "Forge"
 
-- name: "platform: fabric"
-  color: "6b8c42"
-  description: "Fabric"
+  - name: "platform: fabric"
+    color: "6b8c42"
+    description: "Fabric"
 
-- name: "platform: neoforge"
-  color: "e04e4e"
-  description: "NeoForge"
+  - name: "platform: neoforge"
+    color: "e04e4e"
+    description: "NeoForge"
 
-# ============================================================================
-# Other Labels / 其他标签
-# ============================================================================
+  # ============================================================================
+  # Other Labels / 其他标签
+  # ============================================================================
 
-- name: "good-first-issue"
-  color: "7057ff"
-  description: "Good first issue / 适合首次贡献者"
+  - name: "good-first-issue"
+    color: "7057ff"
+    description: "Good first issue / 适合首次贡献者"
 
-- name: "breaking-change"
-  color: "b60205"
-  description: "Breaking change / 破坏性变更"
+  - name: "breaking-change"
+    color: "b60205"
+    description: "Breaking change / 破坏性变更"
 
-- name: "dependencies"
-  color: "0366d6"
-  description: "Dependencies / 依赖更新"
+  - name: "dependencies"
+    color: "0366d6"
+    description: "Dependencies / 依赖更新"
