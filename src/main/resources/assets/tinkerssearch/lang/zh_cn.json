@@ -19,5 +19,6 @@
   "gui.tinkerssearch.alloy_no_recipes": "未找到该材料的合金配方",
   "gui.tinkerssearch.alloy_child": "↳ 可继续合金: %s",
   "gui.tinkerssearch.alloy_missing_prefix": "缺少",
-  "gui.tinkerssearch.alloy_search_hint": "/a/ 材料名"
+  "gui.tinkerssearch.alloy_search_hint": "/a/ 材料名",
+  "gui.tinkerssearch.alloy_times": "可执行 %d 次"
 }

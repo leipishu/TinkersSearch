@@ -1204,6 +1204,9 @@ public class FloatingSearchPanel extends AbstractWidget {
         if (!feasibility.isFeasible() || result.getNext() != null) {
             cardH = 54;
         }
+        if (feasibility.isFeasible() && result.getNext() == null && feasibility.getMaxTimes() > 0) {
+            cardH = 66;
+        }
 
         int margin = 6;
         int x = px + margin;
@@ -1265,6 +1268,25 @@ public class FloatingSearchPanel extends AbstractWidget {
             int maxChildWidth = w - 8;
             String truncatedChild = truncateTextWithEllipsis(font, childStr, maxChildWidth);
             font.draw(poseStack, truncatedChild, x + 4, lineY, 0xCCCCCC);
+            lineY += 10;
+        }
+
+        // ===== 显示可执行次数（修复版） =====
+        if (feasibility.isFeasible() && result.getNext() == null) {
+            int maxTimes = feasibility.getMaxTimes();
+            if (maxTimes > 0) {
+                // 使用 TranslatableComponent 的参数功能
+                String timesText = new TranslatableComponent("gui.tinkerssearch.alloy_times", maxTimes).getString();
+                String timesStr = "§e" + timesText;
+                String truncatedTimes = truncateTextWithEllipsis(font, timesStr, w - 8);
+                font.draw(poseStack, truncatedTimes, x + 4, lineY, 0xCCCCCC);
+            } else if (maxTimes == 0 && !feasibility.getMissingFluids().isEmpty()) {
+                String timesText = new TranslatableComponent("gui.tinkerssearch.alloy_times", 0).getString();
+                String timesStr = "§c" + timesText;
+                String truncatedTimes = truncateTextWithEllipsis(font, timesStr, w - 8);
+                font.draw(poseStack, truncatedTimes, x + 4, lineY, 0xCCCCCC);
+            }
+            lineY += 10;
         }
 
         return y + cardH;

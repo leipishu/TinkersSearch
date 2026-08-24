@@ -19,5 +19,6 @@
   "gui.tinkerssearch.alloy_no_recipes": "No alloy recipes found for this material",
   "gui.tinkerssearch.alloy_child": "↳ Can further alloy: %s",
   "gui.tinkerssearch.alloy_missing_prefix": "Missing",
-  "gui.tinkerssearch.alloy_search_hint": "/a/ material name"
+  "gui.tinkerssearch.alloy_search_hint": "/a/ material name",
+  "gui.tinkerssearch.alloy_times": "Can perform %d times"
 }

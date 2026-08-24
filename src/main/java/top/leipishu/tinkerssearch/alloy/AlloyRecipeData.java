@@ -35,6 +35,9 @@ public class AlloyRecipeData {
         List<AlloyFeasibility.MissingFluid> missing = new ArrayList<>();
         List<AlloyFeasibility.SufficientFluid> sufficient = new ArrayList<>();
 
+        // ===== 计算最大可执行次数 =====
+        int maxTimes = Integer.MAX_VALUE;
+
         for (FluidIngredientData input : inputs) {
             FluidStack inputFluid = input.getFluid();
             int needed = input.getAmount();
@@ -49,33 +52,46 @@ public class AlloyRecipeData {
                 }
             }
 
-            // 如果这个流体是搜索的材料，视为足量
+            // 如果这个流体是搜索的材料，视为足量（无限大）
+            boolean isSelected = false;
             if (selectedMaterial != null &&
                     inputFluid.getFluid().getRegistryName().equals(selectedMaterial.getFluid().getRegistryName())) {
                 available = Math.max(available, 10000);
+                isSelected = true;
             }
 
             if (available >= needed) {
                 sufficient.add(new AlloyFeasibility.SufficientFluid(
                         inputFluid, needed, available, matched
                 ));
+
+                // 非查询物才参与次数计算
+                if (!isSelected) {
+                    int times = available / needed;
+                    if (times < maxTimes) {
+                        maxTimes = times;
+                    }
+                }
             } else {
                 missing.add(new AlloyFeasibility.MissingFluid(
                         inputFluid, needed, available
                 ));
+                maxTimes = 0;
             }
         }
 
         boolean temperatureOk = isTemperatureSatisfied(currentTemperature);
+        boolean feasible = missing.isEmpty() && temperatureOk;
 
         return new AlloyFeasibility(
                 this,
-                missing.isEmpty() && temperatureOk,
+                feasible,
                 missing,
                 sufficient,
                 temperatureOk,
                 requiredTemperature,
-                currentTemperature
+                currentTemperature,
+                maxTimes == Integer.MAX_VALUE ? 9999 : maxTimes
         );
     }
 
@@ -104,9 +120,13 @@ public class AlloyRecipeData {
         private final int requiredTemp;
         private final int currentTemp;
 
+        // ===== 新增：最大可执行次数 =====
+        private final int maxTimes;
+
         public AlloyFeasibility(AlloyRecipeData recipe, boolean feasible,
                                 List<MissingFluid> missing, List<SufficientFluid> sufficient,
-                                boolean temperatureOk, int requiredTemp, int currentTemp) {
+                                boolean temperatureOk, int requiredTemp, int currentTemp,
+                                int maxTimes) {
             this.recipe = recipe;
             this.feasible = feasible;
             this.missingFluids = missing;
@@ -114,6 +134,7 @@ public class AlloyRecipeData {
             this.temperatureOk = temperatureOk;
             this.requiredTemp = requiredTemp;
             this.currentTemp = currentTemp;
+            this.maxTimes = maxTimes;
         }
 
         public boolean isFeasible() { return feasible; }
@@ -123,6 +144,9 @@ public class AlloyRecipeData {
         public int getRequiredTemp() { return requiredTemp; }
         public int getCurrentTemp() { return currentTemp; }
         public AlloyRecipeData getRecipe() { return recipe; }
+
+        // ===== 新增：获取最大可执行次数 =====
+        public int getMaxTimes() { return maxTimes; }
 
         public static class MissingFluid {
             public final FluidStack fluid;
