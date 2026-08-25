@@ -23,10 +23,6 @@ public class PanelLayoutCalculator {
     private int lastScreenWidth = 0;
     private int lastScreenHeight = 0;
 
-    // ===== 这些常量从 PanelConfig 静态导入，不需要再定义 =====
-    // SECTION_LABEL_HEIGHT, TITLE_CARD_SPACING, SECTION_SPACING
-    // 都已通过 import static top.leipishu.tinkerssearch.config.PanelConfig.* 导入
-
     public PanelLayoutCalculator(FloatingSearchPanel panel, PanelDataManager dataManager, AlloyQueryHandler alloyHandler) {
         this.panel = panel;
         this.dataManager = dataManager;
@@ -57,6 +53,30 @@ public class PanelLayoutCalculator {
 
     // ==================== 合金模式 ====================
 
+    /**
+     * 计算单个合金卡片的高度
+     */
+    private int calculateCardHeight(AlloyResultCalculator.AlloyChainResult result) {
+        AlloyRecipeData.AlloyFeasibility feasibility = result.getFeasibility();
+
+        int lineCount = 3; // 状态行 + 配方链行 + 分割线
+
+        List<AlloyRecipeData.AlloyFeasibility.MissingFluid> missing = feasibility.getMissingFluids();
+        if (!missing.isEmpty()) {
+            lineCount++;
+        }
+        if (result.getNext() != null) {
+            lineCount++;
+        }
+        if (feasibility.isFeasible() && result.getNext() == null) {
+            lineCount++;
+        }
+        // 原料详情行
+        lineCount++;
+
+        return Math.max(72, lineCount * 12 + 16);
+    }
+
     public int getAlloyContentHeight() {
         if (alloyHandler.getSelectedMaterial() == null) {
             List<FluidStack> materials = alloyHandler.getFilteredMaterials();
@@ -66,27 +86,30 @@ public class PanelLayoutCalculator {
         } else {
             List<AlloyResultCalculator.AlloyChainResult> results = alloyHandler.getCurrentResults();
             if (results.isEmpty()) return 0;
-            int cardH = 44;
+            int totalHeight = 0;
             for (AlloyResultCalculator.AlloyChainResult result : results) {
-                AlloyRecipeData.AlloyFeasibility feasibility = result.getFeasibility();
-                if (!feasibility.isFeasible() || result.getNext() != null) {
-                    cardH = 54;
-                    break;
-                }
+                totalHeight += calculateCardHeight(result) + 6;
             }
-            return results.size() * (cardH + 6) - 6;
+            return totalHeight - 6;
         }
     }
 
     public int getAlloyVisibleHeight() {
-        int startY = panel.getPanelY() + CARDS_START_Y + 18;
-        if (alloyHandler.getSelectedMaterial() != null) {
-            startY = panel.getPanelY() + CARDS_START_Y + 18 + 14 + 12 + 12;
+        if (alloyHandler.getSelectedMaterial() == null) {
+            // 材料列表模式
+            int startY = panel.getPanelY() + CARDS_START_Y + 18 + 18 + 4;
+            int endY = panel.getPanelY() + panel.getPanelHeight() - 4;
+            return Math.max(0, endY - startY);
         } else {
-            startY = panel.getPanelY() + CARDS_START_Y + 18 + 14 + 4;
+            // 结果模式
+            int startY = panel.getPanelY() + CARDS_START_Y + 18 + 14 + 12 + 12;
+            int endY = panel.getPanelY() + panel.getPanelHeight() - 4;
+            int visible = Math.max(0, endY - startY);
+            // ===== 调试日志 =====
+            // System.out.println("[Tinker's Search] Alloy visible height: " + visible +
+            //         " (startY=" + startY + ", endY=" + endY + ", panelHeight=" + panel.getPanelHeight() + ")");
+            return visible;
         }
-        int endY = panel.getPanelY() + panel.getPanelHeight() - 4;
-        return Math.max(0, endY - startY);
     }
 
     // ==================== 面板位置 ====================

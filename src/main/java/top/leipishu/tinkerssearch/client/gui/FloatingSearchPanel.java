@@ -300,7 +300,10 @@ public class FloatingSearchPanel extends AbstractWidget {
         if (!isVisible) return false;
 
         if (dataManager.isAlloyMode()) {
-            int maxOffset = Math.max(0, layoutCalculator.getAlloyContentHeight() - layoutCalculator.getAlloyVisibleHeight());
+            // ===== 计算合金内容总高度和可见高度 =====
+            int totalHeight = layoutCalculator.getAlloyContentHeight();
+            int visibleHeight = layoutCalculator.getAlloyVisibleHeight();
+            int maxOffset = Math.max(0, totalHeight - visibleHeight);
             int newOffset = dataManager.getAlloyScrollOffset() - (int) (delta * PanelConfig.SCROLL_SPEED);
             dataManager.setAlloyScrollOffset(Math.max(0, Math.min(newOffset, maxOffset)));
             return true;
