@@ -19,6 +19,7 @@ import net.minecraftforge.fml.ModList;
 import net.minecraftforge.client.event.RenderTooltipEvent;
 import org.lwjgl.glfw.GLFW;
 import org.lwjgl.opengl.GL11;
+import top.leipishu.tinkerssearch.alloy.TinkersAlloyReader;
 import top.leipishu.tinkerssearch.client.gui.FloatingSearchPanel;
 import top.leipishu.tinkerssearch.client.gui.PanelInteractionHandler;
 import top.leipishu.tinkerssearch.jei.Jei;
@@ -44,6 +45,8 @@ public class TinkersSearch {
 
     private static final int TAB_BUTTON_WIDTH = 14;
     private static final int TAB_BUTTON_HEIGHT = 30;
+
+    // TinkersAlloyReader.setDebugMode(true);
 
     public TinkersSearch() {
         System.out.println("Tinker's Search mod initialized!");
@@ -325,6 +328,20 @@ public class TinkersSearch {
             return true;
         }
         return false;
+    }
+
+    @SubscribeEvent
+    public void onWorldLoad(net.minecraftforge.event.world.WorldEvent.Load event) {
+        if (event.getWorld().isClientSide()) {
+            TinkersAlloyReader.clearCache();
+            System.out.println("Tinker's Search: Cache cleared on world load");
+        }
+    }
+
+    @SubscribeEvent
+    public void onRecipesUpdated(net.minecraftforge.event.OnDatapackSyncEvent event) {
+        TinkersAlloyReader.clearCache();
+        System.out.println("Tinker's Search: Cache cleared on datapack sync");
     }
 
     @SubscribeEvent(priority = EventPriority.HIGHEST)
