@@ -19,7 +19,6 @@ import net.minecraftforge.fml.ModList;
 import net.minecraftforge.client.event.RenderTooltipEvent;
 import org.lwjgl.glfw.GLFW;
 import org.lwjgl.opengl.GL11;
-import top.leipishu.tinkerssearch.alloy.TinkersAlloyReader;
 import top.leipishu.tinkerssearch.client.gui.FloatingSearchPanel;
 import top.leipishu.tinkerssearch.client.gui.PanelInteractionHandler;
 import top.leipishu.tinkerssearch.jei.Jei;
@@ -43,10 +42,9 @@ public class TinkersSearch {
 
     private boolean jeiAvailable;
 
+    // Tab按钮尺寸（与FloatingSearchPanel保持一致）
     private static final int TAB_BUTTON_WIDTH = 14;
     private static final int TAB_BUTTON_HEIGHT = 30;
-
-    // TinkersAlloyReader.setDebugMode(true);
 
     public TinkersSearch() {
         System.out.println("Tinker's Search mod initialized!");
@@ -72,7 +70,7 @@ public class TinkersSearch {
         boolean isSmeltery = isSmelteryScreen(screen);
 
         if (isSmeltery) {
-            handleSmelteryOpen(screen);  // 调用唯一的方法
+            handleSmelteryOpen(screen);
             addPanelToRenderables(screen);
         } else {
             handleSmelteryClose();
@@ -109,7 +107,6 @@ public class TinkersSearch {
 
         if (searchPanel.isVisible()) {
             if (!hasInitialized) {
-                // ===== 刷新温度（现在可以访问） =====
                 searchPanel.refreshTemperature();
                 searchPanel.refreshMoltenFluids();
                 hasInitialized = true;
@@ -141,7 +138,6 @@ public class TinkersSearch {
         if (isSmelteryScreen) {
             isSmelteryScreen = false;
 
-            // ===== 关闭搜索面板 =====
             if (searchPanel != null && searchPanel.isVisible()) {
                 searchPanel.setVisible(false);
                 System.out.println("Tinker's Search: Panel closed due to smeltery screen closing");
@@ -183,7 +179,6 @@ public class TinkersSearch {
         }
     }
 
-    // 在 TinkersSearch.java 中
     @SubscribeEvent(priority = EventPriority.HIGHEST)
     public void onKeyboardKeyPressedPre(ScreenEvent.KeyboardKeyPressedEvent.Pre event) {
         if (searchPanel == null) return;
@@ -192,7 +187,6 @@ public class TinkersSearch {
 
         int keyCode = event.getKeyCode();
 
-        // Backspace：让 PanelInteractionHandler 处理删除字符
         if (keyCode == GLFW.GLFW_KEY_BACKSPACE) {
             if (interactionHandler.handleKeyPressed(keyCode, event.getScanCode(), event.getModifiers())) {
                 event.setCanceled(true);
@@ -200,14 +194,12 @@ public class TinkersSearch {
             return;
         }
 
-        // Enter / Escape：取消搜索框焦点
         if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_ESCAPE) {
             interactionHandler.setSearchBoxFocused(false);
             event.setCanceled(true);
             return;
         }
 
-        // 其他所有按键：在这里直接拦截，阻止触发任何快捷键
         event.setCanceled(true);
     }
 
@@ -217,19 +209,14 @@ public class TinkersSearch {
 
         if (searchPanel.isVisible()) {
             searchPanel.forceUpdatePosition();
-
-            // ===== 刷新温度（现在可以访问） =====
             searchPanel.refreshTemperature();
 
-            if (smelteryBlockEntity != null) {
-                searchPanel.refreshMoltenFluids();
-            } else {
-                Screen screen = Minecraft.getInstance().screen;
-                if (screen != null && isSmelteryScreen(screen)) {
-                    findSmelteryBlockEntity(screen);
-                    if (smelteryBlockEntity != null) {
-                        searchPanel.refreshMoltenFluids();
-                    }
+            Screen screen = Minecraft.getInstance().screen;
+            if (screen != null && isSmelteryScreen(screen)) {
+                findSmelteryBlockEntity(screen);
+                if (smelteryBlockEntity != null) {
+                    searchPanel.setSmelteryBlockEntity(smelteryBlockEntity);
+                    searchPanel.refreshMoltenFluids();
                 }
             }
             hasInitialized = true;
@@ -250,9 +237,10 @@ public class TinkersSearch {
         }
     }
 
-    /**
-     * 拦截所有鼠标点击事件
-     */
+    // ============================================================
+    // ===== 鼠标事件 - Tab按钮由面板自己检测 =====================
+    // ============================================================
+
     @SubscribeEvent(priority = EventPriority.HIGHEST)
     public void onMouseClickPre(ScreenEvent.MouseClickedEvent.Pre event) {
         if (!isSmelteryScreen || searchPanel == null) return;
@@ -260,7 +248,14 @@ public class TinkersSearch {
         double mouseX = event.getMouseX();
         double mouseY = event.getMouseY();
 
-        if (checkTabButtonClick(event)) {
+        // ===== 委托给面板检测Tab按钮 =====
+        if (searchPanel.isTabButtonClicked(mouseX, mouseY)) {
+            if (searchPanel.isAnimating()) {
+                event.setCanceled(true);
+                return;
+            }
+            togglePanel();
+            event.setCanceled(true);
             return;
         }
 
@@ -270,7 +265,6 @@ public class TinkersSearch {
                     event.setCanceled(true);
                     return;
                 }
-                // ===== 直接调用面板的鼠标点击方法 =====
                 searchPanel.mouseClicked(mouseX, mouseY, event.getButton());
                 event.setCanceled(true);
                 return;
@@ -280,68 +274,17 @@ public class TinkersSearch {
 
     @SubscribeEvent(priority = EventPriority.HIGHEST)
     public void onRenderTooltipPre(RenderTooltipEvent.Pre event) {
-        // 仅当处于冶炼炉屏幕且面板存在
         if (!isSmelteryScreen || searchPanel == null) return;
 
-        // 面板可见或动画中
         if (searchPanel.isVisible() || searchPanel.isAnimating()) {
-            // 获取当前鼠标位置（屏幕坐标）
             Minecraft mc = Minecraft.getInstance();
             double mouseX = mc.mouseHandler.xpos() * mc.getWindow().getGuiScaledWidth() / mc.getWindow().getScreenWidth();
             double mouseY = mc.mouseHandler.ypos() * mc.getWindow().getGuiScaledHeight() / mc.getWindow().getScreenHeight();
 
             if (searchPanel.isPointInsidePanel(mouseX, mouseY)) {
-                event.setCanceled(true);  // 阻止 Tooltip 渲染
-            }
-        }
-    }
-
-
-    /**
-     * 检测 Tab 按钮点击
-     */
-    private boolean checkTabButtonClick(ScreenEvent.MouseClickedEvent.Pre event) {
-        double mouseX = event.getMouseX();
-        double mouseY = event.getMouseY();
-
-        int panelHeight = searchPanel.getPanelHeight();
-        int panelX = searchPanel.getActualPanelX();
-        boolean isExpanded = searchPanel.isVisible() || searchPanel.isAnimating();
-
-        int btnX, btnY;
-        if (isExpanded) {
-            btnX = panelX + searchPanel.getPanelWidth() - 1;
-        } else {
-            btnX = 0;
-        }
-        btnY = (panelHeight - TAB_BUTTON_HEIGHT) / 2;
-
-        if (mouseX >= btnX && mouseX <= btnX + TAB_BUTTON_WIDTH &&
-                mouseY >= btnY && mouseY <= btnY + TAB_BUTTON_HEIGHT) {
-            if (searchPanel.isAnimating()) {
                 event.setCanceled(true);
-                return true;
             }
-            togglePanel();
-            event.setCanceled(true);
-            System.out.println("Tinker's Search: Tab button clicked, panel visible: " + searchPanel.isVisible());
-            return true;
         }
-        return false;
-    }
-
-    @SubscribeEvent
-    public void onWorldLoad(net.minecraftforge.event.world.WorldEvent.Load event) {
-        if (event.getWorld().isClientSide()) {
-            TinkersAlloyReader.clearCache();
-            System.out.println("Tinker's Search: Cache cleared on world load");
-        }
-    }
-
-    @SubscribeEvent
-    public void onRecipesUpdated(net.minecraftforge.event.OnDatapackSyncEvent event) {
-        TinkersAlloyReader.clearCache();
-        System.out.println("Tinker's Search: Cache cleared on datapack sync");
     }
 
     @SubscribeEvent(priority = EventPriority.HIGHEST)
@@ -356,9 +299,9 @@ public class TinkersSearch {
         }
     }
 
-    // ========================================================
-    // ===== 核心修复：最终渲染层 =============================
-    // ========================================================
+    // ============================================================
+    // ===== 最终渲染层 - Tab按钮独立绘制（使用面板的动画偏移） =====
+    // ============================================================
 
     @SubscribeEvent(priority = EventPriority.LOWEST)
     public void onScreenDrawPost(ScreenEvent.DrawScreenEvent.Post event) {
@@ -369,12 +312,21 @@ public class TinkersSearch {
         poseStack.pushPose();
         poseStack.translate(0, 0, 500);
 
-        GL11.glClear(GL11.GL_DEPTH_BUFFER_BIT);
+        try {
+            GL11.glClear(GL11.GL_DEPTH_BUFFER_BIT);
+        } catch (Exception ignored) {}
 
-        boolean depthTestWasEnabled = GL11.glIsEnabled(GL11.GL_DEPTH_TEST);
-        boolean blendWasEnabled = GL11.glIsEnabled(GL11.GL_BLEND);
-        boolean textureWasEnabled = GL11.glIsEnabled(GL11.GL_TEXTURE_2D);
-        boolean scissorWasEnabled = GL11.glIsEnabled(GL11.GL_SCISSOR_TEST);
+        boolean depthTestWasEnabled = false;
+        boolean blendWasEnabled = false;
+        boolean textureWasEnabled = false;
+        boolean scissorWasEnabled = false;
+
+        try {
+            depthTestWasEnabled = GL11.glIsEnabled(GL11.GL_DEPTH_TEST);
+            blendWasEnabled = GL11.glIsEnabled(GL11.GL_BLEND);
+            textureWasEnabled = GL11.glIsEnabled(GL11.GL_TEXTURE_2D);
+            scissorWasEnabled = GL11.glIsEnabled(GL11.GL_SCISSOR_TEST);
+        } catch (Exception ignored) {}
 
         RenderSystem.disableDepthTest();
         RenderSystem.depthMask(false);
@@ -382,80 +334,87 @@ public class TinkersSearch {
         RenderSystem.defaultBlendFunc();
         RenderSystem.enableTexture();
 
-        // ===== 使用 GlStateManager 禁用 Scissor（安全方式） =====
         try {
             GlStateManager._disableScissorTest();
         } catch (Exception ignored) {}
 
         try {
-            // ===== Tab 按钮始终绘制 =====
-            drawTabButton(poseStack);
-
-            // ===== 面板内容只在可见或动画中绘制 =====
+            // ===== 渲染面板（面板内部会绘制内容，但不绘制Tab按钮） =====
             if (searchPanel.isVisible() || searchPanel.isAnimating()) {
                 searchPanel.render(poseStack, 0, 0, 0);
             }
+
+            // ===== 独立绘制Tab按钮（使用面板的动画偏移量） =====
+            drawTabButton(poseStack);
+
         } finally {
-            // ===== 恢复状态 =====
-            if (depthTestWasEnabled) RenderSystem.enableDepthTest();
-            else RenderSystem.disableDepthTest();
+            try {
+                if (depthTestWasEnabled) RenderSystem.enableDepthTest();
+                else RenderSystem.disableDepthTest();
 
-            if (blendWasEnabled) RenderSystem.enableBlend();
-            else RenderSystem.disableBlend();
+                if (blendWasEnabled) RenderSystem.enableBlend();
+                else RenderSystem.disableBlend();
 
-            if (textureWasEnabled) RenderSystem.enableTexture();
-            else RenderSystem.disableTexture();
+                if (textureWasEnabled) RenderSystem.enableTexture();
+                else RenderSystem.disableTexture();
 
-            // ===== 恢复 Scissor 状态 =====
-            if (scissorWasEnabled) {
-                try {
-                    GlStateManager._enableScissorTest();
-                } catch (Exception ignored) {}
-            } else {
-                try {
-                    GlStateManager._disableScissorTest();
-                } catch (Exception ignored) {}
-            }
+                if (scissorWasEnabled) {
+                    try {
+                        GlStateManager._enableScissorTest();
+                    } catch (Exception ignored) {}
+                } else {
+                    try {
+                        GlStateManager._disableScissorTest();
+                    } catch (Exception ignored) {}
+                }
+            } catch (Exception ignored) {}
 
             poseStack.popPose();
         }
     }
 
+    // ============================================================
+    // ===== Tab按钮绘制（使用面板的动画偏移量） ==================
+    // ============================================================
+
     private void drawTabButton(PoseStack poseStack) {
-        // ===== 面板对象不存在时不绘制 =====
         if (searchPanel == null) return;
 
+        // ===== 从面板获取所有状态 =====
+        int animationOffset = searchPanel.getAnimationOffset();
+        boolean isExpanded = searchPanel.isExpanded();
+        int panelWidth = searchPanel.getPanelWidth();
         int panelHeight = searchPanel.getPanelHeight();
-        int panelX = searchPanel.getActualPanelX();
-        boolean isExpanded = searchPanel.isVisible() || searchPanel.isAnimating();
 
+        // ===== 计算按钮位置（使用面板的动画偏移） =====
         int btnX, btnY;
         if (isExpanded) {
-            btnX = panelX + searchPanel.getPanelWidth() - 1;
+            // 展开时：面板右边缘 + 动画偏移
+            btnX = animationOffset + panelWidth - 1;
         } else {
-            // ===== 收起状态：按钮在屏幕左侧（x=0） =====
+            // 收起时：屏幕左侧
             btnX = 0;
         }
         btnY = (panelHeight - TAB_BUTTON_HEIGHT) / 2;
 
-        // ===== 确保按钮不超出屏幕左侧 =====
         if (btnX < 0) {
             btnX = 0;
         }
 
+        // ===== 边界检查 =====
         Minecraft mc = Minecraft.getInstance();
         int screenWidth = mc.getWindow().getGuiScaledWidth();
-
-        // ===== 如果按钮完全在屏幕外，不绘制 =====
         if (btnX + TAB_BUTTON_WIDTH < 0 || btnX > screenWidth) {
             return;
         }
 
+        // ===== 鼠标悬停检测 =====
         double mouseX = mc.mouseHandler.xpos() * mc.getWindow().getGuiScaledWidth() / mc.getWindow().getScreenWidth();
         double mouseY = mc.mouseHandler.ypos() * mc.getWindow().getGuiScaledHeight() / mc.getWindow().getScreenHeight();
         boolean hover = mouseX >= btnX && mouseX <= btnX + TAB_BUTTON_WIDTH &&
                 mouseY >= btnY && mouseY <= btnY + TAB_BUTTON_HEIGHT;
 
+        // ===== 绘制 =====
         int bgColor = hover ? 0xCC444444 : 0xCC1A1A1A;
         GuiComponent.fill(poseStack, btnX, btnY, btnX + TAB_BUTTON_WIDTH, btnY + TAB_BUTTON_HEIGHT, bgColor);
 

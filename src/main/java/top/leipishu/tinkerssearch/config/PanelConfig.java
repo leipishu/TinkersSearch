@@ -17,15 +17,15 @@ public class PanelConfig {
 
     // ===== 卡片布局 =====
     public static final int CARDS_START_Y = 46;
-    public static final int CARD_HEIGHT = 36;              // 从32增加到36
+    public static final int CARD_HEIGHT = 36;
     public static final int CARD_SPACING = 6;
     public static final int ITEMS_PER_ROW = 2;
 
     // ===== 图标 =====
-    public static final int ICON_SIZE = 18;                // 从14增加到18
+    public static final int ICON_SIZE = 18;
 
     // ===== 文字间距 =====
-    public static final int ICON_TEXT_GAP = 6;             // 图标和文字之间的间距
+    public static final int ICON_TEXT_GAP = 6;
 
     // ===== 滚动条 =====
     public static final int SCROLL_BAR_WIDTH = 4;
@@ -57,4 +57,13 @@ public class PanelConfig {
     // ===== 交互 =====
     public static final long CLICK_COOLDOWN = 500;
     public static final int SCROLL_SPEED = 16;
+
+    // ============================================================
+    // ===== 布局常量（供 PanelLayoutCalculator 使用） =====
+    // ============================================================
+
+    // ===== 收藏区域与冶炼炉区域分隔 =====
+    public static final int SECTION_SPACING = 8;
+    public static final int SECTION_LABEL_HEIGHT = 14;
+    public static final int TITLE_CARD_SPACING = 4;
 }
