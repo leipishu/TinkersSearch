@@ -989,12 +989,45 @@ public class FloatingSearchPanel extends AbstractWidget {
         }
     }
 
-    // ==================== 温度获取 ====================
+    // ===== 温度缓存字段 =====
+    private int cachedTemperature = 0;
+    private long lastTemperatureReadTime = 0;
+    private static final long TEMPERATURE_READ_COOLDOWN = 1000; // 1秒冷却
+    private static final boolean DEBUG_TEMPERATURE = false;    // 调试日志开关
 
     /**
-     * 获取当前冶炼炉温度（实时读取，带缓存清除）
+     * 获取当前冶炼炉温度（带冷却缓存）
      */
     public int getCurrentSmelteryTemperature() {
+        long now = System.currentTimeMillis();
+
+        // 如果在冷却期内，返回缓存值
+        if (now - lastTemperatureReadTime < TEMPERATURE_READ_COOLDOWN) {
+            return cachedTemperature;
+        }
+
+        // 超过冷却期，重新读取
+        int temp = readTemperatureFromSmeltery();
+        cachedTemperature = temp;
+        lastTemperatureReadTime = now;
+        return temp;
+    }
+
+    /**
+     * 强制刷新温度（打开面板时调用）
+     */
+    public int forceRefreshTemperature() {
+        int temp = readTemperatureFromSmeltery();
+        cachedTemperature = temp;
+        lastTemperatureReadTime = System.currentTimeMillis();
+        System.out.println("[Tinker's Search] 🔥 Force refreshed temperature: " + temp + "°C");
+        return temp;
+    }
+
+    /**
+     * 实际从冶炼炉读取温度（只在这里打印日志）
+     */
+    private int readTemperatureFromSmeltery() {
         Minecraft mc = Minecraft.getInstance();
         Screen screen = mc.screen;
 
@@ -1028,13 +1061,10 @@ public class FloatingSearchPanel extends AbstractWidget {
 
         HeatingStructureBlockEntity controller = (HeatingStructureBlockEntity) target;
 
-        // ============================================================
-        // ===== 第一步：清除 FuelModule 内部缓存 =====
-        // ============================================================
+        // ===== 清除 FuelModule 缓存（不打印日志） =====
         try {
             FuelModule fuelModule = controller.getFuelModule();
             if (fuelModule != null) {
-                // 清除所有缓存字段
                 String[] cacheFields = {"heat", "fuel", "lastFuel", "currentFuel"};
                 for (String fieldName : cacheFields) {
                     try {
@@ -1045,34 +1075,20 @@ public class FloatingSearchPanel extends AbstractWidget {
                         } else {
                             field.set(fuelModule, null);
                         }
-                        System.out.println("[Tinker's Search] ✅ Cleared FuelModule." + fieldName);
-                    } catch (NoSuchFieldException ignored) {
-                    } catch (Exception e) {
-                        System.out.println("[Tinker's Search] Failed to clear " + fieldName + ": " + e.getMessage());
-                    }
+                    } catch (Exception ignored) {}
                 }
 
-                // 尝试调用更新方法
                 try {
                     Method updateMethod = FuelModule.class.getMethod("update");
                     updateMethod.invoke(fuelModule);
-                    System.out.println("[Tinker's Search] ✅ Called FuelModule.update()");
-                } catch (NoSuchMethodException ignored) {
-                } catch (Exception e) {
-                    System.out.println("[Tinker's Search] update() failed: " + e.getMessage());
-                }
+                } catch (Exception ignored) {}
             }
-        } catch (Exception e) {
-            System.out.println("[Tinker's Search] Failed to clear FuelModule cache: " + e.getMessage());
-        }
+        } catch (Exception ignored) {}
 
-        // ============================================================
-        // ===== 第二步：直接从燃料槽读取温度（绕过缓存） =====
-        // ============================================================
+        // ===== 直接从燃料槽读取温度 =====
         try {
             FuelModule fuelModule = controller.getFuelModule();
             if (fuelModule != null) {
-                // 通过 tankSupplier 获取燃料槽位置
                 try {
                     Field tankSupplierField = FuelModule.class.getDeclaredField("tankSupplier");
                     tankSupplierField.setAccessible(true);
@@ -1090,48 +1106,44 @@ public class FloatingSearchPanel extends AbstractWidget {
                                 if (fluidHandler != null && fluidHandler.getTanks() > 0) {
                                     FluidStack fluid = fluidHandler.getFluidInTank(0);
                                     if (!fluid.isEmpty()) {
-                                        // ===== 获取燃料温度 =====
                                         int temp = getFluidTemperature(fluid);
                                         if (temp > 0) {
-                                            System.out.println("[Tinker's Search] ✅ Temperature from fuel tank: " + temp + "°C (" + fluid.getDisplayName().getString() + ")");
+                                            // ===== 只在温度变化时打印 =====
+                                            if (DEBUG_TEMPERATURE || temp != cachedTemperature) {
+                                                System.out.println("[Tinker's Search] 🔥 Temperature: " + temp + "°C (" + fluid.getDisplayName().getString() + ")");
+                                            }
                                             return temp;
                                         }
                                     }
                                 }
                             }
                         }
-                    } else {
-                        System.out.println("[Tinker's Search] ⚠️ No tank positions found");
                     }
                 } catch (Exception e) {
-                    System.out.println("[Tinker's Search] tankSupplier failed: " + e.getMessage());
+                    if (DEBUG_TEMPERATURE) {
+                        System.out.println("[Tinker's Search] tankSupplier failed: " + e.getMessage());
+                    }
                 }
             }
-        } catch (Exception e) {
-            System.out.println("[Tinker's Search] Direct temperature read failed: " + e.getMessage());
-        }
+        } catch (Exception ignored) {}
 
-        // ============================================================
-        // ===== 第三步：最后尝试从 FuelModule 读取 =====
-        // ============================================================
+        // ===== 最后尝试从 FuelModule 读取 =====
         try {
             FuelModule fuelModule = controller.getFuelModule();
             if (fuelModule != null) {
                 Method getTempMethod = FuelModule.class.getMethod("getTemperature");
                 int temp = (int) getTempMethod.invoke(fuelModule);
                 if (temp > 0) {
-                    System.out.println("[Tinker's Search] ✅ Temperature from FuelModule: " + temp + "°C");
                     return temp;
                 }
             }
         } catch (Exception ignored) {}
 
-        System.out.println("[Tinker's Search] ❌ No temperature found, returning 0");
         return 0;
     }
 
     /**
-     * 获取流体的温度（多策略，兼容 1.18.2）
+     * 获取流体温度（不打印日志）
      */
     private int getFluidTemperature(FluidStack fluid) {
         if (fluid == null || fluid.isEmpty()) {
@@ -1140,7 +1152,7 @@ public class FloatingSearchPanel extends AbstractWidget {
 
         Fluid fluidObj = fluid.getFluid();
 
-        // ===== 策略1：通过 MeltingFuelLookup（匠魂原版燃料） =====
+        // 策略1：MeltingFuelLookup
         try {
             Class<?> fuelLookupClass = Class.forName("slimeknights.tconstruct.library.recipe.fuel.MeltingFuelLookup");
             Method findFuelMethod = fuelLookupClass.getMethod("findFuel", Fluid.class);
@@ -1149,15 +1161,12 @@ public class FloatingSearchPanel extends AbstractWidget {
                 Method getTempMethod = fuel.getClass().getMethod("getTemperature");
                 int temp = (int) getTempMethod.invoke(fuel);
                 if (temp > 0) {
-                    System.out.println("[Tinker's Search] ✅ Fuel temperature from MeltingFuelLookup: " + temp + "°C");
                     return temp;
                 }
             }
-        } catch (Exception e) {
-            System.out.println("[Tinker's Search] MeltingFuelLookup failed: " + e.getMessage());
-        }
+        } catch (Exception ignored) {}
 
-        // ===== 策略2：通过 Fluid 的 attributes（1.18.2 兼容） =====
+        // 策略2：FluidAttributes
         try {
             Method getAttributesMethod = Fluid.class.getMethod("getAttributes");
             Object attributes = getAttributesMethod.invoke(fluidObj);
@@ -1166,19 +1175,17 @@ public class FloatingSearchPanel extends AbstractWidget {
                     Method getTemperatureMethod = attributes.getClass().getMethod("getTemperature");
                     int temp = (int) getTemperatureMethod.invoke(attributes);
                     if (temp > 0) {
-                        System.out.println("[Tinker's Search] ✅ Temperature from FluidAttributes: " + temp + "°C");
                         return temp;
                     }
                 } catch (Exception ignored) {}
             }
         } catch (Exception ignored) {}
 
-        // ===== 策略3：硬编码常见燃料温度 =====
+        // 策略3：硬编码
         String name = fluid.getDisplayName().getString().toLowerCase();
         String registryName = fluidObj.getRegistryName() != null ?
                 fluidObj.getRegistryName().toString().toLowerCase() : "";
 
-        // 匠魂原版燃料
         if (name.contains("lava") || name.contains("岩浆") || registryName.contains("lava")) {
             return 1300;
         }
@@ -1188,21 +1195,16 @@ public class FloatingSearchPanel extends AbstractWidget {
         if (name.contains("blaze") || name.contains("烈焰")) {
             return 1500;
         }
-
-        // 常见模组燃料
         if (name.contains("fuel") || name.contains("燃料")) {
             return 1000;
         }
         if (name.contains("oil") || name.contains("油")) {
             return 800;
         }
-
-        // 如果是匠魂的熔融金属
         if (registryName.contains("molten") || registryName.contains("tconstruct")) {
             return 900;
         }
 
-        System.out.println("[Tinker's Search] ⚠️ Unknown fuel: " + name + ", returning 0");
         return 0;
     }
 
