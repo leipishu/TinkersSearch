@@ -381,10 +381,14 @@ public class TinkersSearch {
         RenderSystem.enableBlend();
         RenderSystem.defaultBlendFunc();
         RenderSystem.enableTexture();
-        GlStateManager._disableScissorTest();
+
+        // ===== 使用 GlStateManager 禁用 Scissor（安全方式） =====
+        try {
+            GlStateManager._disableScissorTest();
+        } catch (Exception ignored) {}
 
         try {
-            // ===== Tab 按钮始终绘制（无论面板是否可见） =====
+            // ===== Tab 按钮始终绘制 =====
             drawTabButton(poseStack);
 
             // ===== 面板内容只在可见或动画中绘制 =====
@@ -392,6 +396,7 @@ public class TinkersSearch {
                 searchPanel.render(poseStack, 0, 0, 0);
             }
         } finally {
+            // ===== 恢复状态 =====
             if (depthTestWasEnabled) RenderSystem.enableDepthTest();
             else RenderSystem.disableDepthTest();
 
@@ -401,8 +406,16 @@ public class TinkersSearch {
             if (textureWasEnabled) RenderSystem.enableTexture();
             else RenderSystem.disableTexture();
 
-            if (scissorWasEnabled) GlStateManager._enableScissorTest();
-            else GlStateManager._disableScissorTest();
+            // ===== 恢复 Scissor 状态 =====
+            if (scissorWasEnabled) {
+                try {
+                    GlStateManager._enableScissorTest();
+                } catch (Exception ignored) {}
+            } else {
+                try {
+                    GlStateManager._disableScissorTest();
+                } catch (Exception ignored) {}
+            }
 
             poseStack.popPose();
         }

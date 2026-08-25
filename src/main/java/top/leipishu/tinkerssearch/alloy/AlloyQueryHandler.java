@@ -29,10 +29,42 @@ public class AlloyQueryHandler {
     public void refreshTemperature(int currentTemperature) {
         this.lastKnownTemperature = currentTemperature;
         this.lastTemperatureUpdate = System.currentTimeMillis();
+        System.out.println("[Tinker's Search] Temperature updated: " + currentTemperature + "°C");
+    }
+
+    /**
+     * 强制刷新温度（打开面板时使用）
+     */
+    public void forceRefreshTemperature(int currentTemperature) {
+        this.lastKnownTemperature = currentTemperature;
+        this.lastTemperatureUpdate = System.currentTimeMillis();
+        System.out.println("[Tinker's Search] Temperature FORCE updated: " + currentTemperature + "°C");
+    }
+
+    /**
+     * 清除温度缓存（更换燃料或刷新时调用）
+     */
+    public void invalidateTemperatureCache() {
+        this.lastKnownTemperature = 0;
+        this.lastTemperatureUpdate = 0;
+        System.out.println("[Tinker's Search] Temperature cache invalidated");
     }
 
     public int getLastKnownTemperature() {
+        if (lastKnownTemperature <= 0) {
+            return 0;
+        }
+        long elapsed = System.currentTimeMillis() - lastTemperatureUpdate;
+        if (elapsed > TEMPERATURE_CACHE_DURATION) {
+            System.out.println("[Tinker's Search] Temperature cache expired (" + elapsed + "ms)");
+            return 0;
+        }
         return lastKnownTemperature;
+    }
+
+    public boolean hasValidTemperature() {
+        long elapsed = System.currentTimeMillis() - lastTemperatureUpdate;
+        return elapsed <= TEMPERATURE_CACHE_DURATION && lastKnownTemperature > 0;
     }
 
     public void performQuery(String searchTerm, List<FluidStack> availableFluids, int currentTemperature) {
@@ -80,14 +112,12 @@ public class AlloyQueryHandler {
         this.currentResults.clear();
         this.lastKnownTemperature = currentTemperature;
 
-        // ===== 深拷贝：复制每个 FluidStack 对象，避免污染原始数据 =====
         List<FluidStack> simulatedFluids = new ArrayList<>();
         for (FluidStack fs : availableFluids) {
             FluidStack copy = fs.copy();
             simulatedFluids.add(copy);
         }
 
-        // 将搜索的材料视为足量
         boolean found = false;
         for (FluidStack fs : simulatedFluids) {
             if (fs.getFluid().getRegistryName().equals(material.getFluid().getRegistryName())) {
@@ -130,6 +160,7 @@ public class AlloyQueryHandler {
         this.allMaterials.clear();
         this.currentSearchTerm = "";
         this.lastKnownTemperature = 0;
+        this.lastTemperatureUpdate = 0;
     }
 
     public boolean isQueryMode() { return isQueryMode; }

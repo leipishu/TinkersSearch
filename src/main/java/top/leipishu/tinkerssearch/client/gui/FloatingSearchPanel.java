@@ -13,16 +13,15 @@ import net.minecraft.network.chat.TextComponent;
 import net.minecraft.network.chat.TranslatableComponent;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.material.Fluid;
 import net.minecraftforge.fluids.FluidStack;
 import net.minecraftforge.fml.ModList;
+import net.minecraftforge.fluids.capability.CapabilityFluidHandler;
+import net.minecraftforge.fluids.capability.IFluidHandler;
 import slimeknights.tconstruct.smeltery.block.entity.controller.HeatingStructureBlockEntity;
 import slimeknights.tconstruct.smeltery.block.entity.module.FuelModule;
 import net.minecraft.world.level.Level;
 import net.minecraft.core.BlockPos;
-import net.minecraftforge.fluids.capability.IFluidHandler;
-import net.minecraftforge.fluids.capability.CapabilityFluidHandler;
-import java.util.function.Supplier;
-import net.minecraft.world.level.material.Fluid;
 import org.lwjgl.glfw.GLFW;
 import top.leipishu.tinkerssearch.alloy.AlloyQueryHandler;
 import top.leipishu.tinkerssearch.alloy.AlloyRecipeData;
@@ -32,11 +31,13 @@ import top.leipishu.tinkerssearch.utils.FavoritesManager;
 import top.leipishu.tinkerssearch.utils.SearchHelper;
 import top.leipishu.tinkerssearch.utils.SmelteryClickHandler;
 import top.leipishu.tinkerssearch.utils.SmelteryDataHelper;
+import top.leipishu.tinkerssearch.utils.ScissorHelper;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Supplier;
 
 import static top.leipishu.tinkerssearch.config.PanelConfig.*;
 
@@ -104,6 +105,12 @@ public class FloatingSearchPanel extends AbstractWidget {
     private AlloyQueryHandler alloyHandler = AlloyQueryHandler.getInstance();
     private boolean isAlloyMode = false;
     private int alloyScrollOffset = 0;
+
+    // ===== 温度缓存 =====
+    private int cachedTemperature = 0;
+    private long lastTemperatureReadTime = 0;
+    private static final long TEMPERATURE_READ_COOLDOWN = 1000;
+    private static final boolean DEBUG_TEMPERATURE = false;
 
     public FloatingSearchPanel() {
         super(0, 0, PANEL_WIDTH, 100, new TextComponent("Search Panel"));
@@ -274,7 +281,6 @@ public class FloatingSearchPanel extends AbstractWidget {
             favScrollOffset = 0;
             alloyScrollOffset = 0;
             pendingHighlightUpdate = false;
-            // 清理冶炼炉实体缓存，避免下次打开时读到旧的 BlockEntity
             this.smelteryTileEntity = null;
             targetOffset = -this.width;
             isAnimating = true;
@@ -282,8 +288,8 @@ public class FloatingSearchPanel extends AbstractWidget {
         } else {
             updatePanelPosition();
 
-            // ===== 关键：打开面板时立即刷新温度 =====
-            refreshSmelteryTemperature();
+            // ===== 强制刷新温度 =====
+            forceRefreshTemperature();
 
             refreshMoltenFluids();
             this.isVisible = true;
@@ -451,12 +457,10 @@ public class FloatingSearchPanel extends AbstractWidget {
                 interactionHandler.setSearchKeyword("");
                 interactionHandler.setSearchBoxFocused(false);
 
-                // ===== 关键修复：强制重新获取冶炼炉数据 =====
                 BlockEntity target = smelteryTileEntity != null ? smelteryTileEntity : cachedTileEntity;
                 if (target != null) {
                     allFluids = SmelteryDataHelper.getMoltenFluids(target);
 
-                    // 重新构建收藏列表
                     allFavoriteFluids.clear();
                     displayedFavoriteFluids.clear();
                     List<FluidStack> favList = FavoritesManager.getFavorites();
@@ -478,7 +482,6 @@ public class FloatingSearchPanel extends AbstractWidget {
                         }
                     }
 
-                    // 获取底部流体
                     FluidStack bottomFluid = SmelteryDataHelper.getBottomFluid(target);
                     if (bottomFluid != null) {
                         bottomFluidName = bottomFluid.getDisplayName().getString();
@@ -486,7 +489,6 @@ public class FloatingSearchPanel extends AbstractWidget {
                         bottomFluidName = null;
                     }
 
-                    // 构建显示列表（关键词为空，显示全部）
                     displayedFluids = new ArrayList<>(allFluids);
                     displayedFavoriteFluids = new ArrayList<>(allFavoriteFluids);
 
@@ -494,13 +496,11 @@ public class FloatingSearchPanel extends AbstractWidget {
                     updateMaxScrollOffset();
                     scrollOffset = 0;
                     favScrollOffset = 0;
-                    System.out.println("Tinker's Search: Exited alloy mode, displayed " + displayedFluids.size() + " fluids");
                     return;
                 }
             }
         }
 
-        // ===== 正常模式刷新（原有逻辑） =====
         allFluids.clear();
         displayedFluids.clear();
         allFavoriteFluids.clear();
@@ -727,6 +727,11 @@ public class FloatingSearchPanel extends AbstractWidget {
 
         if (mouseX >= px + REFRESH_BTN_X && mouseX <= px + REFRESH_BTN_X + REFRESH_BTN_W &&
                 mouseY >= py + REFRESH_BTN_Y && mouseY <= py + REFRESH_BTN_Y + REFRESH_BTN_H) {
+            // 增强刷新：清除温度缓存
+            alloyHandler.invalidateTemperatureCache();
+            cachedTemperature = 0;
+            lastTemperatureReadTime = 0;
+            forceRefreshTemperature();
             refreshMoltenFluids();
             return true;
         }
@@ -760,7 +765,6 @@ public class FloatingSearchPanel extends AbstractWidget {
                 interactionHandler.setSearchBoxFocused(false);
                 return true;
             }
-            // 其他所有按键：返回 true 阻止传播，但不调用 event.setCanceled
             return true;
         }
 
@@ -785,6 +789,9 @@ public class FloatingSearchPanel extends AbstractWidget {
 
     @Override
     public void renderButton(PoseStack poseStack, int mouseX, int mouseY, float partialTick) {
+        // ===== 重置 Scissor 状态 =====
+        ScissorHelper.reset();
+
         if (isVisible && !visible) {
             visible = true;
         }
@@ -841,16 +848,6 @@ public class FloatingSearchPanel extends AbstractWidget {
     }
 
     // ==================== 渲染辅助方法 ====================
-
-    private void enableScissor(int x, int y, int width, int height) {
-        Minecraft mc = Minecraft.getInstance();
-        int scale = (int) mc.getWindow().getGuiScale();
-        int screenX = x * scale;
-        int screenY = mc.getWindow().getScreenHeight() - (y + height) * scale;
-        int screenW = Math.max(0, width * scale);
-        int screenH = Math.max(0, height * scale);
-        GlStateManager._scissorBox(screenX, screenY, screenW, screenH);
-    }
 
     private void renderTitleBar(PoseStack poseStack, int px, int py, int pw, Font font) {
         GuiComponent.fill(poseStack, px + 1, py + 1, px + pw - 2, py + TITLE_BAR_HEIGHT, 0xFF2A2A2A);
@@ -948,6 +945,7 @@ public class FloatingSearchPanel extends AbstractWidget {
     }
 
     private void renderNormalContent(PoseStack poseStack, int px, int py, int pw, int ph, int mouseX, int mouseY, Font font) {
+        // ===== 收藏区域 =====
         if (!displayedFavoriteFluids.isEmpty()) {
             int favLabelY = py + CARDS_START_Y;
             font.draw(poseStack, "§6" + new TranslatableComponent("gui.tinkerssearch.favorites").getString(), px + 5, favLabelY, 0xFFFFFF);
@@ -956,11 +954,23 @@ public class FloatingSearchPanel extends AbstractWidget {
             int favAreaHeight = getFavoriteAreaHeight();
 
             if (favAreaHeight > 0) {
-                GlStateManager._enableScissorTest();
-                enableScissor(px + 5, favStartY, pw - 10 - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING, favAreaHeight);
-                RenderSystem.disableDepthTest();
-                renderFavoriteCards(poseStack, px, py, pw, ph, mouseX, mouseY, font, favStartY, favAreaHeight);
-                GlStateManager._disableScissorTest();
+                boolean scissorOk = ScissorHelper.enableScissor(
+                        px + 5,
+                        favStartY,
+                        pw - 10 - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING,
+                        favAreaHeight
+                );
+                if (scissorOk) {
+                    try {
+                        RenderSystem.disableDepthTest();
+                        renderFavoriteCards(poseStack, px, py, pw, ph, mouseX, mouseY, font, favStartY, favAreaHeight);
+                    } finally {
+                        ScissorHelper.disableScissor();
+                        RenderSystem.enableDepthTest();
+                    }
+                } else {
+                    renderFavoriteCards(poseStack, px, py, pw, ph, mouseX, mouseY, font, favStartY, favAreaHeight);
+                }
                 renderScrollBar(poseStack, px, favStartY, favAreaHeight, pw, favScrollOffset, maxFavScrollOffset);
             }
 
@@ -974,30 +984,31 @@ public class FloatingSearchPanel extends AbstractWidget {
             font.draw(poseStack, "§e" + new TranslatableComponent("gui.tinkerssearch.smeltery").getString(), px + 5, smelterLabelY, 0xFFFFFF);
         }
 
+        // ===== 冶炼炉区域 =====
         int clipStartY = py + getSmelteryAreaStartY();
         int clipEndY = py + ph - 4;
         int clipWidth = pw - 10 - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING;
         int clipHeight = clipEndY - clipStartY;
 
         if (clipHeight > 0) {
-            GlStateManager._enableScissorTest();
-            enableScissor(px + 5, clipStartY, clipWidth, clipHeight);
-            RenderSystem.disableDepthTest();
-            renderCards(poseStack, px, py, pw, ph, mouseX, mouseY, font);
-            GlStateManager._disableScissorTest();
+            boolean scissorOk = ScissorHelper.enableScissor(px + 5, clipStartY, clipWidth, clipHeight);
+            if (scissorOk) {
+                try {
+                    RenderSystem.disableDepthTest();
+                    renderCards(poseStack, px, py, pw, ph, mouseX, mouseY, font);
+                } finally {
+                    ScissorHelper.disableScissor();
+                    RenderSystem.enableDepthTest();
+                }
+            } else {
+                renderCards(poseStack, px, py, pw, ph, mouseX, mouseY, font);
+            }
             renderScrollBar(poseStack, px, clipStartY, clipHeight, pw, scrollOffset, maxScrollOffset);
         }
     }
 
-    // ===== 温度缓存字段 =====
-    private int cachedTemperature = 0;
-    private long lastTemperatureReadTime = 0;
-    private static final long TEMPERATURE_READ_COOLDOWN = 1000; // 1秒冷却
-    private static final boolean DEBUG_TEMPERATURE = false;    // 调试日志开关
+    // ==================== 温度读取 ====================
 
-    /**
-     * 获取当前冶炼炉温度（带冷却缓存）
-     */
     public int getCurrentSmelteryTemperature() {
         long now = System.currentTimeMillis();
 
@@ -1006,27 +1017,22 @@ public class FloatingSearchPanel extends AbstractWidget {
             return cachedTemperature;
         }
 
-        // 超过冷却期，重新读取
         int temp = readTemperatureFromSmeltery();
         cachedTemperature = temp;
         lastTemperatureReadTime = now;
         return temp;
     }
 
-    /**
-     * 强制刷新温度（打开面板时调用）
-     */
     public int forceRefreshTemperature() {
         int temp = readTemperatureFromSmeltery();
         cachedTemperature = temp;
         lastTemperatureReadTime = System.currentTimeMillis();
-        System.out.println("[Tinker's Search] 🔥 Force refreshed temperature: " + temp + "°C");
+        if (DEBUG_TEMPERATURE) {
+            System.out.println("Tinker's Search: Force refreshed temperature: " + temp + "°C");
+        }
         return temp;
     }
 
-    /**
-     * 实际从冶炼炉读取温度（只在这里打印日志）
-     */
     private int readTemperatureFromSmeltery() {
         Minecraft mc = Minecraft.getInstance();
         Screen screen = mc.screen;
@@ -1061,7 +1067,7 @@ public class FloatingSearchPanel extends AbstractWidget {
 
         HeatingStructureBlockEntity controller = (HeatingStructureBlockEntity) target;
 
-        // ===== 清除 FuelModule 缓存（不打印日志） =====
+        // ===== 清除 FuelModule 缓存 =====
         try {
             FuelModule fuelModule = controller.getFuelModule();
             if (fuelModule != null) {
@@ -1108,9 +1114,8 @@ public class FloatingSearchPanel extends AbstractWidget {
                                     if (!fluid.isEmpty()) {
                                         int temp = getFluidTemperature(fluid);
                                         if (temp > 0) {
-                                            // ===== 只在温度变化时打印 =====
                                             if (DEBUG_TEMPERATURE || temp != cachedTemperature) {
-                                                System.out.println("[Tinker's Search] 🔥 Temperature: " + temp + "°C (" + fluid.getDisplayName().getString() + ")");
+                                                System.out.println("Tinker's Search: Temperature: " + temp + "°C (" + fluid.getDisplayName().getString() + ")");
                                             }
                                             return temp;
                                         }
@@ -1121,7 +1126,7 @@ public class FloatingSearchPanel extends AbstractWidget {
                     }
                 } catch (Exception e) {
                     if (DEBUG_TEMPERATURE) {
-                        System.out.println("[Tinker's Search] tankSupplier failed: " + e.getMessage());
+                        System.out.println("Tinker's Search: tankSupplier failed: " + e.getMessage());
                     }
                 }
             }
@@ -1142,9 +1147,6 @@ public class FloatingSearchPanel extends AbstractWidget {
         return 0;
     }
 
-    /**
-     * 获取流体温度（不打印日志）
-     */
     private int getFluidTemperature(FluidStack fluid) {
         if (fluid == null || fluid.isEmpty()) {
             return 0;
@@ -1208,20 +1210,8 @@ public class FloatingSearchPanel extends AbstractWidget {
         return 0;
     }
 
-    /**
-     * 刷新冶炼炉温度并更新到 alloyHandler
-     */
-    private void refreshSmelteryTemperature() {
-        int currentTemp = getCurrentSmelteryTemperature();
-        alloyHandler.refreshTemperature(currentTemp);
-        System.out.println("Tinker's Search: Refreshed temperature: " + currentTemp + "°C");
-    }
-
-    /**
-     * 外部调用刷新温度（用于 TinkersSearch 切换面板时）
-     */
     public void refreshTemperature() {
-        refreshSmelteryTemperature();
+        forceRefreshTemperature();
     }
 
     // ==================== 合金模式渲染 ====================
@@ -1272,19 +1262,30 @@ public class FloatingSearchPanel extends AbstractWidget {
         int clipX = px + 5;
         int clipWidth = pw - 10 - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING;
 
-        GlStateManager._enableScissorTest();
-        enableScissor(clipX, cardStartY, clipWidth, cardAreaHeight);
-        RenderSystem.disableDepthTest();
-
-        int actualStartY = cardStartY - alloyScrollOffset;
-        int cardY = actualStartY;
-        for (AlloyResultCalculator.AlloyChainResult result : results) {
-            cardY = drawAlloyRecipeCard(poseStack, px, pw, cardY, result, currentTemp, mouseX, mouseY, font);
-            cardY += 6;
-            if (cardY > endY) break;
+        boolean scissorOk = ScissorHelper.enableScissor(clipX, cardStartY, clipWidth, cardAreaHeight);
+        if (scissorOk) {
+            try {
+                RenderSystem.disableDepthTest();
+                int actualStartY = cardStartY - alloyScrollOffset;
+                int cardY = actualStartY;
+                for (AlloyResultCalculator.AlloyChainResult result : results) {
+                    cardY = drawAlloyRecipeCard(poseStack, px, pw, cardY, result, currentTemp, mouseX, mouseY, font);
+                    cardY += 6;
+                    if (cardY > endY) break;
+                }
+            } finally {
+                ScissorHelper.disableScissor();
+                RenderSystem.enableDepthTest();
+            }
+        } else {
+            int actualStartY = cardStartY - alloyScrollOffset;
+            int cardY = actualStartY;
+            for (AlloyResultCalculator.AlloyChainResult result : results) {
+                cardY = drawAlloyRecipeCard(poseStack, px, pw, cardY, result, currentTemp, mouseX, mouseY, font);
+                cardY += 6;
+                if (cardY > endY) break;
+            }
         }
-
-        GlStateManager._disableScissorTest();
 
         if (maxOffset > 0) {
             renderScrollBar(poseStack, px, cardStartY, cardAreaHeight, pw, alloyScrollOffset, maxOffset);
@@ -1298,7 +1299,6 @@ public class FloatingSearchPanel extends AbstractWidget {
         font.draw(poseStack, "§7" + title + " §8(" + materials.size() + ")", px + 5, startY, 0xCCCCCC);
 
         int cardStartY = startY + 18;
-
         int cardAreaHeight = endY - cardStartY;
 
         if (materials.isEmpty()) {
@@ -1313,34 +1313,53 @@ public class FloatingSearchPanel extends AbstractWidget {
 
         int totalRows = (materials.size() + ITEMS_PER_ROW - 1) / ITEMS_PER_ROW;
         int totalContentHeight = totalRows * (cardH + CARD_SPACING) - CARD_SPACING;
-
         int maxOffset = Math.max(0, totalContentHeight - cardAreaHeight);
         alloyScrollOffset = Math.max(0, Math.min(alloyScrollOffset, maxOffset));
 
-        GlStateManager._enableScissorTest();
-        enableScissor(px + 5 + margin, cardStartY, availableWidth, cardAreaHeight);
-        RenderSystem.disableDepthTest();
+        boolean scissorOk = ScissorHelper.enableScissor(px + 5 + margin, cardStartY, availableWidth, cardAreaHeight);
+        if (scissorOk) {
+            try {
+                RenderSystem.disableDepthTest();
+                int actualStartY = cardStartY - alloyScrollOffset;
+                for (int i = 0; i < materials.size(); i++) {
+                    int row = i / ITEMS_PER_ROW;
+                    int col = i % ITEMS_PER_ROW;
+                    int cardX = px + 5 + margin + col * (cardW + CARD_SPACING);
+                    int cardY = actualStartY + row * (cardH + CARD_SPACING);
 
-        int actualStartY = cardStartY - alloyScrollOffset;
+                    if (cardY + cardH < cardStartY || cardY > endY) continue;
 
-        for (int i = 0; i < materials.size(); i++) {
-            int row = i / ITEMS_PER_ROW;
-            int col = i % ITEMS_PER_ROW;
-            int cardX = px + 5 + margin + col * (cardW + CARD_SPACING);
-            int cardY = actualStartY + row * (cardH + CARD_SPACING);
+                    FluidStack fluid = materials.get(i);
+                    boolean hover = isHovered(cardX, cardY, cardW, cardH, mouseX, mouseY);
+                    boolean selected = alloyHandler.getSelectedMaterial() != null &&
+                            alloyHandler.getSelectedMaterial().getFluid().getRegistryName()
+                                    .equals(fluid.getFluid().getRegistryName());
 
-            if (cardY + cardH < cardStartY || cardY > endY) continue;
+                    drawAlloyMaterialCard(poseStack, cardX, cardY, cardW, cardH, fluid, hover, selected, font);
+                }
+            } finally {
+                ScissorHelper.disableScissor();
+                RenderSystem.enableDepthTest();
+            }
+        } else {
+            int actualStartY = cardStartY - alloyScrollOffset;
+            for (int i = 0; i < materials.size(); i++) {
+                int row = i / ITEMS_PER_ROW;
+                int col = i % ITEMS_PER_ROW;
+                int cardX = px + 5 + margin + col * (cardW + CARD_SPACING);
+                int cardY = actualStartY + row * (cardH + CARD_SPACING);
 
-            FluidStack fluid = materials.get(i);
-            boolean hover = isHovered(cardX, cardY, cardW, cardH, mouseX, mouseY);
-            boolean selected = alloyHandler.getSelectedMaterial() != null &&
-                    alloyHandler.getSelectedMaterial().getFluid().getRegistryName()
-                            .equals(fluid.getFluid().getRegistryName());
+                if (cardY + cardH < cardStartY || cardY > endY) continue;
 
-            drawAlloyMaterialCard(poseStack, cardX, cardY, cardW, cardH, fluid, hover, selected, font);
+                FluidStack fluid = materials.get(i);
+                boolean hover = isHovered(cardX, cardY, cardW, cardH, mouseX, mouseY);
+                boolean selected = alloyHandler.getSelectedMaterial() != null &&
+                        alloyHandler.getSelectedMaterial().getFluid().getRegistryName()
+                                .equals(fluid.getFluid().getRegistryName());
+
+                drawAlloyMaterialCard(poseStack, cardX, cardY, cardW, cardH, fluid, hover, selected, font);
+            }
         }
-
-        GlStateManager._disableScissorTest();
 
         if (maxOffset > 0) {
             renderScrollBar(poseStack, px, cardStartY, cardAreaHeight, pw, alloyScrollOffset, maxOffset);
@@ -1429,7 +1448,6 @@ public class FloatingSearchPanel extends AbstractWidget {
             for (int i = 0; i < missing.size(); i++) {
                 if (i > 0) sb.append(", ");
                 AlloyRecipeData.AlloyFeasibility.MissingFluid mf = missing.get(i);
-                // ===== 统一移除 "Molten " 和 "熔融" 前缀 =====
                 String name = mf.fluid.getDisplayName().getString()
                         .replace("Molten ", "")
                         .replace("熔融", "");
@@ -1443,7 +1461,6 @@ public class FloatingSearchPanel extends AbstractWidget {
         }
 
         if (result.getNext() != null) {
-            // ===== 统一移除 "Molten " 和 "熔融" 前缀 =====
             String childName = result.getNext().getRecipe().getResult().getDisplayName().getString()
                     .replace("Molten ", "")
                     .replace("熔融", "");
@@ -1454,7 +1471,6 @@ public class FloatingSearchPanel extends AbstractWidget {
             lineY += 10;
         }
 
-        // ===== 显示可执行次数（修复版） =====
         if (feasibility.isFeasible() && result.getNext() == null) {
             int maxTimes = feasibility.getMaxTimes();
             if (maxTimes > 0) {
