@@ -20,5 +20,11 @@
   "gui.tinkerssearch.alloy_child": "↳ Can further alloy: %s",
   "gui.tinkerssearch.alloy_missing_prefix": "Missing",
   "gui.tinkerssearch.alloy_search_hint": "/a/ material name",
-  "gui.tinkerssearch.alloy_times": "Can perform %d times"
+  "gui.tinkerssearch.alloy_times": "Can perform %d times",
+  "gui.tinkerssearch.alloy_need": "needs",
+  "gui.tinkerssearch.alloy_temp": "temp",
+  "gui.tinkerssearch.alloy_unable": "Unable",
+  "gui.tinkerssearch.alloy_temp_short": "T",
+  "gui.tinkerssearch.alloy_next_missing": "Next missing",
+  "gui.tinkerssearch.alloy_ingredients": "Ingredients: "
 }

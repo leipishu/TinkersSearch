@@ -1,12 +1,14 @@
 package top.leipishu.tinkerssearch.client.gui.panel;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
 import net.minecraftforge.fluids.FluidStack;
 import top.leipishu.tinkerssearch.alloy.AlloyQueryHandler;
 import top.leipishu.tinkerssearch.alloy.AlloyRecipeData;
 import top.leipishu.tinkerssearch.alloy.AlloyResultCalculator;
 import top.leipishu.tinkerssearch.client.gui.FloatingSearchPanel;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import static top.leipishu.tinkerssearch.config.PanelConfig.*;
@@ -19,14 +21,21 @@ public class PanelLayoutCalculator {
     private final FloatingSearchPanel panel;
     private final PanelDataManager dataManager;
     private final AlloyQueryHandler alloyHandler;
+    private PanelRenderer panelRenderer;
 
     private int lastScreenWidth = 0;
     private int lastScreenHeight = 0;
 
-    public PanelLayoutCalculator(FloatingSearchPanel panel, PanelDataManager dataManager, AlloyQueryHandler alloyHandler) {
+    public PanelLayoutCalculator(FloatingSearchPanel panel, PanelDataManager dataManager,
+                                 AlloyQueryHandler alloyHandler, PanelRenderer panelRenderer) {
         this.panel = panel;
         this.dataManager = dataManager;
         this.alloyHandler = alloyHandler;
+        this.panelRenderer = panelRenderer;
+    }
+
+    public void setPanelRenderer(PanelRenderer panelRenderer) {
+        this.panelRenderer = panelRenderer;
     }
 
     // ==================== 区域位置 ====================
@@ -54,27 +63,39 @@ public class PanelLayoutCalculator {
     // ==================== 合金模式 ====================
 
     /**
-     * 计算单个合金卡片的高度
+     * 计算单个合金卡片的高度（委托给 PanelRenderer）
      */
     private int calculateCardHeight(AlloyResultCalculator.AlloyChainResult result) {
-        AlloyRecipeData.AlloyFeasibility feasibility = result.getFeasibility();
+        Minecraft mc = Minecraft.getInstance();
+        Font font = mc.font;
+        int cardWidth = panel.getPanelWidth() - 12 - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING;
+        return panelRenderer.calculateActualCardHeight(result, font, cardWidth);
+    }
 
-        int lineCount = 3; // 状态行 + 配方链行 + 分割线
+    /**
+     * 收集后续合金结果（最多 limit 个）
+     */
+    private List<AlloyResultCalculator.AlloyChainResult> collectNextResults(AlloyResultCalculator.AlloyChainResult result, int limit) {
+        List<AlloyResultCalculator.AlloyChainResult> results = new ArrayList<>();
+        AlloyResultCalculator.AlloyChainResult current = result.getNext();
+        while (current != null && results.size() < limit) {
+            results.add(current);
+            current = current.getNext();
+        }
+        return results;
+    }
 
-        List<AlloyRecipeData.AlloyFeasibility.MissingFluid> missing = feasibility.getMissingFluids();
-        if (!missing.isEmpty()) {
-            lineCount++;
+    /**
+     * 统计后续合金总数
+     */
+    private int countNextResults(AlloyResultCalculator.AlloyChainResult result) {
+        int count = 0;
+        AlloyResultCalculator.AlloyChainResult current = result.getNext();
+        while (current != null) {
+            count++;
+            current = current.getNext();
         }
-        if (result.getNext() != null) {
-            lineCount++;
-        }
-        if (feasibility.isFeasible() && result.getNext() == null) {
-            lineCount++;
-        }
-        // 原料详情行
-        lineCount++;
-
-        return Math.max(72, lineCount * 12 + 16);
+        return count;
     }
 
     public int getAlloyContentHeight() {
@@ -96,19 +117,13 @@ public class PanelLayoutCalculator {
 
     public int getAlloyVisibleHeight() {
         if (alloyHandler.getSelectedMaterial() == null) {
-            // 材料列表模式
             int startY = panel.getPanelY() + CARDS_START_Y + 18 + 18 + 4;
             int endY = panel.getPanelY() + panel.getPanelHeight() - 4;
             return Math.max(0, endY - startY);
         } else {
-            // 结果模式
             int startY = panel.getPanelY() + CARDS_START_Y + 18 + 14 + 12 + 12;
             int endY = panel.getPanelY() + panel.getPanelHeight() - 4;
-            int visible = Math.max(0, endY - startY);
-            // ===== 调试日志 =====
-            // System.out.println("[Tinker's Search] Alloy visible height: " + visible +
-            //         " (startY=" + startY + ", endY=" + endY + ", panelHeight=" + panel.getPanelHeight() + ")");
-            return visible;
+            return Math.max(0, endY - startY);
         }
     }
 

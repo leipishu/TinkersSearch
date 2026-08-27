@@ -86,6 +86,7 @@ public class AlloyResultCalculator {
         private final AlloyRecipeData recipe;
         private final AlloyRecipeData.AlloyFeasibility feasibility;
         private final AlloyChainResult next;
+        private final FluidStack resultFluid;
 
         public AlloyChainResult(AlloyRecipeData recipe,
                                 AlloyRecipeData.AlloyFeasibility feasibility,
@@ -93,11 +94,13 @@ public class AlloyResultCalculator {
             this.recipe = recipe;
             this.feasibility = feasibility;
             this.next = next;
+            this.resultFluid = recipe.getResult();
         }
 
         public AlloyRecipeData getRecipe() { return recipe; }
         public AlloyRecipeData.AlloyFeasibility getFeasibility() { return feasibility; }
         public AlloyChainResult getNext() { return next; }
+        public FluidStack getResultFluid() { return resultFluid; }
 
         public String formatChain() {
             StringBuilder sb = new StringBuilder();
@@ -115,7 +118,6 @@ public class AlloyResultCalculator {
             for (int i = 0; i < inputs.size(); i++) {
                 if (i > 0) sb.append(" + ");
                 FluidStack fs = inputs.get(i).getFluid();
-                // ===== 统一移除 "Molten " 和 "熔融" 前缀 =====
                 String name = fs.getDisplayName().getString()
                         .replace("Molten ", "")
                         .replace("熔融", "");

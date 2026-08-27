@@ -67,10 +67,17 @@ public class FloatingSearchPanel extends AbstractWidget {
 
         this.dataManager = new PanelDataManager(this, interactionHandler, alloyHandler);
         this.temperatureReader = new SmelteryTemperatureReader();
-        this.layoutCalculator = new PanelLayoutCalculator(this, dataManager, alloyHandler);
+
+        // ===== 先创建 layoutCalculator（panelRenderer 暂为 null） =====
+        this.layoutCalculator = new PanelLayoutCalculator(this, dataManager, alloyHandler, null);
         this.animationManager = new PanelAnimationManager(this, interactionHandler, alloyHandler, dataManager);
+
+        // ===== 再创建 renderer =====
         this.renderer = new PanelRenderer(this, dataManager, layoutCalculator, animationManager,
                 interactionHandler, alloyHandler);
+
+        // ===== 设置 layoutCalculator 的 panelRenderer 引用 =====
+        this.layoutCalculator.setPanelRenderer(renderer);
 
         interactionHandler.setDataRefs(dataManager.getAllFluids(), dataManager.getDisplayedFluids());
 
@@ -338,7 +345,57 @@ public class FloatingSearchPanel extends AbstractWidget {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        // 优先检测Tab按钮
+        // ===== 优先检测：点击合金产物名称跳转 =====
+        if (dataManager.isAlloyMode() && renderer.isClickingResultName((int)mouseX, (int)mouseY)) {
+            String registryName = renderer.getClickableResultRegistryName((int)mouseX, (int)mouseY);
+            if (registryName != null && !registryName.isEmpty()) {
+                List<FluidStack> materials = alloyHandler.getFilteredMaterials();
+                FluidStack targetMaterial = null;
+                for (FluidStack fs : materials) {
+                    ResourceLocation rl = fs.getFluid().getRegistryName();
+                    if (rl != null && rl.getPath().equalsIgnoreCase(registryName)) {
+                        targetMaterial = fs;
+                        break;
+                    }
+                }
+
+                if (targetMaterial != null) {
+                    int currentTemp = getCurrentSmelteryTemperature();
+                    alloyHandler.refreshTemperature(currentTemp);
+                    alloyHandler.selectMaterial(targetMaterial, dataManager.getAllFluids(), currentTemp);
+                    return true;
+                }
+
+                // 注册名匹配失败时回退到显示名匹配
+                String resultName = renderer.getClickableResultName((int)mouseX, (int)mouseY);
+                if (resultName != null && !resultName.isEmpty()) {
+                    for (FluidStack fs : materials) {
+                        String name = fs.getDisplayName().getString()
+                                .replace("Molten ", "")
+                                .replace("熔融", "")
+                                .trim();
+                        if (name.equalsIgnoreCase(resultName.trim())) {
+                            targetMaterial = fs;
+                            break;
+                        }
+                    }
+                    if (targetMaterial != null) {
+                        int currentTemp = getCurrentSmelteryTemperature();
+                        alloyHandler.refreshTemperature(currentTemp);
+                        alloyHandler.selectMaterial(targetMaterial, dataManager.getAllFluids(), currentTemp);
+                        return true;
+                    }
+                }
+
+                // 最后回退：搜索方式
+                String searchText = "/a/ " + registryName;
+                interactionHandler.setSearchKeyword(searchText);
+                refreshMoltenFluids();
+                return true;
+            }
+        }
+
+        // ===== 检测Tab按钮 =====
         if (isTabButtonClicked(mouseX, mouseY)) {
             if (isAnimating()) {
                 return true;

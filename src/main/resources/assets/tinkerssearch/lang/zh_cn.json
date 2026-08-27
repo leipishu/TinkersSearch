@@ -20,5 +20,11 @@
   "gui.tinkerssearch.alloy_child": "↳ 可继续合金: %s",
   "gui.tinkerssearch.alloy_missing_prefix": "缺少",
   "gui.tinkerssearch.alloy_search_hint": "/a/ 材料名",
-  "gui.tinkerssearch.alloy_times": "可执行 %d 次"
+  "gui.tinkerssearch.alloy_times": "可执行 %d 次",
+  "gui.tinkerssearch.alloy_need": "需要",
+  "gui.tinkerssearch.alloy_temp": "温度",
+  "gui.tinkerssearch.alloy_unable": "不可执行",
+  "gui.tinkerssearch.alloy_temp_short": "温",
+  "gui.tinkerssearch.alloy_next_missing": "后续缺少",
+  "gui.tinkerssearch.alloy_ingredients": "原料: "
 }

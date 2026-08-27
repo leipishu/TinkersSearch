@@ -18,6 +18,7 @@ import top.leipishu.tinkerssearch.utils.FavoritesManager;
 import top.leipishu.tinkerssearch.utils.ScissorHelper;
 import top.leipishu.tinkerssearch.utils.SmelteryDataHelper;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import static top.leipishu.tinkerssearch.config.PanelConfig.*;
@@ -34,6 +35,15 @@ public class PanelRenderer {
     private final PanelInteractionHandler interactionHandler;
     private final AlloyQueryHandler alloyHandler;
 
+    // ===== 可点击区域列表（支持多个卡片） =====
+    private List<ClickableArea> clickableAreas = new ArrayList<>();
+
+    private static class ClickableArea {
+        int x, y, w, h;
+        String name;
+        String registryName;
+    }
+
     private Font cachedFont = null;
 
     public PanelRenderer(FloatingSearchPanel panel, PanelDataManager dataManager,
@@ -47,9 +57,103 @@ public class PanelRenderer {
         this.alloyHandler = alloyHandler;
     }
 
+    // ==================== 公共方法 ====================
+
+    public boolean isClickingResultName(int mouseX, int mouseY) {
+        for (ClickableArea area : clickableAreas) {
+            if (mouseX >= area.x && mouseX <= area.x + area.w &&
+                    mouseY >= area.y && mouseY <= area.y + area.h) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public String getClickableResultName(int mouseX, int mouseY) {
+        for (ClickableArea area : clickableAreas) {
+            if (mouseX >= area.x && mouseX <= area.x + area.w &&
+                    mouseY >= area.y && mouseY <= area.y + area.h) {
+                return area.name;
+            }
+        }
+        return "";
+    }
+
+    public String getClickableResultRegistryName(int mouseX, int mouseY) {
+        for (ClickableArea area : clickableAreas) {
+            if (mouseX >= area.x && mouseX <= area.x + area.w &&
+                    mouseY >= area.y && mouseY <= area.y + area.h) {
+                return area.registryName;
+            }
+        }
+        return "";
+    }
+
+    /**
+     * 计算合金卡片实际需要的高度（供 LayoutCalculator 调用）
+     */
+    public int calculateActualCardHeight(AlloyResultCalculator.AlloyChainResult result, Font font, int cardWidth) {
+        AlloyRecipeData recipe = result.getRecipe();
+        AlloyRecipeData.AlloyFeasibility feasibility = result.getFeasibility();
+
+        int lineCount = 3; // 状态行 + 配方链行 + 分割线
+
+        List<AlloyRecipeData.AlloyFeasibility.MissingFluid> missing = feasibility.getMissingFluids();
+        if (!missing.isEmpty()) {
+            lineCount++;
+        }
+        if (result.getNext() == null) {
+            lineCount++;
+        }
+
+        StringBuilder ingredients = new StringBuilder();
+        ingredients.append(new TranslatableComponent("gui.tinkerssearch.alloy_ingredients").getString());
+        List<AlloyRecipeData.FluidIngredientData> inputs = recipe.getInputs();
+        for (int i = 0; i < inputs.size(); i++) {
+            if (i > 0) ingredients.append(" + ");
+            AlloyRecipeData.FluidIngredientData input = inputs.get(i);
+            FluidStack fs = input.getFluid();
+            String name = fs.getDisplayName().getString()
+                    .replace("Molten ", "")
+                    .replace("熔融", "");
+            int needed = input.getAmount();
+            int available = 0;
+            for (FluidStack availableFs : dataManager.getAllFluids()) {
+                if (availableFs.getFluid().getRegistryName().equals(fs.getFluid().getRegistryName())) {
+                    available = availableFs.getAmount();
+                    break;
+                }
+            }
+            boolean sufficient = available >= needed;
+            ingredients.append(sufficient ? "§a" : "§c");
+            ingredients.append(name).append("§7(").append(available).append("/").append(needed).append("mB)");
+        }
+
+        String ingredientText = ingredients.toString();
+        int maxWidth = cardWidth - 12;
+        List<String> wrappedLines = wrapText(font, ingredientText, maxWidth);
+        int ingredientLines = Math.max(1, wrappedLines.size());
+        lineCount += ingredientLines;
+
+        if (result.getNext() != null) {
+            lineCount++;
+            List<AlloyResultCalculator.AlloyChainResult> nextResults = collectNextResults(result, 2);
+            for (AlloyResultCalculator.AlloyChainResult nr : nextResults) {
+                if (!nr.getFeasibility().getMissingFluids().isEmpty()) {
+                    lineCount++;
+                    break;
+                }
+            }
+        }
+
+        return Math.max(80, lineCount * 12 + 16);
+    }
+
     // ==================== 主渲染 ====================
 
     public void renderButton(PoseStack poseStack, int mouseX, int mouseY, float partialTick) {
+        // ===== 清空点击区域列表 =====
+        clickableAreas.clear();
         ScissorHelper.reset();
 
         if (panel.isVisible() && !panel.isVisible()) {
@@ -205,7 +309,6 @@ public class PanelRenderer {
     }
 
     private void renderNormalContent(PoseStack poseStack, int px, int py, int pw, int ph, int mouseX, int mouseY, Font font) {
-        // ===== 收藏区域 =====
         if (!dataManager.getDisplayedFavoriteFluids().isEmpty()) {
             int favLabelY = py + CARDS_START_Y;
             font.draw(poseStack, "§6" + new TranslatableComponent("gui.tinkerssearch.favorites").getString(), px + 5, favLabelY, 0xFFFFFF);
@@ -244,7 +347,6 @@ public class PanelRenderer {
             font.draw(poseStack, "§e" + new TranslatableComponent("gui.tinkerssearch.smeltery").getString(), px + 5, smelterLabelY, 0xFFFFFF);
         }
 
-        // ===== 冶炼炉区域 =====
         int clipStartY = py + layoutCalculator.getSmelteryAreaStartY();
         int clipEndY = py + ph - 4;
         int clipWidth = pw - 10 - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING;
@@ -458,10 +560,9 @@ public class PanelRenderer {
         int cardStartY = contentY;
         int cardAreaHeight = endY - cardStartY;
 
-        // ===== 计算每个卡片的高度（与 drawAlloyRecipeCard 保持一致） =====
         int cardH = 72;
         for (AlloyResultCalculator.AlloyChainResult result : results) {
-            int h = calculateAlloyCardHeight(result);
+            int h = calculateActualCardHeight(result, font, pw - 12 - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING);
             if (h > cardH) cardH = h;
         }
 
@@ -502,31 +603,6 @@ public class PanelRenderer {
         if (maxOffset > 0) {
             renderScrollBar(poseStack, px, cardStartY, cardAreaHeight, pw, alloyScrollOffset, maxOffset);
         }
-    }
-    /**
-     * 计算合金卡片所需高度
-     */
-    private int calculateAlloyCardHeight(AlloyResultCalculator.AlloyChainResult result) {
-        AlloyRecipeData recipe = result.getRecipe();
-        AlloyRecipeData.AlloyFeasibility feasibility = result.getFeasibility();
-
-        int lineCount = 3; // 状态行 + 配方链行 + 分割线
-
-        List<AlloyRecipeData.AlloyFeasibility.MissingFluid> missing = feasibility.getMissingFluids();
-        if (!missing.isEmpty()) {
-            lineCount++;
-        }
-        if (result.getNext() != null) {
-            lineCount++;
-        }
-        if (feasibility.isFeasible() && result.getNext() == null) {
-            lineCount++;
-        }
-        // 原料详情行
-        lineCount++;
-
-        int cardH = Math.max(72, lineCount * 12 + 16);
-        return Math.max(72, cardH);
     }
 
     private void renderAlloyMaterials(PoseStack poseStack, int px, int py, int pw, int mouseX, int mouseY, Font font, int startY, int endY) {
@@ -629,30 +705,18 @@ public class PanelRenderer {
         font.draw(poseStack, truncated, textX, y + (h - font.lineHeight) / 2 + 1, 0xFFFFFF);
     }
 
+    // ==================== 合金卡片绘制 ====================
+
     private int drawAlloyRecipeCard(PoseStack poseStack, int px, int pw, int y,
                                     AlloyResultCalculator.AlloyChainResult result,
                                     int currentTemp, int mouseX, int mouseY, Font font) {
         AlloyRecipeData recipe = result.getRecipe();
         AlloyRecipeData.AlloyFeasibility feasibility = result.getFeasibility();
 
-        // ===== 计算需要的行数来确定卡片高度 =====
-        int lineCount = 3; // 状态行 + 配方链行 + 温度行（合并到状态行）
-
         List<AlloyRecipeData.AlloyFeasibility.MissingFluid> missing = feasibility.getMissingFluids();
-        if (!missing.isEmpty()) {
-            lineCount++; // 缺失行
-        }
-        if (result.getNext() != null) {
-            lineCount++; // 继续合金行
-        }
-        if (feasibility.isFeasible() && result.getNext() == null) {
-            lineCount++; // 执行次数行
-        }
-        // 原料详情行
-        lineCount++;
 
-        // 每个卡片至少显示完整信息
-        int cardH = Math.max(72, lineCount * 12 + 16);
+        int cardWidth = pw - 12 - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING;
+        int cardH = calculateActualCardHeight(result, font, cardWidth);
         if (cardH < 72) cardH = 72;
 
         int margin = 6;
@@ -668,20 +732,19 @@ public class PanelRenderer {
         int bg = feasible ? 0xFF1A3A1A : 0xFF3A2A1A;
         GuiComponent.fill(poseStack, x, y, x + w, y + cardH, bg);
 
-        // ===== 边框颜色 =====
         int border = feasible ? 0xFF44FF44 : 0xFFFF8800;
         GuiComponent.fill(poseStack, x, y, x + w, y + 1, border);
         GuiComponent.fill(poseStack, x, y + cardH - 1, x + w, y + cardH, border);
         GuiComponent.fill(poseStack, x, y, x + 1, y + cardH, border);
         GuiComponent.fill(poseStack, x + w - 1, y, x + w, y + cardH, border);
 
-        // ===== 左上角状态标识 =====
+        // ===== 第1行：状态 =====
         String status = feasible ?
                 "§a✔ " + new TranslatableComponent("gui.tinkerssearch.alloy_feasible").getString() :
                 "§c✘ " + new TranslatableComponent("gui.tinkerssearch.alloy_infeasible").getString();
         font.draw(poseStack, status, x + 6, y + 3, 0xFFFFFF);
 
-        // ===== 右上角温度 =====
+        // ===== 第1行右侧：温度 =====
         String tempStr = feasibility.isTemperatureOk() ?
                 "§a" + currentTemp + "°C" :
                 "§c" + currentTemp + "°C §7/§e" + feasibility.getRequiredTemp() + "°C";
@@ -690,16 +753,73 @@ public class PanelRenderer {
         // ===== 分割线 =====
         int lineY = y + 16;
         GuiComponent.fill(poseStack, x + 4, lineY, x + w - 4, lineY + 1, 0x44FFFFFF);
-
         lineY += 6;
 
-        // ===== 配方链（完整显示，永不截断） =====
+        // ===== 第2行：配方链（带可点击按钮） =====
         String chainStr = result.formatChain();
-        font.draw(poseStack, "§7" + chainStr, x + 6, lineY, 0xCCCCCC);
+
+        int eqIndex = chainStr.indexOf(" = ");
+        String resultName = "";
+        if (eqIndex >= 0) {
+            resultName = chainStr.substring(eqIndex + 3).trim();
+            int arrowIndex = resultName.indexOf(" → ");
+            if (arrowIndex >= 0) {
+                resultName = resultName.substring(0, arrowIndex).trim();
+            }
+
+            FluidStack resultFluid = result.getResultFluid();
+            String registryName = "";
+            if (resultFluid != null && !resultFluid.isEmpty()) {
+                ResourceLocation rl = resultFluid.getFluid().getRegistryName();
+                if (rl != null) {
+                    registryName = rl.getPath();
+                }
+            }
+            if (registryName.isEmpty()) {
+                registryName = resultName;
+            }
+
+            String beforeEq = chainStr.substring(0, eqIndex + 3);
+            String beforePart = "§7" + beforeEq;
+            font.draw(poseStack, beforePart, x + 6, lineY, 0xCCCCCC);
+
+            int beforeWidth = font.width(beforePart);
+            int resultX = x + 6 + beforeWidth;
+
+            boolean isHoveringResult = mouseX >= resultX && mouseX <= resultX + font.width(resultName) &&
+                    mouseY >= lineY && mouseY <= lineY + font.lineHeight;
+            if (isHoveringResult) {
+                GuiComponent.fill(poseStack, resultX - 2, lineY - 1,
+                        resultX + font.width(resultName) + 2, lineY + font.lineHeight + 1, 0x44FFFFFF);
+            }
+
+            String resultDisplay = "§b§n" + resultName;
+            font.draw(poseStack, resultDisplay, resultX, lineY, 0xFFFFFF);
+
+            String afterPart = chainStr.substring(eqIndex + 3);
+            int arrowIdx = afterPart.indexOf(" → ");
+            if (arrowIdx >= 0) {
+                String restPart = afterPart.substring(arrowIdx);
+                int restX = resultX + font.width(resultName);
+                font.draw(poseStack, "§7" + restPart, restX, lineY, 0xCCCCCC);
+            }
+
+            // ===== 添加到点击区域列表 =====
+            ClickableArea area = new ClickableArea();
+            area.x = resultX;
+            area.y = lineY;
+            area.w = font.width(resultName);
+            area.h = font.lineHeight;
+            area.name = resultName;
+            area.registryName = registryName;
+            clickableAreas.add(area);
+        } else {
+            font.draw(poseStack, "§7" + chainStr, x + 6, lineY, 0xCCCCCC);
+        }
 
         lineY += 12;
 
-        // ===== 缺失原料（如果有） =====
+        // ===== 第3行：缺失原料 =====
         if (!missing.isEmpty()) {
             StringBuilder sb = new StringBuilder("§c");
             sb.append(new TranslatableComponent("gui.tinkerssearch.alloy_missing_prefix").getString());
@@ -716,32 +836,23 @@ public class PanelRenderer {
             lineY += 12;
         }
 
-        // ===== 继续合金（如果有） =====
-        if (result.getNext() != null) {
-            String childName = result.getNext().getRecipe().getResult().getDisplayName().getString()
-                    .replace("Molten ", "")
-                    .replace("熔融", "");
-            String childStr = "§b↳ " + new TranslatableComponent("gui.tinkerssearch.alloy_child").getString().replace("%s", childName);
-            font.draw(poseStack, childStr, x + 6, lineY, 0xCCCCCC);
-            lineY += 12;
-        }
-
-        // ===== 可执行次数 =====
-        if (feasibility.isFeasible() && result.getNext() == null) {
+        // ===== 第4行：可执行次数或不可执行 =====
+        if (result.getNext() == null) {
             int maxTimes = feasibility.getMaxTimes();
             if (maxTimes > 0) {
                 String timesText = new TranslatableComponent("gui.tinkerssearch.alloy_times", maxTimes).getString();
                 font.draw(poseStack, "§e" + timesText, x + 6, lineY, 0xCCCCCC);
-            } else if (maxTimes == 0 && !feasibility.getMissingFluids().isEmpty()) {
-                String timesText = new TranslatableComponent("gui.tinkerssearch.alloy_times", 0).getString();
-                font.draw(poseStack, "§c" + timesText, x + 6, lineY, 0xCCCCCC);
+            } else {
+                String unableText = new TranslatableComponent("gui.tinkerssearch.alloy_unable").getString();
+                font.draw(poseStack, "§c" + unableText, x + 6, lineY, 0xCCCCCC);
             }
             lineY += 12;
         }
 
-        // ===== 原料详情（完整显示所有原料） =====
+        // ===== 第5行：当前原料详情（换行） =====
         if (lineY < y + cardH - 4) {
-            StringBuilder ingredients = new StringBuilder("§8");
+            StringBuilder ingredients = new StringBuilder();
+            ingredients.append(new TranslatableComponent("gui.tinkerssearch.alloy_ingredients").getString());
             List<AlloyRecipeData.FluidIngredientData> inputs = recipe.getInputs();
             for (int i = 0; i < inputs.size(); i++) {
                 if (i > 0) ingredients.append(" + ");
@@ -751,7 +862,6 @@ public class PanelRenderer {
                         .replace("Molten ", "")
                         .replace("熔融", "");
                 int needed = input.getAmount();
-                // 查找可用量
                 int available = 0;
                 for (FluidStack availableFs : dataManager.getAllFluids()) {
                     if (availableFs.getFluid().getRegistryName().equals(fs.getFluid().getRegistryName())) {
@@ -763,13 +873,184 @@ public class PanelRenderer {
                 ingredients.append(sufficient ? "§a" : "§c");
                 ingredients.append(name).append("§7(").append(available).append("/").append(needed).append("mB)");
             }
-            font.draw(poseStack, ingredients.toString(), x + 6, lineY, 0x888888);
+
+            String ingredientText = ingredients.toString();
+            int maxWidth = w - 12;
+            List<String> wrappedLines = wrapText(font, ingredientText, maxWidth);
+
+            for (String line : wrappedLines) {
+                if (lineY < y + cardH - 4) {
+                    font.draw(poseStack, line, x + 6, lineY, 0x888888);
+                    lineY += 12;
+                }
+            }
+        }
+
+        // ===== 第6行：后续合金链 =====
+        if (result.getNext() != null && lineY < y + cardH - 4) {
+            List<AlloyResultCalculator.AlloyChainResult> nextResults = collectNextResults(result, 2);
+            int totalNext = countNextResults(result);
+
+            StringBuilder nextInfo = new StringBuilder();
+            nextInfo.append("§b↳ ");
+
+            for (int idx = 0; idx < nextResults.size(); idx++) {
+                if (idx > 0) nextInfo.append(" → ");
+                AlloyResultCalculator.AlloyChainResult nr = nextResults.get(idx);
+                AlloyRecipeData nrRecipe = nr.getRecipe();
+
+                String nextResultName = nrRecipe.getResult().getDisplayName().getString()
+                        .replace("Molten ", "")
+                        .replace("熔融", "");
+                nextInfo.append(nextResultName);
+            }
+
+            if (totalNext > 2) {
+                nextInfo.append(" … (").append(totalNext).append(")");
+            }
+
+            AlloyRecipeData firstNextRecipe = nextResults.get(0).getRecipe();
+            int nextRequiredTemp = firstNextRecipe.getRequiredTemperature();
+            nextInfo.append(" §7| ")
+                    .append(new TranslatableComponent("gui.tinkerssearch.alloy_temp_short").getString())
+                    .append(": ");
+            if (currentTemp >= nextRequiredTemp) {
+                nextInfo.append("§a").append(currentTemp).append("✓");
+            } else {
+                nextInfo.append("§c").append(currentTemp).append("§7/§e").append(nextRequiredTemp);
+            }
+
+            font.draw(poseStack, nextInfo.toString(), x + 6, lineY, 0x888888);
+            lineY += 12;
+        }
+
+        // ===== 第7行：后续合金缺失原料 =====
+        if (result.getNext() != null && lineY < y + cardH - 4) {
+            List<AlloyResultCalculator.AlloyChainResult> nextResults = collectNextResults(result, 2);
+            boolean hasMissing = false;
+            for (AlloyResultCalculator.AlloyChainResult nr : nextResults) {
+                if (!nr.getFeasibility().getMissingFluids().isEmpty()) {
+                    hasMissing = true;
+                    break;
+                }
+            }
+
+            if (hasMissing) {
+                StringBuilder nextMissingInfo = new StringBuilder();
+                nextMissingInfo.append("§c  ");
+                nextMissingInfo.append(new TranslatableComponent("gui.tinkerssearch.alloy_next_missing").getString());
+                nextMissingInfo.append(": ");
+
+                for (int idx = 0; idx < nextResults.size(); idx++) {
+                    AlloyResultCalculator.AlloyChainResult nr = nextResults.get(idx);
+                    AlloyRecipeData nrRecipe = nr.getRecipe();
+                    AlloyRecipeData.AlloyFeasibility nrFeasibility = nr.getFeasibility();
+
+                    if (!nrFeasibility.getMissingFluids().isEmpty()) {
+                        if (idx > 0) nextMissingInfo.append("; ");
+                        String nrName = nrRecipe.getResult().getDisplayName().getString()
+                                .replace("Molten ", "")
+                                .replace("熔融", "");
+                        nextMissingInfo.append(nrName).append(": ");
+
+                        List<AlloyRecipeData.AlloyFeasibility.MissingFluid> nrMissing = nrFeasibility.getMissingFluids();
+                        for (int j = 0; j < nrMissing.size(); j++) {
+                            if (j > 0) nextMissingInfo.append(", ");
+                            AlloyRecipeData.AlloyFeasibility.MissingFluid mf = nrMissing.get(j);
+                            String name = mf.fluid.getDisplayName().getString()
+                                    .replace("Molten ", "")
+                                    .replace("熔融", "");
+                            nextMissingInfo.append(name).append("§7(").append(mf.available).append("/").append(mf.needed).append("mB)§c");
+                        }
+                    }
+                }
+
+                String nextMissingStr = nextMissingInfo.toString();
+                int maxWidth = w - 12;
+                if (font.width(nextMissingStr) > maxWidth) {
+                    nextMissingStr = truncateTextWithEllipsis(font, nextMissingStr, maxWidth);
+                }
+                font.draw(poseStack, nextMissingStr, x + 6, lineY, 0xCCCCCC);
+            }
         }
 
         return y + cardH;
     }
 
     // ==================== 工具方法 ====================
+
+    private List<AlloyResultCalculator.AlloyChainResult> collectNextResults(AlloyResultCalculator.AlloyChainResult result, int limit) {
+        List<AlloyResultCalculator.AlloyChainResult> results = new ArrayList<>();
+        AlloyResultCalculator.AlloyChainResult current = result.getNext();
+        while (current != null && results.size() < limit) {
+            results.add(current);
+            current = current.getNext();
+        }
+        return results;
+    }
+
+    private int countNextResults(AlloyResultCalculator.AlloyChainResult result) {
+        int count = 0;
+        AlloyResultCalculator.AlloyChainResult current = result.getNext();
+        while (current != null) {
+            count++;
+            current = current.getNext();
+        }
+        return count;
+    }
+
+    private List<String> wrapText(Font font, String text, int maxWidth) {
+        List<String> lines = new ArrayList<>();
+        if (font.width(text) <= maxWidth) {
+            lines.add(text);
+            return lines;
+        }
+
+        String[] words = text.split(" ");
+        StringBuilder currentLine = new StringBuilder();
+
+        for (String word : words) {
+            if (font.width(word) > maxWidth) {
+                if (currentLine.length() > 0) {
+                    lines.add(currentLine.toString());
+                    currentLine = new StringBuilder();
+                }
+                String remaining = word;
+                while (font.width(remaining) > maxWidth) {
+                    int cutIndex = 0;
+                    for (int i = 1; i < remaining.length(); i++) {
+                        if (font.width(remaining.substring(0, i)) > maxWidth - 4) {
+                            cutIndex = i - 1;
+                            break;
+                        }
+                        cutIndex = i;
+                    }
+                    if (cutIndex <= 0) cutIndex = 1;
+                    lines.add(remaining.substring(0, cutIndex) + "...");
+                    remaining = remaining.substring(cutIndex);
+                }
+                if (!remaining.isEmpty()) {
+                    currentLine.append(remaining);
+                }
+                continue;
+            }
+
+            String testLine = currentLine.length() > 0 ? currentLine + " " + word : word;
+            if (font.width(testLine) <= maxWidth) {
+                if (currentLine.length() > 0) currentLine.append(" ");
+                currentLine.append(word);
+            } else {
+                lines.add(currentLine.toString());
+                currentLine = new StringBuilder(word);
+            }
+        }
+
+        if (currentLine.length() > 0) {
+            lines.add(currentLine.toString());
+        }
+
+        return lines;
+    }
 
     private static boolean isHovered(int x, int y, int w, int h, int mouseX, int mouseY) {
         return mouseX >= x && mouseX <= x + w && mouseY >= y && mouseY <= y + h;
