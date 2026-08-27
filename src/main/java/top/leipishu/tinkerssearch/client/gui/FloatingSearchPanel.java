@@ -10,6 +10,7 @@ import net.minecraft.network.chat.TranslatableComponent;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraftforge.fluids.FluidStack;
+import net.minecraft.world.level.material.Fluid;
 import net.minecraftforge.fml.ModList;
 import org.lwjgl.glfw.GLFW;
 import top.leipishu.tinkerssearch.alloy.AlloyQueryHandler;
@@ -347,17 +348,13 @@ public class FloatingSearchPanel extends AbstractWidget {
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         // ===== 优先检测：点击合金产物名称跳转 =====
         if (dataManager.isAlloyMode() && renderer.isClickingResultName((int)mouseX, (int)mouseY)) {
-            String registryName = renderer.getClickableResultRegistryName((int)mouseX, (int)mouseY);
-            if (registryName != null && !registryName.isEmpty()) {
-                List<FluidStack> materials = alloyHandler.getFilteredMaterials();
-                FluidStack targetMaterial = null;
-                for (FluidStack fs : materials) {
-                    ResourceLocation rl = fs.getFluid().getRegistryName();
-                    if (rl != null && rl.getPath().equalsIgnoreCase(registryName)) {
-                        targetMaterial = fs;
-                        break;
-                    }
-                }
+            String registryName = renderer.getClickableResultRegistryName();
+            String displayName = renderer.getClickableResultName();
+
+            if ((registryName != null && !registryName.isEmpty()) ||
+                    (displayName != null && !displayName.isEmpty())) {
+
+                FluidStack targetMaterial = findTargetMaterial(registryName, displayName);
 
                 if (targetMaterial != null) {
                     int currentTemp = getCurrentSmelteryTemperature();
@@ -366,33 +363,12 @@ public class FloatingSearchPanel extends AbstractWidget {
                     return true;
                 }
 
-                // 注册名匹配失败时回退到显示名匹配
-                String resultName = renderer.getClickableResultName((int)mouseX, (int)mouseY);
-                if (resultName != null && !resultName.isEmpty()) {
-                    for (FluidStack fs : materials) {
-                        String name = fs.getDisplayName().getString()
-                                .replace("Molten ", "")
-                                .replace("熔融", "")
-                                .trim();
-                        if (name.equalsIgnoreCase(resultName.trim())) {
-                            targetMaterial = fs;
-                            break;
-                        }
-                    }
-                    if (targetMaterial != null) {
-                        int currentTemp = getCurrentSmelteryTemperature();
-                        alloyHandler.refreshTemperature(currentTemp);
-                        alloyHandler.selectMaterial(targetMaterial, dataManager.getAllFluids(), currentTemp);
-                        return true;
-                    }
-                }
-
-                // 最后回退：搜索方式
-                String searchText = "/a/ " + registryName;
+                String searchText = "/a/ " + (registryName.isEmpty() ? displayName : registryName);
                 interactionHandler.setSearchKeyword(searchText);
                 refreshMoltenFluids();
                 return true;
             }
+            return true;
         }
 
         // ===== 检测Tab按钮 =====
@@ -452,6 +428,97 @@ public class FloatingSearchPanel extends AbstractWidget {
         }
 
         return handleCardClick(mouseX, mouseY, button);
+    }
+
+    /**
+     * 从多个来源查找目标材料
+     */
+    private FluidStack findTargetMaterial(String registryName, String displayName) {
+        if (registryName == null) registryName = "";
+        if (displayName == null) displayName = "";
+
+        List<FluidStack> materials = alloyHandler.getFilteredMaterials();
+        if (materials == null || materials.isEmpty()) {
+            return null;
+        }
+
+        // ===== 策略1：注册名精确匹配 =====
+        if (!registryName.isEmpty()) {
+            for (FluidStack fs : materials) {
+                ResourceLocation rl = fs.getFluid().getRegistryName();
+                if (rl != null && rl.getPath().equalsIgnoreCase(registryName)) {
+                    return fs;
+                }
+            }
+        }
+
+        // ===== 策略2：显示名精确匹配 =====
+        if (!displayName.isEmpty()) {
+            for (FluidStack fs : materials) {
+                String name = fs.getDisplayName().getString()
+                        .replace("Molten ", "")
+                        .replace("熔融", "")
+                        .trim();
+                if (name.equalsIgnoreCase(displayName.trim())) {
+                    return fs;
+                }
+            }
+        }
+
+        // ===== 策略3：显示名包含匹配 =====
+        if (!displayName.isEmpty()) {
+            String lowerDisplay = displayName.trim().toLowerCase();
+            for (FluidStack fs : materials) {
+                String name = fs.getDisplayName().getString()
+                        .replace("Molten ", "")
+                        .replace("熔融", "")
+                        .trim()
+                        .toLowerCase();
+                if (name.contains(lowerDisplay) || lowerDisplay.contains(name)) {
+                    return fs;
+                }
+            }
+        }
+
+        // ===== 策略4：注册名包含匹配 =====
+        if (!registryName.isEmpty()) {
+            String lowerRegistry = registryName.toLowerCase();
+            for (FluidStack fs : materials) {
+                ResourceLocation rl = fs.getFluid().getRegistryName();
+                if (rl != null) {
+                    String path = rl.getPath().toLowerCase();
+                    if (path.contains(lowerRegistry) || lowerRegistry.contains(path)) {
+                        return fs;
+                    }
+                }
+            }
+        }
+
+        // ===== 策略5：ForgeRegistries 直接查找 =====
+        if (!registryName.isEmpty()) {
+            try {
+                ResourceLocation rl = new ResourceLocation(registryName);
+                Fluid fluid = net.minecraftforge.registries.ForgeRegistries.FLUIDS.getValue(rl);
+                if (fluid != null) {
+                    for (FluidStack fs : materials) {
+                        if (fs.getFluid().getRegistryName() != null &&
+                                fs.getFluid().getRegistryName().equals(rl)) {
+                            return fs;
+                        }
+                    }
+                    FluidStack newFs = new FluidStack(fluid, 1000);
+                    String newName = newFs.getDisplayName().getString()
+                            .replace("Molten ", "")
+                            .replace("熔融", "")
+                            .trim();
+                    if (!displayName.isEmpty() && newName.equalsIgnoreCase(displayName.trim())) {
+                        return newFs;
+                    }
+                }
+            } catch (Exception ignored) {}
+        }
+
+        return null;
     }
 
     @Override

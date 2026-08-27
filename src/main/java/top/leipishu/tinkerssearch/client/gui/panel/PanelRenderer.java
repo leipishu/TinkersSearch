@@ -35,8 +35,8 @@ public class PanelRenderer {
     private final PanelInteractionHandler interactionHandler;
     private final AlloyQueryHandler alloyHandler;
 
-    // ===== 可点击区域列表（支持多个卡片） =====
-    private List<ClickableArea> clickableAreas = new ArrayList<>();
+    // ===== 可点击区域列表 =====
+    private final List<ClickableArea> clickableAreas = new ArrayList<>();
 
     private static class ClickableArea {
         int x, y, w, h;
@@ -59,6 +59,9 @@ public class PanelRenderer {
 
     // ==================== 公共方法 ====================
 
+    /**
+     * 检测是否点击了任何可跳转的产物名称
+     */
     public boolean isClickingResultName(int mouseX, int mouseY) {
         for (ClickableArea area : clickableAreas) {
             if (mouseX >= area.x && mouseX <= area.x + area.w &&
@@ -69,6 +72,29 @@ public class PanelRenderer {
         return false;
     }
 
+    /**
+     * 获取第一个可点击区域的名称（用于回退匹配）
+     */
+    public String getClickableResultName() {
+        if (!clickableAreas.isEmpty()) {
+            return clickableAreas.get(0).name;
+        }
+        return "";
+    }
+
+    /**
+     * 获取第一个可点击区域的注册名（用于回退匹配）
+     */
+    public String getClickableResultRegistryName() {
+        if (!clickableAreas.isEmpty()) {
+            return clickableAreas.get(0).registryName;
+        }
+        return "";
+    }
+
+    /**
+     * 获取指定位置的可点击区域名称
+     */
     public String getClickableResultName(int mouseX, int mouseY) {
         for (ClickableArea area : clickableAreas) {
             if (mouseX >= area.x && mouseX <= area.x + area.w &&
@@ -79,6 +105,9 @@ public class PanelRenderer {
         return "";
     }
 
+    /**
+     * 获取指定位置的可点击区域注册名
+     */
     public String getClickableResultRegistryName(int mouseX, int mouseY) {
         for (ClickableArea area : clickableAreas) {
             if (mouseX >= area.x && mouseX <= area.x + area.w &&
@@ -759,9 +788,8 @@ public class PanelRenderer {
         String chainStr = result.formatChain();
 
         int eqIndex = chainStr.indexOf(" = ");
-        String resultName = "";
         if (eqIndex >= 0) {
-            resultName = chainStr.substring(eqIndex + 3).trim();
+            String resultName = chainStr.substring(eqIndex + 3).trim();
             int arrowIndex = resultName.indexOf(" → ");
             if (arrowIndex >= 0) {
                 resultName = resultName.substring(0, arrowIndex).trim();
@@ -804,7 +832,6 @@ public class PanelRenderer {
                 font.draw(poseStack, "§7" + restPart, restX, lineY, 0xCCCCCC);
             }
 
-            // ===== 添加到点击区域列表 =====
             ClickableArea area = new ClickableArea();
             area.x = resultX;
             area.y = lineY;
