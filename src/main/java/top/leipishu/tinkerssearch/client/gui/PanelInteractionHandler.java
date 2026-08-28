@@ -1,6 +1,7 @@
 package top.leipishu.tinkerssearch.client.gui;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
 import net.minecraftforge.fluids.FluidStack;
 import net.minecraftforge.fml.ModList;
 import org.lwjgl.glfw.GLFW;
@@ -20,6 +21,7 @@ public class PanelInteractionHandler {
 
     private boolean isSearchBoxFocused = false;
     private String searchKeyword = "";
+    private int cursorPosition = 0;
     private long lastClickTime = 0;
 
     private List<FluidStack> allFluids;
@@ -146,25 +148,68 @@ public class PanelInteractionHandler {
         return searchKeyword;
     }
 
+    public int getCursorPosition() {
+        return cursorPosition;
+    }
+
     public void setSearchKeyword(String keyword) {
         this.searchKeyword = keyword;
+        this.cursorPosition = keyword.length();
+    }
+
+    public void setCursorPosition(int position) {
+        this.cursorPosition = Math.max(0, Math.min(position, searchKeyword.length()));
     }
 
     public boolean handleKeyPressed(int keyCode, int scanCode, int modifiers) {
         if (!panel.isVisible() || !isSearchBoxFocused) return false;
 
         switch (keyCode) {
-            case 259:
-                if (!searchKeyword.isEmpty()) {
-                    searchKeyword = searchKeyword.substring(0, searchKeyword.length() - 1);
+            case GLFW.GLFW_KEY_BACKSPACE:
+                if (!searchKeyword.isEmpty() && cursorPosition > 0) {
+                    String before = searchKeyword.substring(0, cursorPosition - 1);
+                    String after = searchKeyword.substring(cursorPosition);
+                    searchKeyword = before + after;
+                    cursorPosition--;
                     onRefresh.run();
                 }
                 return true;
-            case 256:
-            case 257:
-            case 335:
+
+            case GLFW.GLFW_KEY_DELETE:
+                if (!searchKeyword.isEmpty() && cursorPosition < searchKeyword.length()) {
+                    String before = searchKeyword.substring(0, cursorPosition);
+                    String after = searchKeyword.substring(cursorPosition + 1);
+                    searchKeyword = before + after;
+                    onRefresh.run();
+                }
+                return true;
+
+            case GLFW.GLFW_KEY_LEFT:
+                if (cursorPosition > 0) {
+                    cursorPosition--;
+                }
+                return true;
+
+            case GLFW.GLFW_KEY_RIGHT:
+                if (cursorPosition < searchKeyword.length()) {
+                    cursorPosition++;
+                }
+                return true;
+
+            case GLFW.GLFW_KEY_HOME:
+                cursorPosition = 0;
+                return true;
+
+            case GLFW.GLFW_KEY_END:
+                cursorPosition = searchKeyword.length();
+                return true;
+
+            case GLFW.GLFW_KEY_ENTER:
+            case GLFW.GLFW_KEY_KP_ENTER:
+            case GLFW.GLFW_KEY_ESCAPE:
                 isSearchBoxFocused = false;
                 return true;
+
             default:
                 return false;
         }
@@ -174,7 +219,10 @@ public class PanelInteractionHandler {
         if (!panel.isVisible() || !isSearchBoxFocused) return false;
         if (Character.isISOControl(codePoint)) return false;
 
-        searchKeyword += codePoint;
+        String before = searchKeyword.substring(0, cursorPosition);
+        String after = searchKeyword.substring(cursorPosition);
+        searchKeyword = before + codePoint + after;
+        cursorPosition++;
         onRefresh.run();
         return true;
     }
@@ -198,6 +246,7 @@ public class PanelInteractionHandler {
 
         if (isInSearchBox(mouseX, mouseY, px, py, pw)) {
             isSearchBoxFocused = true;
+            handleMouseClickSetCursor(mouseX, mouseY, px, py, pw);
             return true;
         }
 
@@ -213,6 +262,38 @@ public class PanelInteractionHandler {
             }
         }
 
+        return false;
+    }
+
+    public boolean handleMouseClickSetCursor(double mouseX, double mouseY, int px, int py, int pw) {
+        if (!panel.isVisible() || !isSearchBoxFocused) return false;
+
+        int boxX = px + 5;
+        int boxY = py + SEARCH_BOX_Y;
+        int boxW = pw - 10;
+        int boxH = SEARCH_BOX_H;
+
+        if (mouseX >= boxX && mouseX <= boxX + boxW &&
+                mouseY >= boxY && mouseY <= boxY + boxH) {
+
+            Font font = Minecraft.getInstance().font;
+            int clickX = (int) mouseX - boxX - 4;
+            int charIndex = 0;
+            int currentX = 0;
+
+            for (int i = 0; i < searchKeyword.length(); i++) {
+                String subText = searchKeyword.substring(0, i + 1);
+                int charWidth = font.width(subText) - font.width(searchKeyword.substring(0, i));
+                if (currentX + charWidth / 2 > clickX) {
+                    break;
+                }
+                currentX += charWidth;
+                charIndex = i + 1;
+            }
+
+            cursorPosition = Math.max(0, Math.min(charIndex, searchKeyword.length()));
+            return true;
+        }
         return false;
     }
 
@@ -522,6 +603,7 @@ public class PanelInteractionHandler {
 
     public void clearSearch() {
         this.searchKeyword = "";
+        this.cursorPosition = 0;
         this.isSearchBoxFocused = false;
         onRefresh.run();
     }

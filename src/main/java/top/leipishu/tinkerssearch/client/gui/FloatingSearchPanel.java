@@ -417,9 +417,12 @@ public class FloatingSearchPanel extends AbstractWidget {
             return true;
         }
 
+        // ===== 搜索框点击 =====
         if (mouseX >= px + 5 && mouseX <= px + 5 + pw - 10 &&
                 mouseY >= py + PanelConfig.SEARCH_BOX_Y && mouseY <= py + PanelConfig.SEARCH_BOX_Y + PanelConfig.SEARCH_BOX_H) {
             interactionHandler.setSearchBoxFocused(true);
+            // ===== 新增：点击搜索框设置光标位置 =====
+            interactionHandler.handleMouseClickSetCursor(mouseX, mouseY, px, py, pw);
             return true;
         }
 
@@ -525,10 +528,16 @@ public class FloatingSearchPanel extends AbstractWidget {
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         if (!isVisible) return false;
 
+        // ===== 打印调试日志 =====
+        // System.out.println("[Tinker's Search] keyPressed: " + keyCode + ", focused=" + interactionHandler.isSearchBoxFocused());
+
         if (interactionHandler.isSearchBoxFocused()) {
-            if (keyCode == GLFW.GLFW_KEY_BACKSPACE) {
-                return interactionHandler.handleKeyPressed(keyCode, scanCode, modifiers);
+            // ===== 所有按键先交给 handleKeyPressed 处理 =====
+            if (interactionHandler.handleKeyPressed(keyCode, scanCode, modifiers)) {
+                return true;
             }
+
+            // ===== 如果 handleKeyPressed 返回 false，检查 Enter/Escape =====
             if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER) {
                 interactionHandler.setSearchBoxFocused(false);
                 return true;
@@ -537,9 +546,12 @@ public class FloatingSearchPanel extends AbstractWidget {
                 interactionHandler.setSearchBoxFocused(false);
                 return true;
             }
+
+            // ===== 其他按键阻止传播 =====
             return true;
         }
 
+        // ===== 搜索框未聚焦 =====
         if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
             return false;
         }

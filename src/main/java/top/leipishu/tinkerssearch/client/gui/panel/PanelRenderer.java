@@ -268,6 +268,7 @@ public class PanelRenderer {
     private void renderSearchBox(PoseStack poseStack, int px, int py, int pw, Font font) {
         boolean focused = interactionHandler.isSearchBoxFocused();
         String keyword = interactionHandler.getSearchKeyword();
+        int cursorPos = interactionHandler.getCursorPosition();
 
         int boxX = px + 5;
         int boxY = py + SEARCH_BOX_Y;
@@ -286,13 +287,20 @@ public class PanelRenderer {
         if (keyword.isEmpty()) {
             font.draw(poseStack, new TranslatableComponent("gui.tinkerssearch.search_hint"), boxX + 4, boxY + 4, 0x666666);
         } else {
-            font.draw(poseStack, keyword, boxX + 4, boxY + 4, 0xFFFFFF);
-        }
+            // ===== 绘制光标前的文字 =====
+            String beforeCursor = keyword.substring(0, cursorPos);
+            String afterCursor = keyword.substring(cursorPos);
+            int beforeWidth = font.width(beforeCursor);
 
-        if (focused && (System.currentTimeMillis() / 500 % 2 == 0)) {
-            int cursorX = boxX + 4 + font.width(keyword);
-            if (cursorX < boxX + boxW - 2) {
-                GuiComponent.fill(poseStack, cursorX, boxY + 2, cursorX + 1, boxY + boxH - 2, 0xFFFFFFFF);
+            font.draw(poseStack, beforeCursor, boxX + 4, boxY + 4, 0xFFFFFF);
+            font.draw(poseStack, afterCursor, boxX + 4 + beforeWidth, boxY + 4, 0xFFFFFF);
+
+            // ===== 绘制光标 =====
+            if (focused && (System.currentTimeMillis() / 500 % 2 == 0)) {
+                int cursorX = boxX + 4 + beforeWidth;
+                if (cursorX < boxX + boxW - 2) {
+                    GuiComponent.fill(poseStack, cursorX, boxY + 2, cursorX + 1, boxY + boxH - 2, 0xFFFFFFFF);
+                }
             }
         }
 
@@ -308,6 +316,7 @@ public class PanelRenderer {
     private void renderAlloySearchBox(PoseStack poseStack, int px, int py, int pw, Font font) {
         boolean focused = interactionHandler.isSearchBoxFocused();
         String keyword = interactionHandler.getSearchKeyword();
+        int cursorPos = interactionHandler.getCursorPosition();
 
         int boxX = px + 5;
         int boxY = py + SEARCH_BOX_Y;
@@ -323,13 +332,23 @@ public class PanelRenderer {
         GuiComponent.fill(poseStack, boxX, boxY, boxX + 1, boxY + boxH, border);
         GuiComponent.fill(poseStack, boxX + boxW - 1, boxY, boxX + boxW, boxY + boxH, border);
 
-        String displayText = keyword.isEmpty() ? "§7" + new TranslatableComponent("gui.tinkerssearch.alloy_search_hint").getString() : keyword;
-        font.draw(poseStack, displayText, boxX + 4, boxY + 4, 0xFFFFFF);
+        if (keyword.isEmpty()) {
+            font.draw(poseStack, "§7" + new TranslatableComponent("gui.tinkerssearch.alloy_search_hint").getString(), boxX + 4, boxY + 4, 0x666666);
+        } else {
+            // ===== 绘制光标前的文字 =====
+            String beforeCursor = keyword.substring(0, cursorPos);
+            String afterCursor = keyword.substring(cursorPos);
+            int beforeWidth = font.width(beforeCursor);
 
-        if (focused && (System.currentTimeMillis() / 500 % 2 == 0)) {
-            int cursorX = boxX + 4 + font.width(keyword);
-            if (cursorX < boxX + boxW - 2) {
-                GuiComponent.fill(poseStack, cursorX, boxY + 2, cursorX + 1, boxY + boxH - 2, 0xFFFFFFFF);
+            font.draw(poseStack, beforeCursor, boxX + 4, boxY + 4, 0xFFFFFF);
+            font.draw(poseStack, afterCursor, boxX + 4 + beforeWidth, boxY + 4, 0xFFFFFF);
+
+            // ===== 绘制光标 =====
+            if (focused && (System.currentTimeMillis() / 500 % 2 == 0)) {
+                int cursorX = boxX + 4 + beforeWidth;
+                if (cursorX < boxX + boxW - 2) {
+                    GuiComponent.fill(poseStack, cursorX, boxY + 2, cursorX + 1, boxY + boxH - 2, 0xFFFFFFFF);
+                }
             }
         }
 

@@ -187,19 +187,24 @@ public class TinkersSearch {
 
         int keyCode = event.getKeyCode();
 
-        if (keyCode == GLFW.GLFW_KEY_BACKSPACE) {
-            if (interactionHandler.handleKeyPressed(keyCode, event.getScanCode(), event.getModifiers())) {
-                event.setCanceled(true);
-            }
+        // ===== 所有按键交给 PanelInteractionHandler 处理 =====
+        if (interactionHandler.handleKeyPressed(keyCode, event.getScanCode(), event.getModifiers())) {
+            event.setCanceled(true);
             return;
         }
 
-        if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_ESCAPE) {
+        // ===== Backspace、Delete 等特殊键（实际上已被 handleKeyPressed 处理） =====
+        // 这里只处理 handleKeyPressed 没有处理的情况
+
+        // ===== Enter 和 Escape =====
+        if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER ||
+                keyCode == GLFW.GLFW_KEY_ESCAPE) {
             interactionHandler.setSearchBoxFocused(false);
             event.setCanceled(true);
             return;
         }
 
+        // ===== 其他按键阻止传播 =====
         event.setCanceled(true);
     }
 
