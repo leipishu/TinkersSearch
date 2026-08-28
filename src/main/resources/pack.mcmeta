@@ -1,0 +1,12 @@
+{
+  "pack": {
+    "description": {
+      "text": "${mod_id} resources"
+    },
+    "pack_format": 15
+  },
+  "language": {
+    "en_us": "English",
+    "zh_cn": "简体中文"
+  }
+}

@@ -1,0 +1,53 @@
+# This is an example mods.toml file. It contains the data relating to the loading mods.
+# There are several mandatory fields (#mandatory), and many more that are optional (#optional).
+# The overall format is standard TOML format, v0.5.0.
+# Note that there are a couple of TOML lists in this file.
+# Find more information on toml format here:  https://github.com/toml-lang/toml
+# The name of the mod loader type to load - for regular FML @Mod mods it should be javafml
+modLoader="javafml"
+loaderVersion="${loader_version_range}"
+license="${mod_license}"
+
+[[mods]]
+modId="tinkerssearch"
+version="${mod_version}"
+displayName="${mod_name}"
+logoFile="logo.png"
+license="LGPL-3.0"
+authors="${mod_authors}"
+description='''${mod_description}'''
+
+[[dependencies.tinkerssearch]]
+modId="forge"
+mandatory=true
+versionRange="[47,)"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.tinkerssearch]]
+modId="minecraft"
+mandatory=true
+versionRange="[1.20.1,1.20.2)"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.tinkerssearch]]
+modId="mantle"
+mandatory=true
+versionRange="[1.11.97,)"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.tinkerssearch]]
+modId="tconstruct"
+mandatory=true
+versionRange="[3.11.0,)"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.tinkerssearch]]
+modId="jei"
+mandatory=false
+versionRange="[15.20.0.103,)"
+ordering="NONE"
+side="CLIENT"
