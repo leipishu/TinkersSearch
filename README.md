@@ -1,7 +1,8 @@
 # 🔍 Tinker's Search
 
 [![Minecraft Version](https://img.shields.io/badge/Minecraft-1.18.2-3B8C4A?style=flat-square)](https://www.minecraft.net/)
-[![Forge Version](https://img.shields.io/badge/Forge-40.2.10+-orange?style=flat-square)](https://files.minecraftforge.net/)
+[![Minecraft Version](https://img.shields.io/badge/Minecraft-1.19.2-orange?style=flat-square)](https://www.minecraft.net/)
+[![Minecraft Version](https://img.shields.io/badge/Minecraft-1.20.1-purple?style=flat-square)](https://www.minecraft.net/)
 [![License](https://img.shields.io/badge/License-LGPL--3.0-blue?style=flat-square)](LICENSE.txt)
 
 ---
