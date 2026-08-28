@@ -40,8 +40,26 @@ public class PanelRenderer {
 
     private static class ClickableArea {
         int x, y, w, h;
-        String name;
-        String registryName;
+        List<String> names;
+        List<String> registryNames;
+
+        public ClickableArea(int x, int y, int w, int h) {
+            this.x = x;
+            this.y = y;
+            this.w = w;
+            this.h = h;
+            this.names = new ArrayList<>();
+            this.registryNames = new ArrayList<>();
+        }
+
+        public void addTarget(String name, String registryName) {
+            if (name != null && !name.isEmpty()) {
+                this.names.add(name);
+            }
+            if (registryName != null && !registryName.isEmpty()) {
+                this.registryNames.add(registryName);
+            }
+        }
     }
 
     private Font cachedFont = null;
@@ -77,7 +95,8 @@ public class PanelRenderer {
      */
     public String getClickableResultName() {
         if (!clickableAreas.isEmpty()) {
-            return clickableAreas.get(0).name;
+            ClickableArea area = clickableAreas.get(0);
+            return area.names.isEmpty() ? "" : area.names.get(0);
         }
         return "";
     }
@@ -87,7 +106,8 @@ public class PanelRenderer {
      */
     public String getClickableResultRegistryName() {
         if (!clickableAreas.isEmpty()) {
-            return clickableAreas.get(0).registryName;
+            ClickableArea area = clickableAreas.get(0);
+            return area.registryNames.isEmpty() ? "" : area.registryNames.get(0);
         }
         return "";
     }
@@ -99,7 +119,7 @@ public class PanelRenderer {
         for (ClickableArea area : clickableAreas) {
             if (mouseX >= area.x && mouseX <= area.x + area.w &&
                     mouseY >= area.y && mouseY <= area.y + area.h) {
-                return area.name;
+                return area.names.isEmpty() ? "" : area.names.get(0);
             }
         }
         return "";
@@ -112,10 +132,30 @@ public class PanelRenderer {
         for (ClickableArea area : clickableAreas) {
             if (mouseX >= area.x && mouseX <= area.x + area.w &&
                     mouseY >= area.y && mouseY <= area.y + area.h) {
-                return area.registryName;
+                return area.registryNames.isEmpty() ? "" : area.registryNames.get(0);
             }
         }
         return "";
+    }
+
+    public List<String> getClickableResultNames(int mouseX, int mouseY) {
+        for (ClickableArea area : clickableAreas) {
+            if (mouseX >= area.x && mouseX <= area.x + area.w &&
+                    mouseY >= area.y && mouseY <= area.y + area.h) {
+                return new ArrayList<>(area.names);
+            }
+        }
+        return new ArrayList<>();
+    }
+
+    public List<String> getClickableResultRegistryNames(int mouseX, int mouseY) {
+        for (ClickableArea area : clickableAreas) {
+            if (mouseX >= area.x && mouseX <= area.x + area.w &&
+                    mouseY >= area.y && mouseY <= area.y + area.h) {
+                return new ArrayList<>(area.registryNames);
+            }
+        }
+        return new ArrayList<>();
     }
 
     /**
@@ -851,14 +891,22 @@ public class PanelRenderer {
                 font.draw(poseStack, "§7" + restPart, restX, lineY, 0xCCCCCC);
             }
 
-            ClickableArea area = new ClickableArea();
-            area.x = resultX;
-            area.y = lineY;
-            area.w = font.width(resultName);
-            area.h = font.lineHeight;
-            area.name = resultName;
-            area.registryName = registryName;
-            clickableAreas.add(area);
+            // 查找是否已有这个位置的 ClickableArea
+            ClickableArea existingArea = null;
+            for (ClickableArea ca : clickableAreas) {
+                if (ca.x == resultX && ca.y == lineY && ca.w == font.width(resultName) && ca.h == font.lineHeight) {
+                    existingArea = ca;
+                    break;
+                }
+            }
+
+            if (existingArea != null) {
+                existingArea.addTarget(resultName, registryName);
+            } else {
+                ClickableArea area = new ClickableArea(resultX, lineY, font.width(resultName), font.lineHeight);
+                area.addTarget(resultName, registryName);
+                clickableAreas.add(area);
+            }
         } else {
             font.draw(poseStack, "§7" + chainStr, x + 6, lineY, 0xCCCCCC);
         }

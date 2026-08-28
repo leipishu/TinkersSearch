@@ -348,22 +348,51 @@ public class FloatingSearchPanel extends AbstractWidget {
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         // ===== 优先检测：点击合金产物名称跳转 =====
         if (dataManager.isAlloyMode() && renderer.isClickingResultName((int)mouseX, (int)mouseY)) {
-            String registryName = renderer.getClickableResultRegistryName();
-            String displayName = renderer.getClickableResultName();
+            // 获取该位置的所有目标
+            List<String> registryNames = renderer.getClickableResultRegistryNames((int)mouseX, (int)mouseY);
+            List<String> displayNames = renderer.getClickableResultNames((int)mouseX, (int)mouseY);
 
-            if ((registryName != null && !registryName.isEmpty()) ||
-                    (displayName != null && !displayName.isEmpty())) {
+            if ((registryNames != null && !registryNames.isEmpty()) ||
+                    (displayNames != null && !displayNames.isEmpty())) {
 
-                FluidStack targetMaterial = findTargetMaterial(registryName, displayName);
+                // 尝试匹配所有目标
+                FluidStack matchedMaterial = null;
+                String matchedRegistry = "";
+                String matchedDisplay = "";
 
-                if (targetMaterial != null) {
+                // 优先用注册名匹配
+                for (String regName : registryNames) {
+                    FluidStack material = findTargetMaterial(regName, "");
+                    if (material != null) {
+                        matchedMaterial = material;
+                        matchedRegistry = regName;
+                        break;
+                    }
+                }
+
+                // 如果注册名匹配失败，用显示名匹配
+                if (matchedMaterial == null) {
+                    for (String dispName : displayNames) {
+                        FluidStack material = findTargetMaterial("", dispName);
+                        if (material != null) {
+                            matchedMaterial = material;
+                            matchedDisplay = dispName;
+                            break;
+                        }
+                    }
+                }
+
+                if (matchedMaterial != null) {
                     int currentTemp = getCurrentSmelteryTemperature();
                     alloyHandler.refreshTemperature(currentTemp);
-                    alloyHandler.selectMaterial(targetMaterial, dataManager.getAllFluids(), currentTemp);
+                    alloyHandler.selectMaterial(matchedMaterial, dataManager.getAllFluids(), currentTemp);
                     return true;
                 }
 
-                String searchText = "/a/ " + (registryName.isEmpty() ? displayName : registryName);
+                // 如果都匹配失败，用第一个作为搜索词
+                String searchReg = registryNames.isEmpty() ? "" : registryNames.get(0);
+                String searchDisp = displayNames.isEmpty() ? "" : displayNames.get(0);
+                String searchText = "/a/ " + (searchReg.isEmpty() ? searchDisp : searchReg);
                 interactionHandler.setSearchKeyword(searchText);
                 refreshMoltenFluids();
                 return true;
