@@ -12,12 +12,17 @@
 
 **Tinker's Search** 是一个 **匠魂 (Tinkers' Construct)** 模组的辅助扩展，为冶炼炉界面添加了流体搜索与快速交互功能。
 
+### 😊 支持版本
+
+**Tinker's Search** 支持 **匠魂 (Tinkers' Construct)** 的所有版本（包括1.18.2/1.19.2/1.20.1）
+
 ### ✨ 功能特性
 
 - 🔎 **流体搜索** - 在冶炼炉界面中快速搜索熔融流体
+- 🔎 **合金搜索** - 进入合金查询模式快速搜索流体的合金配方和当前冶炼炉的满足条件
 - 📋 **卡片式展示** - 清晰展示每种流体的图标、名称和数量
 - 🖱️ **JEI 集成** - 左键/右键点击流体卡片可快速查询 JEI 配方/用途（JEI 为可选前置）
-- ⭐ **书签支持** - 按 `A` 键将流体添加到 JEI 书签
+- ⭐ **书签支持** - 按 `A` 键将流体添加到 JEI 书签（仅 1.18.2，1.19.2 及 1.20.1 暂不支持）
 - 🔄 **一键刷新** - 手动刷新流体列表
 - 📜 **滚动查看** - 支持滚动浏览大量流体
 
@@ -31,6 +36,7 @@
 | **左键点击卡片主体** | 将流体移至冶炼炉底部 |
 | **按 `A` 键（鼠标悬停图标时）** | 添加到 JEI 书签（需要 JEI） |
 | **搜索框输入** | 按名称过滤流体 |
+| **搜索框输入 `/a/`** | 进入合金模式（依然可以在 `/a/` 标签后继续搜索流体） |
 
 ### ⚙️ 前置要求
 
@@ -84,12 +90,17 @@ cd TinkersSearch
 
 **Tinker's Search** is an addon for **Tinkers' Construct** that adds fluid search and quick interaction features to the Smeltery GUI.
 
+### 😊 Supported Versions
+
+**Tinker's Search** supports all versions of **Tinkers' Construct** (including 1.18.2 / 1.19.2 / 1.20.1).
+
 ### ✨ Features
 
 - 🔎 **Fluid Search** - Quickly search molten fluids in the Smeltery GUI
+- 🔎 **Alloy Search** - Enter alloy query mode to quickly search for a fluid's alloy recipes and check the current Smeltery's conditions
 - 📋 **Card Display** - Clear display of each fluid's icon, name, and amount
 - 🖱️ **JEI Integration** - Left/right click fluid cards to view JEI recipes/uses (JEI is optional)
-- ⭐ **Bookmark Support** - Press `A` key to add fluids to JEI bookmarks
+- ⭐ **Bookmark Support** - Press `A` key to add fluids to JEI bookmarks (only for 1.18.2; temporarily not supported for 1.19.2 and 1.20.1)
 - 🔄 **One-Click Refresh** - Manually refresh the fluid list
 - 📜 **Scroll Support** - Scroll through large fluid lists
 
@@ -103,6 +114,7 @@ cd TinkersSearch
 | **Left click card body** | Move fluid to bottom of Smeltery |
 | **Press `A` (mouse over icon)** | Add to JEI bookmarks (requires JEI) |
 | **Search box input** | Filter fluids by name |
+| **Search box input `/a/`** | Enter alloy mode (you can continue searching for fluids after the `/a/` tag) |
 
 ### ⚙️ Requirements
 
