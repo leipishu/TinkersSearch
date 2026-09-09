@@ -317,6 +317,7 @@ public class PanelInteractionHandler {
      * - 图标区域：交给 JEI 处理（左键配方、右键用途）
      * - 卡片主体：执行移动到最下面
      */
+    // 在 PanelInteractionHandler.handleCardClick 方法中修改
     private boolean handleCardClick(double mouseX, double mouseY, int px, int py, int pw, int button) {
         if (displayedFluids == null || displayedFluids.isEmpty()) return false;
 
@@ -330,9 +331,13 @@ public class PanelInteractionHandler {
             // ===== 图标区域：使用 JEI Focus API =====
             return handleJeiIconClick(fluid, button);
         } else {
-            // ===== 卡片主体：执行移动操作 =====
+            // ===== 卡片主体：左键移动，右键交给上层处理 =====
             if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
                 return panel.moveFluidToBottom(fluid);
+            }
+            // 右键返回 false，让上层处理（打开详情）
+            if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
+                return false;
             }
         }
 

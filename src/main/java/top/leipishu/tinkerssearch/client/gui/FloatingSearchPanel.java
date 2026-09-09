@@ -23,6 +23,9 @@ import top.leipishu.tinkerssearch.utils.SmelteryTemperatureReader;
 import top.leipishu.tinkerssearch.utils.FavoritesManager;
 import top.leipishu.tinkerssearch.utils.SmelteryClickHandler;
 
+import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
+import slimeknights.tconstruct.smeltery.block.entity.controller.SmelteryBlockEntity;
+
 import java.util.List;
 
 import static top.leipishu.tinkerssearch.config.PanelConfig.PANEL_WIDTH;
@@ -619,6 +622,8 @@ public class FloatingSearchPanel extends AbstractWidget {
         }).start();
     }
 
+    // 在 FloatingSearchPanel.java 中找到 handleCardClick 方法，修改如下：
+
     private boolean handleCardClick(double mouseX, double mouseY, int button) {
         if (!isVisible) return false;
 
@@ -694,6 +699,13 @@ public class FloatingSearchPanel extends AbstractWidget {
                     return true;
                 }
 
+                // ===== 右键：打开详细信息浮窗 =====
+                if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
+                    openFluidDetailScreen(fluid);
+                    return true;
+                }
+
+                // ===== 左键：原有逻辑 =====
                 if (onIcon && jeiAvailable) {
                     return interactionHandler.handleJeiIconClick(fluid, button);
                 }
@@ -710,6 +722,44 @@ public class FloatingSearchPanel extends AbstractWidget {
             }
         }
         return false;
+    }
+
+    /**
+     * 打开流体详细信息浮窗
+     */
+    /**
+     * 打开流体详细信息浮窗
+     */
+    private void openFluidDetailScreen(FluidStack fluid) {
+        Minecraft mc = Minecraft.getInstance();
+        SmelteryBlockEntity smeltery = null;
+
+        // ===== 方式1：从 DataManager 获取 =====
+        BlockEntity target = dataManager.getSmelteryTileEntity();
+        if (target instanceof SmelteryBlockEntity) {
+            smeltery = (SmelteryBlockEntity) target;
+        }
+
+        // ===== 方式2：如果获取不到，从屏幕反射获取 =====
+        if (smeltery == null && mc.screen instanceof AbstractContainerScreen) {
+            BlockEntity be = SmelteryClickHandler.getSmelteryFromScreen(
+                    (AbstractContainerScreen<?>) mc.screen
+            );
+            if (be instanceof SmelteryBlockEntity) {
+                smeltery = (SmelteryBlockEntity) be;
+            }
+        }
+
+        // ===== 方式3：通过 SmelteryDataHelper 获取 =====
+        if (smeltery == null) {
+            BlockEntity be = dataManager.getCachedTileEntity();
+            if (be instanceof SmelteryBlockEntity) {
+                smeltery = (SmelteryBlockEntity) be;
+            }
+        }
+
+        // ===== 打开浮窗（即使 smeltery 为 null 也可以打开，只是不显示容量信息） =====
+        mc.setScreen(new FluidDetailScreen(fluid, smeltery));
     }
 
     private boolean handleAlloyCardClick(double mouseX, double mouseY, int button) {
