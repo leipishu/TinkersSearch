@@ -11,6 +11,7 @@ import net.minecraft.network.chat.TextComponent;
 import net.minecraft.network.chat.TranslatableComponent;
 import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.fluids.FluidStack;
+import org.lwjgl.glfw.GLFW;
 import slimeknights.tconstruct.smeltery.block.entity.controller.SmelteryBlockEntity;
 import slimeknights.tconstruct.smeltery.block.entity.tank.SmelteryTank;
 import top.leipishu.tinkerssearch.utils.CastingRecipeHelper;
@@ -21,89 +22,75 @@ import top.leipishu.tinkerssearch.utils.SmelteryTemperatureReader;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
-/**
- * 流体详细信息浮窗
- * 右键卡片打开，展示：
- * 1. 流体基础信息（名称、当前量、温度）+ 流体图标（左右排布，图标与整体区块居中对齐）
- * 2. 可浇铸的所有物品（卡片模式 + 物品图标）
- * 3. 可制作的部件及属性词条（卡片模式）
- *
- * 采用整体滚动方案，所有内容在一个滚动区域内
- * 自适应窗口大小
- * 无分割线
- */
 public class FluidDetailScreen extends Screen {
 
     private final FluidStack fluidStack;
     private final SmelteryBlockEntity smeltery;
     private final int currentTemperature;
 
-    // 窗口尺寸
-    private int windowWidth = 380;
-    private int windowHeight = 460;
+    private int windowWidth = 400;
+    private int windowHeight = 480;
     private int centerX;
     private int centerY;
 
-    // ===== 整体滚动 =====
     private int totalScrollOffset = 0;
     private int maxTotalScrollOffset = 0;
     private static final int SCROLL_SPEED = 16;
 
-    // 数据
-    private List<CastingRecipeHelper.CastingInfo> castingInfos = new ArrayList<>();
-    private List<PartPropertyHelper.PartInfo> partInfos = new ArrayList<>();
+    private List<CastingRecipeHelper.CastingInfo> allCastingInfos = new ArrayList<>();
+    private List<PartPropertyHelper.PartInfo> allPartInfos = new ArrayList<>();
 
-    // 布局常量
-    private static final int CARD_WIDTH = 150;
-    private static final int CARD_HEIGHT = 44;
+    private List<CastingRecipeHelper.CastingInfo> filteredCastingInfos = new ArrayList<>();
+    private List<PartPropertyHelper.PartInfo> filteredPartInfos = new ArrayList<>();
+
+    private static final int CARD_HEIGHT = 52;
+    private static final int PART_CARD_HEIGHT = 60;
     private static final int CARD_SPACING = 6;
     private static final int CARDS_PER_ROW = 2;
     private static final int PADDING = 10;
     private static final int ICON_SIZE = 36;
     private static final int ICON_TEXT_GAP = 8;
     private static final int SECTION_SPACING = 10;
+    private static final int SEARCH_BOX_HEIGHT = 18;
+    private static final int CLEAR_BUTTON_SIZE = 10;
 
     private boolean isLoading = true;
     private boolean dataLoaded = false;
     private boolean needsLayoutRecalc = true;
 
-    // 缓存字体和渲染器
     private Font font;
     private ItemRenderer itemRenderer;
 
-    // ===== 布局缓存（相对于窗口内容区域顶部） =====
+    private boolean searchFocused = false;
+    private String searchText = "";
+    private int searchCursor = 0;
+
     private int contentHeight = 0;
 
-    // 头部区块（图标 + 标题 + 信息）
     private int headerStartY = 0;
-    private int headerEndY = 0;
     private int headerHeight = 0;
     private int iconX = 0;
-    private int iconY = 0;          // 图标垂直居中于整个头部区块
-    private int textStartX = 0;     // 文本起始X（图标右侧）
+    private int iconY = 0;
+    private int textStartX = 0;
     private int titleY = 0;
     private int infoStartY = 0;
     private int infoLineHeight = 0;
 
-    // 铸造区域
+    private int searchBoxY = 0;
+    private int searchBoxX = 0;
+    private int searchBoxW = 0;
+
     private int castingTitleY = 0;
     private int castingStartY = 0;
-    private int castingEndY = 0;
     private int castingHeight = 0;
 
-    // 部件区域
     private int partTitleY = 0;
     private int partStartY = 0;
-    private int partEndY = 0;
     private int partHeight = 0;
 
-    // 底部提示
     private int bottomHintY = 0;
-
-    // 关闭按钮位置（固定在右上角）
-    private int closeX = 0;
-    private int closeY = 0;
 
     public FluidDetailScreen(FluidStack fluidStack, SmelteryBlockEntity smeltery) {
         super(new TextComponent("Fluid Details"));
@@ -111,13 +98,16 @@ public class FluidDetailScreen extends Screen {
         this.smeltery = smeltery;
         this.currentTemperature = new SmelteryTemperatureReader().getCurrentSmelteryTemperature();
 
+        CastingRecipeHelper.prewarmPartRequirements();
+
         new Thread(() -> {
             try {
-                castingInfos = CastingRecipeHelper.getCastingRecipesForFluid(fluidStack);
-                partInfos = PartPropertyHelper.getPartsForFluid(fluidStack);
+                allCastingInfos = CastingRecipeHelper.getCastingRecipesForFluid(fluidStack);
+                allPartInfos = PartPropertyHelper.getPartsForFluid(fluidStack);
+                filteredCastingInfos = new ArrayList<>(allCastingInfos);
+                filteredPartInfos = new ArrayList<>(allPartInfos);
             } catch (Exception e) {
                 System.err.println("Tinker's Search: Failed to load detail data: " + e.getMessage());
-                e.printStackTrace();
             }
             Minecraft.getInstance().execute(() -> {
                 isLoading = false;
@@ -127,93 +117,98 @@ public class FluidDetailScreen extends Screen {
         }).start();
     }
 
-    // ==================== 布局计算 ====================
+    // ==================== 过滤 ====================
+
+    private void applyFilter() {
+        String kw = searchText.trim().toLowerCase(Locale.ROOT);
+        if (kw.isEmpty()) {
+            filteredCastingInfos = new ArrayList<>(allCastingInfos);
+            filteredPartInfos = new ArrayList<>(allPartInfos);
+        } else {
+            filteredCastingInfos = new ArrayList<>();
+            for (CastingRecipeHelper.CastingInfo info : allCastingInfos) {
+                String name = info.outputItem.getHoverName().getString().toLowerCase(Locale.ROOT);
+                if (name.contains(kw)) filteredCastingInfos.add(info);
+            }
+            filteredPartInfos = new ArrayList<>();
+            for (PartPropertyHelper.PartInfo info : allPartInfos) {
+                String name = info.partName.toLowerCase(Locale.ROOT);
+                if (name.contains(kw)) filteredPartInfos.add(info);
+            }
+        }
+        needsLayoutRecalc = true;
+    }
+
+    // ==================== 布局 ====================
 
     private void recalculateLayout() {
         if (font == null) font = Minecraft.getInstance().font;
 
         int screenWidth = this.width;
         int screenHeight = this.height;
-
-        windowWidth = Math.min(420, Math.max(320, screenWidth - 40));
-        windowHeight = Math.min(520, Math.max(300, screenHeight - 40));
+        windowWidth = Math.min(440, Math.max(340, screenWidth - 40));
+        windowHeight = Math.min(540, Math.max(300, screenHeight - 40));
         centerX = (screenWidth - windowWidth) / 2;
         centerY = (screenHeight - windowHeight) / 2;
 
-        // ===== 计算各元素位置 =====
-        int currentY = PADDING;
+        int currentY = PADDING + 2;
         infoLineHeight = font.lineHeight + 2;
 
-        // ---- 1. 头部区块（图标 + 标题 + 信息） ----
-        headerStartY = currentY + 4;
-
-        // 计算标题行高度
+        headerStartY = currentY;
         int titleLineHeight = font.lineHeight;
-        // 信息行高度：2行
         int infoLinesHeight = infoLineHeight * 2;
-        // 头部区块总高度 = 标题行 + 信息行（标题和信息之间留一点间距）
         headerHeight = titleLineHeight + 2 + infoLinesHeight;
 
-        // 图标垂直居中于整个头部区块
         iconY = headerStartY + (headerHeight - ICON_SIZE) / 2;
         iconX = PADDING;
         textStartX = iconX + ICON_SIZE + ICON_TEXT_GAP;
 
-        // 标题Y = 头部区块顶部
         titleY = headerStartY;
-        // 信息Y = 标题下方
         infoStartY = headerStartY + titleLineHeight + 2;
 
-        headerEndY = headerStartY + headerHeight;
-        currentY = headerEndY + SECTION_SPACING;
+        currentY = headerStartY + headerHeight + SECTION_SPACING;
 
-        // ---- 2. 铸造区域 ----
+        searchBoxY = currentY;
+        searchBoxX = PADDING;
+        searchBoxW = windowWidth - PADDING * 2;
+        currentY += SEARCH_BOX_HEIGHT + SECTION_SPACING;
+
         castingTitleY = currentY;
         currentY += 16;
         castingStartY = currentY;
         castingHeight = calculateCastingTotalHeight();
-        castingEndY = castingStartY + castingHeight;
-        currentY = castingEndY + SECTION_SPACING;
+        currentY = castingStartY + castingHeight + SECTION_SPACING;
 
-        // ---- 3. 部件区域 ----
         partTitleY = currentY;
         currentY += 16;
         partStartY = currentY;
         partHeight = calculatePartTotalHeight();
-        partEndY = partStartY + partHeight;
-        currentY = partEndY + SECTION_SPACING;
+        currentY = partStartY + partHeight + SECTION_SPACING;
 
-        // ---- 4. 底部提示 ----
         bottomHintY = currentY;
         currentY += 14;
 
-        // 总内容高度
         contentHeight = currentY + PADDING;
 
-        // 计算最大滚动偏移
         int visibleHeight = windowHeight - PADDING * 2;
         maxTotalScrollOffset = Math.max(0, contentHeight - visibleHeight);
         if (totalScrollOffset > maxTotalScrollOffset) {
             totalScrollOffset = maxTotalScrollOffset;
         }
 
-        // 关闭按钮位置
-        closeX = windowWidth - 22 - PADDING;
-        closeY = PADDING + 5;
-
         needsLayoutRecalc = false;
     }
 
     private int calculateCastingTotalHeight() {
-        if (castingInfos == null || castingInfos.isEmpty()) return 24;
-        int rows = (castingInfos.size() + CARDS_PER_ROW - 1) / CARDS_PER_ROW;
+        if (filteredCastingInfos == null || filteredCastingInfos.isEmpty()) return 24;
+        int rows = (filteredCastingInfos.size() + CARDS_PER_ROW - 1) / CARDS_PER_ROW;
         return rows * (CARD_HEIGHT + CARD_SPACING) - CARD_SPACING + 4;
     }
 
     private int calculatePartTotalHeight() {
-        if (partInfos == null || partInfos.isEmpty()) return 24;
-        int rows = (partInfos.size() + CARDS_PER_ROW - 1) / CARDS_PER_ROW;
-        return rows * (CARD_HEIGHT + CARD_SPACING) - CARD_SPACING + 4;
+        if (filteredPartInfos == null || filteredPartInfos.isEmpty()) return 24;
+        int rows = (filteredPartInfos.size() + CARDS_PER_ROW - 1) / CARDS_PER_ROW;
+        return rows * (PART_CARD_HEIGHT + CARD_SPACING) - CARD_SPACING + 4;
     }
 
     // ==================== 渲染 ====================
@@ -223,34 +218,23 @@ public class FluidDetailScreen extends Screen {
         if (font == null) font = Minecraft.getInstance().font;
         if (itemRenderer == null) itemRenderer = Minecraft.getInstance().getItemRenderer();
 
-        // 数据加载完成或窗口变化时重新计算布局
-        if (dataLoaded && needsLayoutRecalc) {
-            recalculateLayout();
-        }
-        // 窗口尺寸变化时重新计算
-        int screenWidth = this.width;
-        int screenHeight = this.height;
-        int newWindowWidth = Math.min(420, Math.max(320, screenWidth - 40));
-        int newWindowHeight = Math.min(520, Math.max(300, screenHeight - 40));
-        if (newWindowWidth != windowWidth || newWindowHeight != windowHeight) {
-            needsLayoutRecalc = true;
+        int newW = Math.min(440, Math.max(340, this.width - 40));
+        int newH = Math.min(540, Math.max(300, this.height - 40));
+        if (newW != windowWidth || newH != windowHeight || needsLayoutRecalc) {
             recalculateLayout();
         }
 
-        // ===== 背景遮罩 =====
         fill(poseStack, 0, 0, this.width, this.height, 0x80000000);
 
-        // ===== 浮窗背景 =====
-        fill(poseStack, centerX, centerY, centerX + windowWidth, centerY + windowHeight, 0xF01A1A1A);
-        drawBorder(poseStack, centerX, centerY, windowWidth, windowHeight, 0xFF666666);
+        fill(poseStack, centerX + 2, centerY + 2, centerX + windowWidth + 2, centerY + windowHeight + 2, 0x40000000);
+        fill(poseStack, centerX, centerY, centerX + windowWidth, centerY + windowHeight, 0xF0181818);
+        drawBorder(poseStack, centerX, centerY, windowWidth, windowHeight, 0xFF555555);
 
-        // ===== 关闭按钮（固定在右上角） =====
         int closeX = centerX + windowWidth - 22 - PADDING;
-        int closeY = centerY + PADDING + 5;
-        fill(poseStack, closeX, closeY, closeX + 16, closeY + 16, 0xCCFF4444);
+        int closeY = centerY + PADDING + 3;
+        fill(poseStack, closeX, closeY, closeX + 16, closeY + 16, 0xCCDD4444);
         font.draw(poseStack, "✕", closeX + 4, closeY + 2, 0xFFFFFF);
 
-        // ===== 裁剪区域 =====
         int clipX = centerX + PADDING;
         int clipY = centerY + PADDING;
         int clipW = windowWidth - PADDING * 2;
@@ -269,14 +253,12 @@ public class FluidDetailScreen extends Screen {
             renderContent(poseStack, mouseX, mouseY);
         }
 
-        // ===== 滚动条 =====
         if (maxTotalScrollOffset > 0) {
             renderScrollBar(poseStack);
         }
 
-        // ===== 加载提示 =====
         if (isLoading) {
-            String loadingText = "§e⏳ " + new TranslatableComponent("gui.tinkerssearch.detail.loading").getString();
+            String loadingText = "§e" + new TranslatableComponent("gui.tinkerssearch.detail.loading").getString();
             font.draw(poseStack, loadingText,
                     centerX + windowWidth / 2 - font.width(loadingText) / 2,
                     centerY + windowHeight / 2 - 4, 0xFFFF00);
@@ -285,22 +267,16 @@ public class FluidDetailScreen extends Screen {
         super.render(poseStack, mouseX, mouseY, partialTick);
     }
 
-    /**
-     * 渲染所有内容（应用滚动偏移）
-     */
     private void renderContent(PoseStack poseStack, int mouseX, int mouseY) {
         int offsetY = -totalScrollOffset;
         int baseX = centerX;
         int baseY = centerY + offsetY;
 
-        // ===== 1. 图标（左侧，垂直居中于整个头部区块） =====
         SmelteryDataHelper.drawFluidIcon(poseStack, baseX + iconX, baseY + iconY, fluidStack, ICON_SIZE);
 
-        // ===== 2. 标题（图标右侧，头部区块顶部） =====
-        String title = "§b" + new TranslatableComponent("gui.tinkerssearch.detail.title").getString() + ": " + fluidStack.getDisplayName().getString();
+        String title = "§b" + new TranslatableComponent("gui.tinkerssearch.detail.title").getString() + ": §f" + fluidStack.getDisplayName().getString();
         font.draw(poseStack, title, baseX + textStartX, baseY + titleY, 0xFFFFFF);
 
-        // ===== 3. 基础信息（图标右侧，标题下方） =====
         int infoY = baseY + infoStartY;
         String amount = "§7" + new TranslatableComponent("gui.tinkerssearch.detail.amount").getString() + ": §f" + fluidStack.getAmount() + " mB";
         font.draw(poseStack, amount, baseX + textStartX, infoY, 0xCCCCCC);
@@ -320,51 +296,94 @@ public class FluidDetailScreen extends Screen {
             }
         }
 
-        // ===== 4. 铸造标题 =====
-        String castingTitle = "§6📦 " + new TranslatableComponent("gui.tinkerssearch.detail.casting").getString() +
-                " (§e" + castingInfos.size() + "§6)";
+        renderSearchBox(poseStack, baseX, baseY + searchBoxY, mouseX, mouseY);
+
+        String castingTitle = "§6" + new TranslatableComponent("gui.tinkerssearch.detail.casting").getString() +
+                " §7(§e" + filteredCastingInfos.size() + "§7/§8" + allCastingInfos.size() + "§7)";
         font.draw(poseStack, castingTitle, baseX + PADDING, baseY + castingTitleY, 0xFFFFFF);
 
-        // ===== 5. 铸造卡片 =====
-        if (castingInfos.isEmpty()) {
+        if (filteredCastingInfos.isEmpty()) {
             font.draw(poseStack, new TranslatableComponent("gui.tinkerssearch.detail.no_casting").getString(),
                     baseX + PADDING + 5, baseY + castingStartY + 10, 0x666666);
         } else {
             renderCastingCards(poseStack, baseX, baseY + castingStartY, mouseX, mouseY);
         }
 
-        // ===== 6. 部件标题 =====
-        String partTitle = "§d🔧 " + new TranslatableComponent("gui.tinkerssearch.detail.parts").getString() +
-                " (§e" + partInfos.size() + "§d)";
+        String partTitle = "§d" + new TranslatableComponent("gui.tinkerssearch.detail.parts").getString() +
+                " §7(§e" + filteredPartInfos.size() + "§7/§8" + allPartInfos.size() + "§7)";
         font.draw(poseStack, partTitle, baseX + PADDING, baseY + partTitleY, 0xFFFFFF);
 
-        // ===== 7. 部件卡片 =====
-        if (partInfos.isEmpty()) {
+        if (filteredPartInfos.isEmpty()) {
             font.draw(poseStack, new TranslatableComponent("gui.tinkerssearch.detail.no_parts").getString(),
                     baseX + PADDING + 5, baseY + partStartY + 10, 0x666666);
         } else {
             renderPartCards(poseStack, baseX, baseY + partStartY, mouseX, mouseY);
         }
 
-        // ===== 8. 底部提示 =====
         font.draw(poseStack, "§8[右键/ESC " + new TranslatableComponent("gui.tinkerssearch.detail.close").getString() + "]",
                 baseX + PADDING, baseY + bottomHintY, 0x444444);
     }
 
-    // ==================== 卡片渲染 ====================
+    // ==================== 搜索框 ====================
+
+    private void renderSearchBox(PoseStack poseStack, int baseX, int y, int mouseX, int mouseY) {
+        int x = baseX + searchBoxX;
+        int w = searchBoxW;
+        int h = SEARCH_BOX_HEIGHT;
+
+        int bg = searchFocused ? 0xFF3A3A3A : 0xFF222222;
+        fill(poseStack, x, y, x + w, y + h, bg);
+
+        int border = searchFocused ? 0xFF888888 : 0xFF444444;
+        fill(poseStack, x, y, x + w, y + 1, border);
+        fill(poseStack, x, y + h - 1, x + w, y + h, border);
+        fill(poseStack, x, y, x + 1, y + h, border);
+        fill(poseStack, x + w - 1, y, x + w, y + h, border);
+
+        int textX = x + 4;
+        int textY = y + 4;
+
+        if (searchText.isEmpty()) {
+            font.draw(poseStack, new TranslatableComponent("gui.tinkerssearch.detail.search_hint"),
+                    textX, textY, 0x666666);
+        } else {
+            int cursorPos = Math.max(0, Math.min(searchCursor, searchText.length()));
+            String beforeCursor = searchText.substring(0, cursorPos);
+            String afterCursor = searchText.substring(cursorPos);
+            int beforeWidth = font.width(beforeCursor);
+
+            font.draw(poseStack, beforeCursor, textX, textY, 0xFFFFFF);
+            font.draw(poseStack, afterCursor, textX + beforeWidth, textY, 0xFFFFFF);
+
+            if (searchFocused && (System.currentTimeMillis() / 500 % 2 == 0)) {
+                int cursorX = textX + beforeWidth;
+                if (cursorX < x + w - 2) {
+                    fill(poseStack, cursorX, y + 2, cursorX + 1, y + h - 2, 0xFFFFFFFF);
+                }
+            }
+        }
+
+        if (!searchText.isEmpty()) {
+            int clearX = x + w - 14;
+            int clearY = y + (h - CLEAR_BUTTON_SIZE) / 2;
+            fill(poseStack, clearX, clearY, clearX + CLEAR_BUTTON_SIZE, clearY + CLEAR_BUTTON_SIZE, 0x88AA4444);
+            font.draw(poseStack, "§f✕", clearX + 2, clearY + 1, 0xFFFFFF);
+        }
+    }
+
+    // ==================== 铸造卡片 ====================
 
     private void renderCastingCards(PoseStack poseStack, int baseX, int startY, int mouseX, int mouseY) {
-        if (castingInfos.isEmpty()) return;
+        if (filteredCastingInfos.isEmpty()) return;
+        int cardWidth = (windowWidth - PADDING * 2 - CARD_SPACING) / CARDS_PER_ROW;
 
-        int cardWidth = (windowWidth - PADDING * 2 - CARD_SPACING - 8) / CARDS_PER_ROW;
-
-        for (int i = 0; i < castingInfos.size(); i++) {
+        for (int i = 0; i < filteredCastingInfos.size(); i++) {
             int row = i / CARDS_PER_ROW;
             int col = i % CARDS_PER_ROW;
             int cardX = baseX + PADDING + col * (cardWidth + CARD_SPACING);
             int cardY = startY + row * (CARD_HEIGHT + CARD_SPACING);
 
-            CastingRecipeHelper.CastingInfo info = castingInfos.get(i);
+            CastingRecipeHelper.CastingInfo info = filteredCastingInfos.get(i);
             boolean hover = mouseX >= cardX && mouseX <= cardX + cardWidth &&
                     mouseY >= cardY && mouseY <= cardY + CARD_HEIGHT;
             drawCastingCard(poseStack, cardX, cardY, cardWidth, info, hover);
@@ -373,101 +392,200 @@ public class FluidDetailScreen extends Screen {
 
     private void drawCastingCard(PoseStack poseStack, int x, int y, int width,
                                  CastingRecipeHelper.CastingInfo info, boolean hover) {
-        int bg = hover ? 0xFF3A3A3A : 0xFF222222;
+        fill(poseStack, x + 1, y + CARD_HEIGHT, x + width + 1, y + CARD_HEIGHT + 1, 0x40000000);
+        int bg = hover ? 0xFF333A44 : 0xFF1E2228;
         fill(poseStack, x, y, x + width, y + CARD_HEIGHT, bg);
-        int border = hover ? 0xFF888888 : 0xFF333333;
+        int border = hover ? 0xFF66AAFF : 0xFF3A4250;
         fill(poseStack, x, y, x + width, y + 1, border);
         fill(poseStack, x, y + CARD_HEIGHT - 1, x + width, y + CARD_HEIGHT, border);
         fill(poseStack, x, y, x + 1, y + CARD_HEIGHT, border);
         fill(poseStack, x + width - 1, y, x + width, y + CARD_HEIGHT, border);
 
         ItemStack stack = info.outputItem;
-        int iconSize = 24;
-        int iconX = x + 4;
+        int iconSize = 28;
+        int iconX = x + 6;
         int iconY = y + (CARD_HEIGHT - iconSize) / 2;
 
         itemRenderer.renderGuiItem(stack, iconX, iconY);
         itemRenderer.renderGuiItemDecorations(font, stack, iconX, iconY, "");
 
+        int textX = iconX + iconSize + 4;
+        int maxTextW = width - iconSize - 18;
+        int textY = y + 5;
+
         String name = stack.getHoverName().getString();
-        int maxTextW = width - iconSize - 20;
-        String displayName = font.width(name) > maxTextW ?
-                font.plainSubstrByWidth(name, maxTextW - 6) + "..." : name;
-        font.draw(poseStack, displayName, iconX + iconSize + 4, y + 4, 0xFFFFFF);
+        int count = stack.getCount();
+        String nameLine = (count > 1) ? name + " §8×" + count : name;
+        String displayName = font.width(nameLine) > maxTextW
+                ? font.plainSubstrByWidth(nameLine, maxTextW - 6) + "..." : nameLine;
+        font.draw(poseStack, "§f" + displayName, textX, textY, 0xFFFFFF);
+        textY += 13;
+
+        int required = info.requiredAmount;
+        int available = fluidStack.getAmount();
+        int canCast = required > 0 ? available / required : 0;
+
+        String meltLine;
+        if (canCast >= 1) {
+            meltLine = "§7需§f" + required + "mB §7| §a×" + canCast;
+        } else {
+            int lack = required - available;
+            meltLine = "§7需§f" + required + "mB §7| §c缺§f" + lack + "mB";
+        }
+        if (font.width(meltLine) > maxTextW) {
+            meltLine = font.plainSubstrByWidth(meltLine, maxTextW - 6) + "...";
+        }
+        font.draw(poseStack, meltLine, textX, textY, 0xFFFFFF);
+        textY += 13;
 
         if (info.requiresCast) {
-            String castHint = "§8" + new TranslatableComponent("gui.tinkerssearch.detail.requires_cast").getString();
-            int hintWidth = font.width(castHint);
-            if (hintWidth > width - iconSize - 20) {
-                castHint = font.plainSubstrByWidth(castHint, width - iconSize - 24) + "...";
+            String castLine = "§8" + new TranslatableComponent("gui.tinkerssearch.detail.requires_cast").getString();
+            if (font.width(castLine) > maxTextW) {
+                castLine = font.plainSubstrByWidth(castLine, maxTextW - 6) + "...";
             }
-            font.draw(poseStack, castHint, iconX + iconSize + 4, y + 18, 0x666666);
-        }
-
-        int count = stack.getCount();
-        if (count > 1) {
-            font.draw(poseStack, "§8x" + count, iconX + iconSize + 4, y + 28, 0x888888);
+            font.draw(poseStack, castLine, textX, textY, 0x888888);
         }
     }
 
+    // ==================== 部件卡片 ====================
+
     private void renderPartCards(PoseStack poseStack, int baseX, int startY, int mouseX, int mouseY) {
-        if (partInfos.isEmpty()) return;
+        if (filteredPartInfos.isEmpty()) return;
+        int cardWidth = (windowWidth - PADDING * 2 - CARD_SPACING) / CARDS_PER_ROW;
 
-        int cardWidth = (windowWidth - PADDING * 2 - CARD_SPACING - 8) / CARDS_PER_ROW;
-
-        for (int i = 0; i < partInfos.size(); i++) {
+        for (int i = 0; i < filteredPartInfos.size(); i++) {
             int row = i / CARDS_PER_ROW;
             int col = i % CARDS_PER_ROW;
             int cardX = baseX + PADDING + col * (cardWidth + CARD_SPACING);
-            int cardY = startY + row * (CARD_HEIGHT + CARD_SPACING);
+            int cardY = startY + row * (PART_CARD_HEIGHT + CARD_SPACING);
 
-            PartPropertyHelper.PartInfo info = partInfos.get(i);
+            PartPropertyHelper.PartInfo info = filteredPartInfos.get(i);
             boolean hover = mouseX >= cardX && mouseX <= cardX + cardWidth &&
-                    mouseY >= cardY && mouseY <= cardY + CARD_HEIGHT;
+                    mouseY >= cardY && mouseY <= cardY + PART_CARD_HEIGHT;
             drawPartCard(poseStack, cardX, cardY, cardWidth, info, hover);
         }
     }
 
+    /**
+     * 绘制单个部件卡片（动态行位置 + 压缩宽度）
+     *
+     * 布局：
+     *   行1：部件名
+     *   行2：熔炼信息
+     *   行3：数值型属性（有）| 倍率型（无数值型时）
+     *   行4：倍率型属性（有数值型时）| 修饰语 | 空
+     */
     private void drawPartCard(PoseStack poseStack, int x, int y, int width,
                               PartPropertyHelper.PartInfo info, boolean hover) {
-        int bg = hover ? 0xFF2A3A2A : 0xFF1A2A1A;
-        fill(poseStack, x, y, x + width, y + CARD_HEIGHT, bg);
-        int border = hover ? 0xFF66AA66 : 0xFF2A4A2A;
+        // 阴影 + 背景 + 边框
+        fill(poseStack, x + 1, y + PART_CARD_HEIGHT, x + width + 1, y + PART_CARD_HEIGHT + 1, 0x40000000);
+        int bg = hover ? 0xFF2A3A2E : 0xFF1A2A1E;
+        fill(poseStack, x, y, x + width, y + PART_CARD_HEIGHT, bg);
+        int border = hover ? 0xFF66BB66 : 0xFF2E4A32;
         fill(poseStack, x, y, x + width, y + 1, border);
-        fill(poseStack, x, y + CARD_HEIGHT - 1, x + width, y + CARD_HEIGHT, border);
-        fill(poseStack, x, y, x + 1, y + CARD_HEIGHT, border);
-        fill(poseStack, x + width - 1, y, x + width, y + CARD_HEIGHT, border);
+        fill(poseStack, x, y + PART_CARD_HEIGHT - 1, x + width, y + PART_CARD_HEIGHT, border);
+        fill(poseStack, x, y, x + 1, y + PART_CARD_HEIGHT, border);
+        fill(poseStack, x + width - 1, y, x + width, y + PART_CARD_HEIGHT, border);
 
-        String name = info.partName;
-        if (name.contains("_")) name = name.replace("_", " ");
-        font.draw(poseStack, "§f" + name, x + 6, y + 4, 0xFFFFFF);
-
-        PartPropertyHelper.PartProperties props = info.properties;
-        if (props != null && props.hasStats()) {
-            String statsStr = props.formatStats();
-            int maxWidth = width - 12;
-            if (font.width(statsStr) > maxWidth) {
-                statsStr = font.plainSubstrByWidth(statsStr, maxWidth - 6) + "...";
-            }
-            font.draw(poseStack, statsStr, x + 6, y + 18, 0x88CC88);
-        } else {
-            font.draw(poseStack, "§8" + new TranslatableComponent("gui.tinkerssearch.detail.unknown").getString(),
-                    x + 6, y + 18, 0x666666);
+        // ============ 图标（左侧，22px）============
+        int iconSize = 22;
+        int iconX = x + 4;
+        int iconY = y + (PART_CARD_HEIGHT - iconSize) / 2;
+        if (info.displayStack != null && !info.displayStack.isEmpty()) {
+            itemRenderer.renderGuiItem(info.displayStack, iconX, iconY);
         }
 
-        if (props != null && props.modifiers != null && !props.modifiers.isEmpty()) {
-            String modStr = "§b";
-            for (int i = 0; i < Math.min(props.modifiers.size(), 2); i++) {
-                if (i > 0) modStr += ", ";
-                PartPropertyHelper.ModifierInfo mod = props.modifiers.get(i);
-                modStr += mod.name + (mod.level > 1 ? " " + mod.level : "");
+        // ============ 文本区 ============
+        int textX = iconX + iconSize + 3;
+        int maxW = width - iconSize - 12;
+
+        // ============ 行1：部件名 ============
+        String name = info.partName;
+        if (name.contains("_")) name = name.replace("_", " ");
+        String displayName = font.width(name) > maxW
+                ? font.plainSubstrByWidth(name, maxW - 4) + "..." : name;
+        font.draw(poseStack, "§f" + displayName, textX, y + 4, 0xFFFFFF);
+
+        // ============ 行2：熔炼信息 ============
+        int line2Y = y + 17;
+        if (info.requiredAmount > 0) {
+            int available = fluidStack.getAmount();
+            int canMake = available / info.requiredAmount;
+            String meltLine;
+            if (canMake >= 1) {
+                meltLine = "§7需§f" + info.requiredAmount + "mB §7| §a×" + canMake;
+            } else {
+                int lack = info.requiredAmount - available;
+                meltLine = "§7需§f" + info.requiredAmount + "mB §7| §c缺§f" + lack + "mB";
             }
-            if (props.modifiers.size() > 2) modStr += "...";
-            font.draw(poseStack, modStr, x + 6, y + 32, 0x88CCFF);
+            if (font.width(meltLine) > maxW) {
+                meltLine = font.plainSubstrByWidth(meltLine, maxW - 6) + "...";
+            }
+            font.draw(poseStack, meltLine, textX, line2Y, 0xFFFFFF);
+        } else {
+            font.draw(poseStack, "§8无配方", textX, line2Y, 0x666666);
+        }
+
+        // ============ 行3、行4：动态属性 ============
+        PartPropertyHelper.PartProperties props = info.properties;
+
+        String numericText = "";
+        String modifierText = "";
+        String traitsText = "";
+
+        if (props != null && props.hasStats()) {
+            numericText = props.formatNumericStats();
+            modifierText = props.formatModifierStats();
+            traitsText = props.formatModifiers();
+        }
+
+        boolean hasNumeric = !numericText.isEmpty();
+        boolean hasModifier = !modifierText.isEmpty();
+        boolean hasTraits = !traitsText.isEmpty();
+
+        String line3Text;
+        String line4Text;
+
+        if (hasNumeric) {
+            // 有数值型：行3=数值型，行4=倍率型（优先）或修饰语
+            line3Text = numericText;
+            line4Text = hasModifier ? modifierText : (hasTraits ? traitsText : "");
+        } else if (hasModifier) {
+            // 无数值型但有倍率型：行3=倍率型，行4=修饰语
+            line3Text = modifierText;
+            line4Text = hasTraits ? traitsText : "";
+        } else if (hasTraits) {
+            // 只有修饰语
+            line3Text = traitsText;
+            line4Text = "";
+        } else {
+            // 什么都没有
+            line3Text = "§8未知";
+            line4Text = "";
+        }
+
+        // 行3
+        int line3Y = y + 30;
+        if (!line3Text.isEmpty()) {
+            String text = line3Text;
+            if (font.width(text) > maxW) {
+                text = font.plainSubstrByWidth(text, maxW - 6) + "...";
+            }
+            font.draw(poseStack, text, textX, line3Y, 0xFFFFFF);
+        }
+
+        // 行4
+        int line4Y = y + 43;
+        if (!line4Text.isEmpty()) {
+            String text = line4Text;
+            if (font.width(text) > maxW) {
+                text = font.plainSubstrByWidth(text, maxW - 6) + "...";
+            }
+            font.draw(poseStack, text, textX, line4Y, 0xFFFFFF);
         }
     }
 
-    // ==================== 辅助绘制 ====================
+    // ==================== 辅助 ====================
 
     private void drawBorder(PoseStack poseStack, int x, int y, int width, int height, int color) {
         fill(poseStack, x, y, x + width, y + 1, color);
@@ -480,34 +598,60 @@ public class FluidDetailScreen extends Screen {
         int barX = centerX + windowWidth - 6;
         int barY = centerY + PADDING + 2;
         int barH = windowHeight - PADDING * 2 - 4;
-
         fill(poseStack, barX, barY, barX + 3, barY + barH, 0x33FFFFFF);
-
         float ratio = (float) totalScrollOffset / (float) maxTotalScrollOffset;
         int thumbH = Math.max(16, (int) (barH * 0.3f));
         int thumbY = barY + (int) (ratio * (barH - thumbH));
         fill(poseStack, barX, thumbY, barX + 3, thumbY + thumbH, 0x99FFFFFF);
     }
 
-    // ==================== 鼠标事件 ====================
+    // ==================== 事件 ====================
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        // 关闭按钮
         int closeX = centerX + windowWidth - 22 - PADDING;
-        int closeY = centerY + PADDING + 5;
+        int closeY = centerY + PADDING + 3;
         if (mouseX >= closeX && mouseX <= closeX + 16 && mouseY >= closeY && mouseY <= closeY + 16) {
             this.onClose();
             return true;
         }
 
-        // 点击外部关闭
         if (mouseX < centerX || mouseX > centerX + windowWidth ||
                 mouseY < centerY || mouseY > centerY + windowHeight) {
+            if (searchFocused) {
+                searchFocused = false;
+                return true;
+            }
             this.onClose();
             return true;
         }
 
+        int sx = centerX + searchBoxX;
+        int sy = centerY + searchBoxY - totalScrollOffset;
+        int sw = searchBoxW;
+        int sh = SEARCH_BOX_HEIGHT;
+
+        if (mouseX >= sx && mouseX <= sx + sw && mouseY >= sy && mouseY <= sy + sh) {
+            if (!searchText.isEmpty()) {
+                int clearX = sx + sw - 14;
+                int clearY = sy + (sh - CLEAR_BUTTON_SIZE) / 2;
+                if (mouseX >= clearX && mouseX <= clearX + CLEAR_BUTTON_SIZE
+                        && mouseY >= clearY && mouseY <= clearY + CLEAR_BUTTON_SIZE) {
+                    searchText = "";
+                    searchCursor = 0;
+                    applyFilter();
+                    searchFocused = true;
+                    return true;
+                }
+            }
+            searchFocused = true;
+            searchCursor = PanelInteractionHandler.calculateCursorFromMouse(
+                    font, searchText, mouseX, sx + 4
+            );
+            return true;
+        }
+
+        searchFocused = false;
         return super.mouseClicked(mouseX, mouseY, button);
     }
 
@@ -517,7 +661,6 @@ public class FluidDetailScreen extends Screen {
                 mouseY < centerY || mouseY > centerY + windowHeight) {
             return false;
         }
-
         int newOffset = totalScrollOffset - (int) (delta * SCROLL_SPEED);
         totalScrollOffset = Math.max(0, Math.min(newOffset, maxTotalScrollOffset));
         return true;
@@ -525,19 +668,74 @@ public class FluidDetailScreen extends Screen {
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (keyCode == 256) {
-            this.onClose();
-            return true;
-        }
-        if (keyCode == 264) { // DOWN
-            totalScrollOffset = Math.min(totalScrollOffset + SCROLL_SPEED, maxTotalScrollOffset);
-            return true;
-        }
-        if (keyCode == 265) { // UP
-            totalScrollOffset = Math.max(totalScrollOffset - SCROLL_SPEED, 0);
-            return true;
+        if (searchFocused) {
+            switch (keyCode) {
+                case GLFW.GLFW_KEY_BACKSPACE:
+                    if (searchCursor > 0 && !searchText.isEmpty()) {
+                        String before = searchText.substring(0, searchCursor - 1);
+                        String after = searchText.substring(searchCursor);
+                        searchText = before + after;
+                        searchCursor--;
+                        applyFilter();
+                    }
+                    return true;
+                case GLFW.GLFW_KEY_DELETE:
+                    if (searchCursor < searchText.length()) {
+                        String before = searchText.substring(0, searchCursor);
+                        String after = searchText.substring(searchCursor + 1);
+                        searchText = before + after;
+                        applyFilter();
+                    }
+                    return true;
+                case GLFW.GLFW_KEY_LEFT:
+                    if (searchCursor > 0) searchCursor--;
+                    return true;
+                case GLFW.GLFW_KEY_RIGHT:
+                    if (searchCursor < searchText.length()) searchCursor++;
+                    return true;
+                case GLFW.GLFW_KEY_HOME:
+                    searchCursor = 0;
+                    return true;
+                case GLFW.GLFW_KEY_END:
+                    searchCursor = searchText.length();
+                    return true;
+                case GLFW.GLFW_KEY_ESCAPE:
+                    searchFocused = false;
+                    return true;
+                case GLFW.GLFW_KEY_ENTER:
+                case GLFW.GLFW_KEY_KP_ENTER:
+                    searchFocused = false;
+                    return true;
+            }
+        } else {
+            if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+                this.onClose();
+                return true;
+            }
+            if (keyCode == GLFW.GLFW_KEY_DOWN) {
+                totalScrollOffset = Math.min(totalScrollOffset + SCROLL_SPEED, maxTotalScrollOffset);
+                return true;
+            }
+            if (keyCode == GLFW.GLFW_KEY_UP) {
+                totalScrollOffset = Math.max(totalScrollOffset - SCROLL_SPEED, 0);
+                return true;
+            }
         }
         return super.keyPressed(keyCode, scanCode, modifiers);
+    }
+
+    @Override
+    public boolean charTyped(char codePoint, int modifiers) {
+        if (searchFocused) {
+            if (Character.isISOControl(codePoint)) return false;
+            String before = searchText.substring(0, searchCursor);
+            String after = searchText.substring(searchCursor);
+            searchText = before + codePoint + after;
+            searchCursor++;
+            applyFilter();
+            return true;
+        }
+        return super.charTyped(codePoint, modifiers);
     }
 
     @Override

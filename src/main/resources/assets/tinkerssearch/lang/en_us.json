@@ -47,5 +47,17 @@
   "gui.tinkerssearch.detail.launch_speed": "Launch",
   "gui.tinkerssearch.detail.arrow_speed": "Arrow Speed",
   "gui.tinkerssearch.detail.arrow_accuracy": "Accuracy",
-  "gui.tinkerssearch.detail.unknown": "Unknown"
+  "gui.tinkerssearch.detail.unknown": "Unknown",
+  "gui.tinkerssearch.detail.search_hint": "Search items or parts...",
+  "gui.tinkerssearch.detail.attack_speed": "Atk Spd",
+  "gui.tinkerssearch.detail.velocity": "Velocity",
+  "gui.tinkerssearch.detail.accuracy": "Accuracy",
+  "gui.tinkerssearch.tier.wood": "Wood",
+  "gui.tinkerssearch.tier.stone": "Stone",
+  "gui.tinkerssearch.tier.iron": "Iron",
+  "gui.tinkerssearch.tier.diamond": "Diamond",
+  "gui.tinkerssearch.tier.netherite": "Netherite",
+  "gui.tinkerssearch.tier.gold": "Gold",
+  "gui.tinkerssearch.detail.need": "Need",
+  "gui.tinkerssearch.detail.lack": "Lack"
 }

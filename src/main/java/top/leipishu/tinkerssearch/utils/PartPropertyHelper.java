@@ -3,6 +3,7 @@ package top.leipishu.tinkerssearch.utils;
 import net.minecraft.network.chat.TranslatableComponent;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Tier;
 import net.minecraft.world.item.Tiers;
 import net.minecraft.world.level.material.Fluid;
@@ -14,7 +15,6 @@ import slimeknights.tconstruct.library.materials.definition.IMaterial;
 import slimeknights.tconstruct.library.materials.definition.Material;
 import slimeknights.tconstruct.library.materials.definition.MaterialId;
 import slimeknights.tconstruct.library.materials.stats.IMaterialStats;
-import slimeknights.tconstruct.library.materials.stats.MaterialStatsId;
 import slimeknights.tconstruct.library.tools.part.IMaterialItem;
 import slimeknights.tconstruct.tools.stats.HandleMaterialStats;
 import slimeknights.tconstruct.tools.stats.HeadMaterialStats;
@@ -22,14 +22,17 @@ import slimeknights.tconstruct.tools.stats.LimbMaterialStats;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * 部件属性辅助类
- * 用于获取流体对应的部件及属性
- * 兼容 1.18.2 匠魂 API
  */
 public class PartPropertyHelper {
 
@@ -39,11 +42,15 @@ public class PartPropertyHelper {
         public final String partName;
         public final PartProperties properties;
         public final ResourceLocation partId;
+        public final int requiredAmount;
+        public final ItemStack displayStack;
 
-        public PartInfo(String name, PartProperties props, ResourceLocation id) {
+        public PartInfo(String name, PartProperties props, ResourceLocation id, int requiredAmount, ItemStack displayStack) {
             this.partName = name;
             this.properties = props;
             this.partId = id;
+            this.requiredAmount = requiredAmount;
+            this.displayStack = displayStack;
         }
     }
 
@@ -60,98 +67,67 @@ public class PartPropertyHelper {
     }
 
     public static class PartProperties {
-        // 数值型属性（直接显示数字）
         public final int durability;
-        public final String harvestTier;
+        public final String harvestTierKey;
         public final float attackDamage;
         public final float miningSpeed;
-        // 倍率型属性（显示为 x1.1 格式）
-        public final float handleModifier;
-        public final float drawSpeed;
-        public final float launchSpeed;
-        public final float arrowSpeed;
-        public final float arrowAccuracy;
+        public final Map<String, Float> modifierStats;
         public final List<ModifierInfo> modifiers;
-        // 标记这个部件是什么类型的统计
         private final String statsType;
 
-        public PartProperties(int durability, String harvestTier, float attackDamage,
-                              float miningSpeed, float handleModifier,
-                              float drawSpeed, float launchSpeed, float arrowSpeed, float arrowAccuracy,
+        public PartProperties(int durability, String harvestTierKey, float attackDamage, float miningSpeed,
+                              Map<String, Float> modifierStats,
                               List<ModifierInfo> modifiers, String statsType) {
             this.durability = durability;
-            this.harvestTier = harvestTier;
+            this.harvestTierKey = harvestTierKey;
             this.attackDamage = attackDamage;
             this.miningSpeed = miningSpeed;
-            this.handleModifier = handleModifier;
-            this.drawSpeed = drawSpeed;
-            this.launchSpeed = launchSpeed;
-            this.arrowSpeed = arrowSpeed;
-            this.arrowAccuracy = arrowAccuracy;
+            this.modifierStats = modifierStats != null ? modifierStats : new LinkedHashMap<>();
             this.modifiers = modifiers != null ? modifiers : new ArrayList<>();
             this.statsType = statsType;
         }
 
         public boolean hasStats() {
-            return durability > 0 || (harvestTier != null && !harvestTier.isEmpty()) ||
-                    attackDamage > 0 || miningSpeed > 0 || handleModifier > 0 ||
-                    drawSpeed > 0 || launchSpeed > 0 || arrowSpeed > 0 || arrowAccuracy > 0 ||
-                    !modifiers.isEmpty();
+            return durability > 0
+                    || (harvestTierKey != null && !harvestTierKey.isEmpty())
+                    || attackDamage > 0 || miningSpeed > 0
+                    || !modifierStats.isEmpty()
+                    || !modifiers.isEmpty();
         }
 
         /**
-         * 格式化属性显示
-         * 数值型：直接显示数字
-         * 倍率型：显示为 x1.1 格式
+         * 数值型属性（紧凑格式，减少宽度）
          */
-        public String formatStats() {
+        public String formatNumericStats() {
             List<String> parts = new ArrayList<>();
-
-            // 耐久：数值型
             if (durability > 0) {
-                parts.add("§7" + new TranslatableComponent("gui.tinkerssearch.detail.durability").getString() + ":" + durability);
+                parts.add("§a耐久§f" + durability);
             }
-
-            // 等级：字符串
-            if (harvestTier != null && !harvestTier.isEmpty()) {
-                parts.add("§7" + new TranslatableComponent("gui.tinkerssearch.detail.harvest_tier").getString() + ":" + harvestTier);
-            }
-
-            // 伤害：数值型
             if (attackDamage > 0) {
-                parts.add("§7" + new TranslatableComponent("gui.tinkerssearch.detail.attack_damage").getString() + ":" + String.format("%.1f", attackDamage));
+                parts.add("§a伤害§f" + String.format("%.1f", attackDamage));
             }
-
-            // 挖掘速度：数值型
             if (miningSpeed > 0) {
-                parts.add("§7" + new TranslatableComponent("gui.tinkerssearch.detail.mining_speed").getString() + ":" + String.format("%.1f", miningSpeed));
+                parts.add("§a速度§f" + String.format("%.1f", miningSpeed));
             }
-
-            // 手柄系数：倍率型（显示为 x1.1）
-            if (handleModifier > 0) {
-                parts.add("§7" + new TranslatableComponent("gui.tinkerssearch.detail.handle_modifier").getString() + ":§ex" + String.format("%.2f", handleModifier));
+            if (harvestTierKey != null && !harvestTierKey.isEmpty()) {
+                parts.add("§a等级§f" + new TranslatableComponent(harvestTierKey).getString());
             }
+            return String.join(" ", parts);
+        }
 
-            // 拉弓速度：倍率型
-            if (drawSpeed > 0) {
-                parts.add("§7" + new TranslatableComponent("gui.tinkerssearch.detail.draw_speed").getString() + ":§ex" + String.format("%.2f", drawSpeed));
+        /**
+         * 倍率型属性（紧凑格式，减少宽度）
+         */
+        public String formatModifierStats() {
+            List<String> parts = new ArrayList<>();
+            for (Map.Entry<String, Float> entry : modifierStats.entrySet()) {
+                String fieldName = entry.getKey();
+                float value = entry.getValue();
+                if (Math.abs(value - 1.0f) < 0.001f) continue;
+
+                String displayName = getShortModifierName(fieldName);
+                parts.add("§a" + displayName + "§f×" + String.format("%.2f", value));
             }
-
-            // 弹射速度：倍率型
-            if (launchSpeed > 0) {
-                parts.add("§7" + new TranslatableComponent("gui.tinkerssearch.detail.launch_speed").getString() + ":§ex" + String.format("%.2f", launchSpeed));
-            }
-
-            // 箭速：倍率型
-            if (arrowSpeed > 0) {
-                parts.add("§7" + new TranslatableComponent("gui.tinkerssearch.detail.arrow_speed").getString() + ":§ex" + String.format("%.2f", arrowSpeed));
-            }
-
-            // 精度：倍率型
-            if (arrowAccuracy > 0) {
-                parts.add("§7" + new TranslatableComponent("gui.tinkerssearch.detail.arrow_accuracy").getString() + ":§ex" + String.format("%.2f", arrowAccuracy));
-            }
-
             return String.join(" ", parts);
         }
 
@@ -159,104 +135,116 @@ public class PartPropertyHelper {
             if (modifiers.isEmpty()) return "";
             List<String> parts = new ArrayList<>();
             for (ModifierInfo mod : modifiers) {
-                parts.add(mod.name + (mod.level > 1 ? " " + mod.level : ""));
+                parts.add("§b" + mod.name + (mod.level > 1 ? " " + mod.level : ""));
             }
-            return String.join(", ", parts);
+            return String.join("§7, ", parts);
+        }
+
+        /**
+         * 短标签（压缩宽度）
+         */
+        private static String getShortModifierName(String fieldName) {
+            switch (fieldName) {
+                case "durability": return "耐";
+                case "miningSpeed": return "挖";
+                case "attackSpeed": return "攻速";
+                case "attackDamage": return "攻伤";
+                case "drawSpeed": return "拉弓";
+                case "velocity": return "弹速";
+                case "accuracy": return "精度";
+                default: return fieldName;
+            }
         }
     }
+
+    // ==================== 关键词 ====================
+
+    private static final String[] EXCLUDE_KEYWORDS = {
+            "ingot", "nugget", "gem", "rod", "coin", "wire", "gear",
+            "block", "ore", "raw", "dust", "plate_cast", "cast_"
+    };
 
     // ==================== 核心方法 ====================
 
     public static List<PartInfo> getPartsForFluid(FluidStack fluidStack) {
         List<PartInfo> result = new ArrayList<>();
 
-        if (fluidStack == null || fluidStack.isEmpty()) {
-            return result;
-        }
+        if (fluidStack == null || fluidStack.isEmpty()) return result;
 
         IMaterial material = getMaterialForFluid(fluidStack.getFluid());
-        if (material == null) {
-            return result;
-        }
+        if (material == null) return result;
 
         MaterialId materialId = material.getIdentifier();
         IMaterialRegistry registry = MaterialRegistry.getInstance();
 
-        for (Item item : ForgeRegistries.ITEMS) {
-            if (item instanceof IMaterialItem) {
-                IMaterialItem materialItem = (IMaterialItem) item;
-                try {
-                    if (!materialItem.canUseMaterial(materialId)) {
-                        continue;
-                    }
-                    String partName = item.getDescription().getString();
-                    // ===== 关键修正：根据部件类型获取对应的统计 =====
-                    PartProperties properties = getPropertiesForPart(registry, materialId, item);
+        Set<ResourceLocation> seenIds = new HashSet<>();
+        Set<String> seenNames = new HashSet<>();
 
-                    // ===== 修正：从 Item 获取注册名，不是从 IMaterialItem =====
-                    ResourceLocation id = item.getRegistryName();
-                    result.add(new PartInfo(
-                            partName,
-                            properties,
-                            id != null ? id : new ResourceLocation("unknown")
-                    ));
-                } catch (Exception e) {
-                    // ignore
-                }
-            }
+        for (Item item : ForgeRegistries.ITEMS) {
+            if (!(item instanceof IMaterialItem)) continue;
+            IMaterialItem materialItem = (IMaterialItem) item;
+
+            try {
+                if (!materialItem.canUseMaterial(materialId)) continue;
+
+                ResourceLocation id = item.getRegistryName();
+                if (id == null) continue;
+                if (!seenIds.add(id)) continue;
+
+                String path = id.getPath().toLowerCase();
+
+                if (!isToolPartPath(path)) continue;
+
+                String displayName = item.getDescription().getString();
+                if (displayName.isEmpty()) continue;
+                if (!seenNames.add(displayName)) continue;
+
+                PartProperties properties = getPropertiesForPart(registry, materialId, path);
+                int requiredAmount = CastingRecipeHelper.getRequiredAmountForPart(id);
+
+                // ===== 构造带材料染色的图标 =====
+                ItemStack displayStack = new ItemStack(item);
+                try {
+                    displayStack.getOrCreateTag().putString("Material", materialId.toString());
+                } catch (Exception ignored) {}
+
+                result.add(new PartInfo(displayName, properties, id, requiredAmount, displayStack));
+            } catch (Exception ignored) {}
         }
 
         result.sort((a, b) -> a.partName.compareToIgnoreCase(b.partName));
         return result;
     }
 
-    /**
-     * 根据部件类型获取对应的属性统计
-     * 关键：不同部件使用不同的统计类型，不能混用
-     *
-     * @param registry 材料注册表
-     * @param materialId 材料ID
-     * @param item 部件物品（用于判断部件类型）
-     */
-    private static PartProperties getPropertiesForPart(IMaterialRegistry registry, MaterialId materialId, Item item) {
+    private static boolean isToolPartPath(String path) {
+        for (String kw : EXCLUDE_KEYWORDS) {
+            if (path.contains(kw)) return false;
+        }
+        return true;
+    }
+
+    private static PartProperties getPropertiesForPart(IMaterialRegistry registry, MaterialId materialId, String path) {
         int durability = 0;
-        String harvestTier = "";
+        String harvestTierKey = "";
         float attackDamage = 0;
         float miningSpeed = 0;
-        float handleModifier = 0;
-        float drawSpeed = 0;
-        float launchSpeed = 0;
-        float arrowSpeed = 0;
-        float arrowAccuracy = 0;
+        Map<String, Float> modifierStats = new LinkedHashMap<>();
         List<ModifierInfo> modifiers = new ArrayList<>();
         String statsType = "unknown";
 
         try {
-            // ===== 通过注册名判断部件类型 =====
-            ResourceLocation partId = item.getRegistryName();
-            String path = partId != null ? partId.getPath().toLowerCase() : "";
+            boolean isHead = path.contains("head") || path.contains("blade") || path.contains("axe")
+                    || path.contains("pick") || path.contains("shovel") || path.contains("saw")
+                    || path.contains("sword") || path.contains("dagger") || path.contains("hammer")
+                    || path.contains("adze") || path.contains("shield")
+                    || path.contains("large") || path.contains("small") || path.contains("broad");
 
-            // ===== 判断部件类型 =====
-            boolean isHeadPart = path.contains("head") || path.contains("blade") ||
-                    path.contains("axe") || path.contains("pick") ||
-                    path.contains("shovel") || path.contains("saw") ||
-                    path.contains("sword") || path.contains("dagger") ||
-                    path.contains("hammer") || path.contains("plate") ||
-                    path.contains("gear") || path.contains("coin") ||
-                    path.contains("wire") || path.contains("ingot") ||
-                    path.contains("nugget") || path.contains("gem") ||
-                    path.contains("rod") || path.contains("repair_kit");
+            boolean isHandle = path.contains("handle") || path.contains("binding") || path.contains("grip");
 
-            boolean isHandlePart = path.contains("handle") || path.contains("tool_handle") ||
-                    path.contains("tough_handle") || path.contains("binding") ||
-                    path.contains("tool_binding") || path.contains("grip");
+            boolean isLimb = path.contains("limb") || path.contains("bow") || path.contains("arm")
+                    || path.contains("crossbow");
 
-            boolean isLimbPart = path.contains("limb") || path.contains("bow") ||
-                    path.contains("arm") || path.contains("crossbow");
-
-            // ===== 根据部件类型获取对应的统计 =====
-            if (isHeadPart) {
-                // 头部部件：使用 HeadMaterialStats
+            if (isHead) {
                 Optional<IMaterialStats> headOpt = registry.getMaterialStats(materialId, HeadMaterialStats.ID);
                 if (headOpt.isPresent()) {
                     HeadMaterialStats headStats = (HeadMaterialStats) headOpt.get();
@@ -264,34 +252,25 @@ public class PartPropertyHelper {
                     miningSpeed = headStats.getMiningSpeed();
                     attackDamage = headStats.getAttack();
                     Tier tier = headStats.getTier();
-                    if (tier != null) {
-                        harvestTier = getTierName(tier);
-                    }
+                    if (tier != null) harvestTierKey = getTierTranslationKey(tier);
                     statsType = "head";
                 }
-            } else if (isHandlePart) {
-                // 手柄部件：使用 HandleMaterialStats
+            } else if (isHandle) {
                 Optional<IMaterialStats> handleOpt = registry.getMaterialStats(materialId, HandleMaterialStats.ID);
                 if (handleOpt.isPresent()) {
                     HandleMaterialStats handleStats = (HandleMaterialStats) handleOpt.get();
-                    // HandleMaterialStats 的 durability 实际是倍率系数
-                    handleModifier = handleStats.getDurability();
+                    modifierStats = extractAllFloatFields(handleStats);
                     statsType = "handle";
                 }
-            } else if (isLimbPart) {
-                // 肢体/弓臂部件：使用 LimbMaterialStats
+            } else if (isLimb) {
                 Optional<IMaterialStats> limbOpt = registry.getMaterialStats(materialId, LimbMaterialStats.ID);
                 if (limbOpt.isPresent()) {
                     LimbMaterialStats limbStats = (LimbMaterialStats) limbOpt.get();
                     durability = limbStats.getDurability();
-                    drawSpeed = limbStats.getDrawSpeed();
-                    launchSpeed = limbStats.getVelocity();
-                    arrowAccuracy = limbStats.getAccuracy();
-                    arrowSpeed = launchSpeed;
+                    modifierStats = extractAllFloatFields(limbStats);
                     statsType = "limb";
                 }
             } else {
-                // ===== 未知类型：尝试获取所有统计，但只取第一个非空的 =====
                 Optional<IMaterialStats> headOpt = registry.getMaterialStats(materialId, HeadMaterialStats.ID);
                 if (headOpt.isPresent()) {
                     HeadMaterialStats headStats = (HeadMaterialStats) headOpt.get();
@@ -299,54 +278,60 @@ public class PartPropertyHelper {
                     miningSpeed = headStats.getMiningSpeed();
                     attackDamage = headStats.getAttack();
                     Tier tier = headStats.getTier();
-                    if (tier != null) {
-                        harvestTier = getTierName(tier);
-                    }
+                    if (tier != null) harvestTierKey = getTierTranslationKey(tier);
                     statsType = "head(fallback)";
-                } else {
-                    Optional<IMaterialStats> handleOpt = registry.getMaterialStats(materialId, HandleMaterialStats.ID);
-                    if (handleOpt.isPresent()) {
-                        HandleMaterialStats handleStats = (HandleMaterialStats) handleOpt.get();
-                        handleModifier = handleStats.getDurability();
-                        statsType = "handle(fallback)";
-                    } else {
-                        Optional<IMaterialStats> limbOpt = registry.getMaterialStats(materialId, LimbMaterialStats.ID);
-                        if (limbOpt.isPresent()) {
-                            LimbMaterialStats limbStats = (LimbMaterialStats) limbOpt.get();
-                            durability = limbStats.getDurability();
-                            drawSpeed = limbStats.getDrawSpeed();
-                            launchSpeed = limbStats.getVelocity();
-                            arrowAccuracy = limbStats.getAccuracy();
-                            arrowSpeed = launchSpeed;
-                            statsType = "limb(fallback)";
-                        }
-                    }
                 }
             }
 
-            // 获取特性（简化实现）
             modifiers = getModifiersForMaterial(materialId);
-
-            // 调试日志
-            System.out.println("[Tinker's Search] Part: " + item.getDescription().getString() +
-                    " | Type: " + statsType +
-                    " | Durability: " + durability +
-                    " | Handle: " + handleModifier +
-                    " | Draw: " + drawSpeed);
-
         } catch (Exception e) {
             System.err.println("Tinker's Search: Failed to get part properties: " + e.getMessage());
-            e.printStackTrace();
         }
 
-        return new PartProperties(
-                durability, harvestTier, attackDamage, miningSpeed, handleModifier,
-                drawSpeed, launchSpeed, arrowSpeed, arrowAccuracy,
-                modifiers, statsType
-        );
+        return new PartProperties(durability, harvestTierKey, attackDamage, miningSpeed,
+                modifierStats, modifiers, statsType);
+    }
+
+    private static Map<String, Float> extractAllFloatFields(Object stats) {
+        Map<String, Float> result = new LinkedHashMap<>();
+        if (stats == null) return result;
+
+        Class<?> clazz = stats.getClass();
+        while (clazz != null && clazz != Object.class) {
+            for (Field field : clazz.getDeclaredFields()) {
+                if (Modifier.isStatic(field.getModifiers())) continue;
+                if (field.getType() != float.class) continue;
+
+                field.setAccessible(true);
+                try {
+                    float value = field.getFloat(stats);
+                    result.put(field.getName(), value);
+                } catch (Exception ignored) {}
+            }
+            clazz = clazz.getSuperclass();
+        }
+        return result;
     }
 
     // ==================== 辅助方法 ====================
+
+    private static String getTierTranslationKey(Tier tier) {
+        if (tier == null) return "";
+        if (tier == Tiers.WOOD) return "gui.tinkerssearch.tier.wood";
+        if (tier == Tiers.STONE) return "gui.tinkerssearch.tier.stone";
+        if (tier == Tiers.IRON) return "gui.tinkerssearch.tier.iron";
+        if (tier == Tiers.DIAMOND) return "gui.tinkerssearch.tier.diamond";
+        if (tier == Tiers.NETHERITE) return "gui.tinkerssearch.tier.netherite";
+        if (tier == Tiers.GOLD) return "gui.tinkerssearch.tier.gold";
+        String str = tier.toString().toLowerCase();
+        if (str.contains(":")) {
+            String[] parts = str.split(":");
+            if (parts.length >= 2) {
+                return "gui.tinkerssearch.tier." + parts[1].replaceAll("[^a-z0-9_]", "");
+            }
+        }
+        return "gui.tinkerssearch.tier." + str.replaceAll("[^a-z0-9_]", "");
+    }
 
     private static IMaterial getMaterialForFluid(Fluid fluid) {
         if (fluid == null) return null;
@@ -359,9 +344,7 @@ public class PartPropertyHelper {
                 FluidStack materialFluid = getFluidForMaterial(material);
                 if (materialFluid != null && !materialFluid.isEmpty()) {
                     ResourceLocation materialFluidId = materialFluid.getFluid().getRegistryName();
-                    if (fluidId.equals(materialFluidId)) {
-                        return material;
-                    }
+                    if (fluidId.equals(materialFluidId)) return material;
                 }
             }
         } catch (Exception e) {
@@ -374,12 +357,9 @@ public class PartPropertyHelper {
             try {
                 MaterialId guessedId = new MaterialId(fluidId.getNamespace(), materialName);
                 IMaterial guessedMaterial = MaterialRegistry.getInstance().getMaterial(guessedId);
-                if (guessedMaterial != null && guessedMaterial != IMaterial.UNKNOWN) {
-                    return guessedMaterial;
-                }
+                if (guessedMaterial != null && guessedMaterial != IMaterial.UNKNOWN) return guessedMaterial;
             } catch (Exception ignored) {}
         }
-
         return null;
     }
 
@@ -429,23 +409,10 @@ public class PartPropertyHelper {
             String fluidName = "molten_" + id.getPath();
             ResourceLocation fluidRl = new ResourceLocation(id.getNamespace(), fluidName);
             Fluid fluid = ForgeRegistries.FLUIDS.getValue(fluidRl);
-            if (fluid != null) {
-                return new FluidStack(fluid, 1000);
-            }
+            if (fluid != null) return new FluidStack(fluid, 1000);
         } catch (Exception ignored) {}
 
         return null;
-    }
-
-    private static String getTierName(Tier tier) {
-        if (tier == null) return "";
-        if (tier == Tiers.WOOD) return "wood";
-        if (tier == Tiers.STONE) return "stone";
-        if (tier == Tiers.IRON) return "iron";
-        if (tier == Tiers.DIAMOND) return "diamond";
-        if (tier == Tiers.NETHERITE) return "netherite";
-        if (tier == Tiers.GOLD) return "gold";
-        return tier.toString();
     }
 
     private static List<ModifierInfo> getModifiersForMaterial(MaterialId materialId) {
@@ -458,8 +425,7 @@ public class PartPropertyHelper {
                 Method getTraits = traitsManager.getClass().getMethod("getTraits", MaterialId.class);
                 Object traitsObj = getTraits.invoke(traitsManager, materialId);
                 if (traitsObj instanceof List) {
-                    List<?> traits = (List<?>) traitsObj;
-                    for (Object trait : traits) {
+                    for (Object trait : (List<?>) traitsObj) {
                         try {
                             Method getName = trait.getClass().getMethod("getName");
                             Method getLevel = trait.getClass().getMethod("getLevel");
@@ -470,9 +436,7 @@ public class PartPropertyHelper {
                     }
                 }
             }
-        } catch (Exception e) {
-            // 如果找不到 MaterialTraitsManager，则忽略
-        }
+        } catch (Exception ignored) {}
         return result;
     }
 

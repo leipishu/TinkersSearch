@@ -47,5 +47,17 @@
   "gui.tinkerssearch.detail.launch_speed": "弹射",
   "gui.tinkerssearch.detail.arrow_speed": "箭速",
   "gui.tinkerssearch.detail.arrow_accuracy": "精度",
-  "gui.tinkerssearch.detail.unknown": "未知"
+  "gui.tinkerssearch.detail.unknown": "未知",
+  "gui.tinkerssearch.detail.search_hint": "搜索物品或部件...",
+  "gui.tinkerssearch.detail.attack_speed": "攻速",
+  "gui.tinkerssearch.detail.velocity": "弹射",
+  "gui.tinkerssearch.detail.accuracy": "精度",
+  "gui.tinkerssearch.tier.wood": "木",
+  "gui.tinkerssearch.tier.stone": "石",
+  "gui.tinkerssearch.tier.iron": "铁",
+  "gui.tinkerssearch.tier.diamond": "钻石",
+  "gui.tinkerssearch.tier.netherite": "下界合金",
+  "gui.tinkerssearch.tier.gold": "金",
+  "gui.tinkerssearch.detail.need": "需",
+  "gui.tinkerssearch.detail.lack": "缺"
 }

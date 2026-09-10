@@ -135,6 +135,46 @@ public class PanelInteractionHandler {
         }
     }
 
+    // ============================================================
+    // ===== 新增：静态工具方法 - 根据鼠标 X 计算光标位置 =========
+    // ============================================================
+
+    /**
+     * 根据鼠标点击的 X 坐标精确计算光标位置（字符索引）
+     * 可被 FloatingSearchPanel 和 FluidDetailScreen 共用
+     *
+     * @param font        字体
+     * @param text        当前文本
+     * @param mouseX      鼠标 X 坐标
+     * @param textStartX  文本起始 X 坐标（即渲染时 textX）
+     * @return 光标位置（0 ~ text.length()）
+     */
+    public static int calculateCursorFromMouse(Font font, String text, double mouseX, int textStartX) {
+        int clickX = (int) mouseX - textStartX;
+        if (clickX <= 0) {
+            return 0;
+        }
+        if (text == null || text.isEmpty()) {
+            return 0;
+        }
+
+        int charIndex = 0;
+        int currentX = 0;
+        for (int i = 0; i < text.length(); i++) {
+            String subText = text.substring(0, i + 1);
+            int charWidth = font.width(subText) - font.width(text.substring(0, i));
+            // 鼠标位于字符中点左侧 → 光标放在这个字符前
+            if (currentX + charWidth / 2 > clickX) {
+                break;
+            }
+            currentX += charWidth;
+            charIndex = i + 1;
+        }
+        return Math.max(0, Math.min(charIndex, text.length()));
+    }
+
+    // ============================================================
+
     public void setDataRefs(List<FluidStack> allFluids, List<FluidStack> displayedFluids) {
         this.allFluids = allFluids;
         this.displayedFluids = displayedFluids;
@@ -265,6 +305,9 @@ public class PanelInteractionHandler {
         return false;
     }
 
+    /**
+     * 点击搜索框时设置光标位置（使用静态工具方法）
+     */
     public boolean handleMouseClickSetCursor(double mouseX, double mouseY, int px, int py, int pw) {
         if (!panel.isVisible() || !isSearchBoxFocused) return false;
 
@@ -277,21 +320,8 @@ public class PanelInteractionHandler {
                 mouseY >= boxY && mouseY <= boxY + boxH) {
 
             Font font = Minecraft.getInstance().font;
-            int clickX = (int) mouseX - boxX - 4;
-            int charIndex = 0;
-            int currentX = 0;
-
-            for (int i = 0; i < searchKeyword.length(); i++) {
-                String subText = searchKeyword.substring(0, i + 1);
-                int charWidth = font.width(subText) - font.width(searchKeyword.substring(0, i));
-                if (currentX + charWidth / 2 > clickX) {
-                    break;
-                }
-                currentX += charWidth;
-                charIndex = i + 1;
-            }
-
-            cursorPosition = Math.max(0, Math.min(charIndex, searchKeyword.length()));
+            // 复用静态方法
+            cursorPosition = calculateCursorFromMouse(font, searchKeyword, mouseX, boxX + 4);
             return true;
         }
         return false;
@@ -314,10 +344,7 @@ public class PanelInteractionHandler {
 
     /**
      * 处理卡片点击
-     * - 图标区域：交给 JEI 处理（左键配方、右键用途）
-     * - 卡片主体：执行移动到最下面
      */
-    // 在 PanelInteractionHandler.handleCardClick 方法中修改
     private boolean handleCardClick(double mouseX, double mouseY, int px, int py, int pw, int button) {
         if (displayedFluids == null || displayedFluids.isEmpty()) return false;
 
