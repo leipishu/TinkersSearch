@@ -17,11 +17,13 @@ import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.ModList;
 import net.minecraftforge.client.event.RenderTooltipEvent;
+import net.minecraftforge.client.event.RecipesUpdatedEvent;
 import org.lwjgl.glfw.GLFW;
 import org.lwjgl.opengl.GL11;
 import top.leipishu.tinkerssearch.client.gui.FloatingSearchPanel;
 import top.leipishu.tinkerssearch.client.gui.PanelInteractionHandler;
 import top.leipishu.tinkerssearch.jei.Jei;
+import top.leipishu.tinkerssearch.utils.CastingRecipeHelper;
 
 import java.lang.reflect.Field;
 
@@ -440,5 +442,11 @@ public class TinkersSearch {
         int textY = btnY + (TAB_BUTTON_HEIGHT - font.lineHeight) / 2 + 1;
         int textColor = hover ? 0xFFFFFFFF : 0xCCCCCCCC;
         font.draw(poseStack, arrow, textX, textY, textColor);
+    }
+
+    @SubscribeEvent
+    public void onRecipesUpdated(RecipesUpdatedEvent event) {
+        CastingRecipeHelper.invalidateCache();
+        System.out.println("[Tinker's Search] Recipes updated, all caches invalidated");
     }
 }
