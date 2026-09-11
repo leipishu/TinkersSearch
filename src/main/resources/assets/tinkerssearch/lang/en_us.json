@@ -8,8 +8,10 @@
   "gui.tinkerssearch.no_match": "No matches",
   "gui.tinkerssearch.locked": "N/A",
   "gui.tinkerssearch.click_move": "Left: Move to bottom",
+
   "key.category.tinkerssearch": "Tinkers' Search",
   "key.tinkerssearch.toggle_panel": "Toggle Panel",
+
   "gui.tinkerssearch.alloy_query": "Alloy Query",
   "gui.tinkerssearch.alloy_materials": "Materials",
   "gui.tinkerssearch.alloy_results": "Alloy Results",
@@ -27,6 +29,7 @@
   "gui.tinkerssearch.alloy_temp_short": "T",
   "gui.tinkerssearch.alloy_next_missing": "Next missing",
   "gui.tinkerssearch.alloy_ingredients": "Ingredients: ",
+
   "gui.tinkerssearch.detail.title": "Fluid Details",
   "gui.tinkerssearch.detail.amount": "Amount",
   "gui.tinkerssearch.detail.temperature": "Temperature",
@@ -38,26 +41,22 @@
   "gui.tinkerssearch.detail.requires_cast": "Requires cast",
   "gui.tinkerssearch.detail.close": "Close",
   "gui.tinkerssearch.detail.loading": "Loading data...",
-  "gui.tinkerssearch.detail.durability": "Durability",
-  "gui.tinkerssearch.detail.harvest_tier": "Tier",
-  "gui.tinkerssearch.detail.attack_damage": "Attack",
-  "gui.tinkerssearch.detail.mining_speed": "Speed",
-  "gui.tinkerssearch.detail.handle_modifier": "Handle",
-  "gui.tinkerssearch.detail.draw_speed": "Draw",
-  "gui.tinkerssearch.detail.launch_speed": "Launch",
-  "gui.tinkerssearch.detail.arrow_speed": "Arrow Speed",
-  "gui.tinkerssearch.detail.arrow_accuracy": "Accuracy",
   "gui.tinkerssearch.detail.unknown": "Unknown",
   "gui.tinkerssearch.detail.search_hint": "Search items or parts...",
-  "gui.tinkerssearch.detail.attack_speed": "Atk Spd",
-  "gui.tinkerssearch.detail.velocity": "Velocity",
-  "gui.tinkerssearch.detail.accuracy": "Accuracy",
+  "gui.tinkerssearch.detail.traits": "Traits:",
+  "gui.tinkerssearch.detail.no_traits": "(No traits)",
+  "gui.tinkerssearch.detail.no_desc": "No description",
+  "gui.tinkerssearch.detail.no_recipe": "No Recipe",
+
   "gui.tinkerssearch.tier.wood": "Wood",
   "gui.tinkerssearch.tier.stone": "Stone",
   "gui.tinkerssearch.tier.iron": "Iron",
   "gui.tinkerssearch.tier.diamond": "Diamond",
   "gui.tinkerssearch.tier.netherite": "Netherite",
   "gui.tinkerssearch.tier.gold": "Gold",
-  "gui.tinkerssearch.detail.need": "Need",
-  "gui.tinkerssearch.detail.lack": "Lack"
+
+  "gui.tinkerssearch.detail.composite_from": "Composite from:",
+
+  "gui.tinkerssearch.detail.page_prev": "Previous",
+  "gui.tinkerssearch.detail.page_next": "Next"
 }

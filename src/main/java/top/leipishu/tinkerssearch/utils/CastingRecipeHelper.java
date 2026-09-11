@@ -402,7 +402,7 @@ public class CastingRecipeHelper {
                         if (fluid == null || fluid.isEmpty()) continue;
                         ResourceLocation fid = fluid.getFluid().getRegistryName();
                         if (fid == null) continue;
-                        newMap.put(fid, materialId);
+                        newMap.putIfAbsent(fid, materialId);  // ← 改为 putIfAbsent
                         count++;
                     }
                 } catch (Exception ignored) {}

@@ -8,8 +8,10 @@
   "gui.tinkerssearch.no_match": "未找到匹配",
   "gui.tinkerssearch.locked": "不在冶炼炉中",
   "gui.tinkerssearch.click_move": "左键: 移至底部",
+
   "key.category.tinkerssearch": "Tinkers' Search",
   "key.tinkerssearch.toggle_panel": "开关面板",
+
   "gui.tinkerssearch.alloy_query": "合金查询",
   "gui.tinkerssearch.alloy_materials": "材料列表",
   "gui.tinkerssearch.alloy_results": "合金结果",
@@ -27,6 +29,7 @@
   "gui.tinkerssearch.alloy_temp_short": "温",
   "gui.tinkerssearch.alloy_next_missing": "后续缺少",
   "gui.tinkerssearch.alloy_ingredients": "原料: ",
+
   "gui.tinkerssearch.detail.title": "流体详情",
   "gui.tinkerssearch.detail.amount": "当前量",
   "gui.tinkerssearch.detail.temperature": "温度",
@@ -38,26 +41,22 @@
   "gui.tinkerssearch.detail.requires_cast": "需要铸模",
   "gui.tinkerssearch.detail.close": "关闭",
   "gui.tinkerssearch.detail.loading": "加载数据中...",
-  "gui.tinkerssearch.detail.durability": "耐久",
-  "gui.tinkerssearch.detail.harvest_tier": "等级",
-  "gui.tinkerssearch.detail.attack_damage": "伤害",
-  "gui.tinkerssearch.detail.mining_speed": "速度",
-  "gui.tinkerssearch.detail.handle_modifier": "手柄",
-  "gui.tinkerssearch.detail.draw_speed": "拉弓",
-  "gui.tinkerssearch.detail.launch_speed": "弹射",
-  "gui.tinkerssearch.detail.arrow_speed": "箭速",
-  "gui.tinkerssearch.detail.arrow_accuracy": "精度",
   "gui.tinkerssearch.detail.unknown": "未知",
   "gui.tinkerssearch.detail.search_hint": "搜索物品或部件...",
-  "gui.tinkerssearch.detail.attack_speed": "攻速",
-  "gui.tinkerssearch.detail.velocity": "弹射",
-  "gui.tinkerssearch.detail.accuracy": "精度",
+  "gui.tinkerssearch.detail.traits": "词条:",
+  "gui.tinkerssearch.detail.no_traits": "（无词条）",
+  "gui.tinkerssearch.detail.no_desc": "无描述",
+  "gui.tinkerssearch.detail.no_recipe": "无配方",
+
   "gui.tinkerssearch.tier.wood": "木",
   "gui.tinkerssearch.tier.stone": "石",
   "gui.tinkerssearch.tier.iron": "铁",
   "gui.tinkerssearch.tier.diamond": "钻石",
   "gui.tinkerssearch.tier.netherite": "下界合金",
   "gui.tinkerssearch.tier.gold": "金",
-  "gui.tinkerssearch.detail.need": "需",
-  "gui.tinkerssearch.detail.lack": "缺"
+
+  "gui.tinkerssearch.detail.composite_from": "复合自:",
+
+  "gui.tinkerssearch.detail.page_prev": "上一页",
+  "gui.tinkerssearch.detail.page_next": "下一页"
 }
