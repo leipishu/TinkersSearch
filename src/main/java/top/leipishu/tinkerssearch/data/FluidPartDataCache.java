@@ -32,7 +32,6 @@ import top.leipishu.tinkerssearch.utils.CastingRecipeHelper;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -50,12 +49,12 @@ public class FluidPartDataCache {
             "ingot", "nugget", "gem", "rod", "coin", "wire", "gear"
     };
 
-    private static final Map<String, Boolean> USABLE_CACHE = new HashMap<>();
+    private static final Map<MaterialId, List<PartInfo>> PARTS_CACHE = new ConcurrentHashMap<>();
 
     public static void invalidate() {
         buildGeneration++;
         CACHE.clear();
-        USABLE_CACHE.clear();
+        PARTS_CACHE.clear();
     }
 
     // ============================================================
@@ -85,24 +84,29 @@ public class FluidPartDataCache {
     private static FluidPartData build(Fluid fluid, ResourceLocation fluidId) {
         LinkedHashMap<MaterialId, MaterialEntry> entries = new LinkedHashMap<>();
 
-        // 1. 本体材料 → 一页
+        // 1. 本体材料 → 一页（宽松识别）
         MaterialId baseMat = resolveBaseMaterial(fluid);
         if (baseMat != null) {
             entries.put(baseMat, buildEntry(baseMat, MaterialEntry.SourceKind.BASE, null, null));
         }
 
-        // 2. 复合关系 → N 页（键是 MaterialId，不是 title）
+        // 2. 复合关系 → 每个新 result 一页
         List<CompositeRelation> relations = collectCompositeRelations(fluid);
         for (CompositeRelation rel : relations) {
+            if (rel.result == null) continue;
             if (entries.containsKey(rel.result)) continue;
             entries.put(rel.result, buildEntry(rel.result, MaterialEntry.SourceKind.COMPOSITE,
                     rel.input, getMaterialDisplayName(rel.input)));
         }
 
-        // 3. 过滤空页
+        // 3. ★ 本体页永远保留（即使 parts 为空），复合页要求非空
         List<MaterialEntry> pages = new ArrayList<>();
         for (MaterialEntry e : entries.values()) {
-            if (!e.parts.isEmpty()) pages.add(e);
+            if (e.kind == MaterialEntry.SourceKind.BASE) {
+                pages.add(e);
+            } else if (!e.parts.isEmpty()) {
+                pages.add(e);
+            }
         }
         return new FluidPartData(fluidId, pages, buildGeneration);
     }
@@ -118,7 +122,7 @@ public class FluidPartDataCache {
     }
 
     // ============================================================
-    // ===== 1. 本体材料解析 ======================================
+    // ===== 1. 本体材料解析（宽松识别，优先有部件的候选） ========
     // ============================================================
 
     private static MaterialId resolveBaseMaterial(Fluid fluid) {
@@ -126,14 +130,19 @@ public class FluidPartDataCache {
         ResourceLocation fluidId = fluid.getRegistryName();
         if (fluidId == null) return null;
 
+        List<MaterialId> candidates = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+
+        // 1a. CastingRecipeHelper 的 fluidToMaterial 表
         try {
             ResourceLocation matId = CastingRecipeHelper.getMaterialIdForFluid(fluid);
             if (matId != null) {
                 MaterialId mid = new MaterialId(matId);
-                if (hasUsablePart(mid)) return mid;
+                if (seen.add(mid.toString())) candidates.add(mid);
             }
         } catch (Exception ignored) {}
 
+        // 1b. 前缀剥离
         String path = fluidId.getPath();
         String stripped = null;
         for (String p : new String[]{"molten_", "liquid_", "fluid_"}) {
@@ -143,38 +152,65 @@ public class FluidPartDataCache {
             for (String ns : new String[]{fluidId.getNamespace(), "tconstruct", "kubejs", "crafttweaker", "minecraft"}) {
                 try {
                     MaterialId mid = new MaterialId(ns, stripped);
-                    if (MaterialRegistry.getInstance().getMaterial(mid) != null && hasUsablePart(mid)) {
-                        return mid;
+                    if (MaterialRegistry.getInstance().getMaterial(mid) != null
+                            && seen.add(mid.toString())) {
+                        candidates.add(mid);
                     }
                 } catch (Exception ignored) {}
             }
         }
 
+        // 1c. 遍历所有材料对比其 fluid
         try {
             IMaterialRegistry registry = MaterialRegistry.getInstance();
             for (IMaterial m : registry.getAllMaterials()) {
                 FluidStack mf = getFluidForMaterial(m);
                 if (mf != null && !mf.isEmpty() && fluidId.equals(mf.getFluid().getRegistryName())) {
-                    if (hasUsablePart(m.getIdentifier())) return m.getIdentifier();
+                    MaterialId id = m.getIdentifier();
+                    if (seen.add(id.toString())) candidates.add(id);
                 }
             }
         } catch (Exception ignored) {}
 
+        // 1d. 材料 id 是流体路径后缀
         try {
             IMaterialRegistry registry = MaterialRegistry.getInstance();
             for (IMaterial m : registry.getAllMaterials()) {
                 String matPath = m.getIdentifier().getPath();
-                if (matPath.length() >= 3 && path.endsWith(matPath) && hasUsablePart(m.getIdentifier())) {
-                    return m.getIdentifier();
+                if (matPath.length() >= 3 && path.endsWith(matPath)) {
+                    MaterialId id = m.getIdentifier();
+                    if (seen.add(id.toString())) candidates.add(id);
                 }
             }
         } catch (Exception ignored) {}
 
-        return null;
+        // ★ 优先返回有部件的候选
+        for (MaterialId c : candidates) {
+            if (canCollectParts(c)) return c;
+        }
+
+        // 1e. 兜底：从复合关系反推（只要结果有部件）
+        try {
+            List<CompositeRelation> relations = collectCompositeRelations(fluid);
+            for (CompositeRelation rel : relations) {
+                if (rel.result != null && canCollectParts(rel.result)) {
+                    return rel.result;
+                }
+            }
+        } catch (Exception ignored) {}
+
+        // 最后：返回第一个候选，即使它没有部件
+        //       本体页会被保留（parts 为空时 GUI 显示"无部件"提示）
+        return candidates.isEmpty() ? null : candidates.get(0);
+    }
+
+    private static boolean canCollectParts(MaterialId materialId) {
+        if (materialId == null) return false;
+        return !collectPartsFor(materialId).isEmpty();
     }
 
     // ============================================================
-    // ===== 2. 复合关系提取（核心） ==============================
+    // ===== 2. 复合关系提取（三层兜底） ==========================
     // ============================================================
 
     private static class CompositeRelation {
@@ -183,10 +219,6 @@ public class FluidPartDataCache {
         CompositeRelation(MaterialId r, MaterialId i) { result = r; input = i; }
     }
 
-    /**
-     * 遍历所有配方，只要"流体匹配当前流体"，就尝试所有路径提取 (input, output) 对。
-     * 不再依赖 instanceof CompositeCastingRecipe（避免整合包魔改类型漏判）。
-     */
     private static List<CompositeRelation> collectCompositeRelations(Fluid fluid) {
         List<CompositeRelation> out = new ArrayList<>();
         if (fluid == null) return out;
@@ -214,44 +246,25 @@ public class FluidPartDataCache {
         return out;
     }
 
-    /**
-     * 三层兜底：
-     *   A. materialFluid 字段（CompositeCastingRecipe 真正的数据所在）
-     *   B. getRecipes() 子配方遍历
-     *   C. 直接从 recipe 拿 input + output
-     */
     private static List<CompositeRelation> extractCompositeRelations(Object recipe) {
-        // 路径 A：materialFluid
         List<CompositeRelation> rels = extractRelationsFromMaterialFluid(recipe);
         if (!rels.isEmpty()) return rels;
-
-        // 路径 B：子配方
         rels = extractRelationsFromSubRecipes(recipe);
         if (!rels.isEmpty()) return rels;
-
-        // 路径 C：直接从 recipe 提取
         return extractRelationsDirect(recipe);
     }
 
-    /**
-     * 路径 A：从 recipe 的 materialFluid 字段读 inputs + output。
-     *
-     * CompositeCastingRecipe 里有个 MaterialFluidRecipe 对象，
-     * 它保存了"流体 + 底材列表 + 输出材料"的完整信息。
-     */
     private static List<CompositeRelation> extractRelationsFromMaterialFluid(Object recipe) {
         List<CompositeRelation> list = new ArrayList<>();
         Object mf = findFieldValue(recipe,
                 "materialFluid", "materialFluidRecipe", "fluidRecipe", "materialRecipe");
         if (mf == null) return list;
 
-        // 输出材料
         MaterialId output = extractMaterialIdByName(mf,
                 new String[]{"getOutput", "getOutputMaterial", "getResult"},
                 new String[]{"output", "outputMaterial", "result", "material"});
         if (output == null) return list;
 
-        // 输入材料列表
         List<MaterialId> inputs = extractMaterialIdListByName(mf,
                 new String[]{"getInputs", "getInput", "getMatchingMaterials", "getMaterials"},
                 new String[]{"inputs", "input", "inputMaterials", "materials"});
@@ -263,9 +276,6 @@ public class FluidPartDataCache {
         return list;
     }
 
-    /**
-     * 路径 B：遍历 getRecipes() 子配方，每个子配方提取 input + output。
-     */
     private static List<CompositeRelation> extractRelationsFromSubRecipes(Object recipe) {
         List<CompositeRelation> list = new ArrayList<>();
         List<Object> subs = extractRecipeDisplays(recipe);
@@ -285,9 +295,6 @@ public class FluidPartDataCache {
         return list;
     }
 
-    /**
-     * 路径 C：整个 recipe 层面拿 input + output 并交叉配对。
-     */
     private static List<CompositeRelation> extractRelationsDirect(Object recipe) {
         List<CompositeRelation> list = new ArrayList<>();
         MaterialId output = extractOutputMaterialFrom(recipe);
@@ -304,7 +311,6 @@ public class FluidPartDataCache {
     // ===== 通用反射工具 =========================================
     // ============================================================
 
-    /** 在对象及其父类中按名字找字段值 */
     private static Object findFieldValue(Object obj, String... names) {
         if (obj == null) return null;
         for (String name : names) {
@@ -324,7 +330,6 @@ public class FluidPartDataCache {
         return null;
     }
 
-    /** 按方法名/字段名提取 MaterialId */
     private static MaterialId extractMaterialIdByName(Object obj, String[] methods, String[] fields) {
         if (obj == null) return null;
         for (String mn : methods) {
@@ -344,7 +349,6 @@ public class FluidPartDataCache {
         return null;
     }
 
-    /** 按方法名/字段名提取 MaterialId 列表 */
     private static List<MaterialId> extractMaterialIdListByName(Object obj, String[] methods, String[] fields) {
         List<MaterialId> result = new ArrayList<>();
         Set<String> seen = new HashSet<>();
@@ -367,7 +371,6 @@ public class FluidPartDataCache {
         return result;
     }
 
-    /** 从任意值收集 MaterialId（一次展开 Iterable / 数组 / MaterialIngredient） */
     private static void collectMaterialIds(Object v, List<MaterialId> out, Set<String> seen) {
         if (v == null) return;
 
@@ -392,7 +395,6 @@ public class FluidPartDataCache {
             return;
         }
 
-        // MaterialIngredient：有 getMatchingMaterials
         for (String mn : new String[]{"getMatchingMaterials", "getMaterials", "getMaterialIds"}) {
             try {
                 Method m = v.getClass().getMethod(mn);
@@ -405,7 +407,6 @@ public class FluidPartDataCache {
             } catch (Exception ignored) {}
         }
 
-        // getMaterial() 单值
         try {
             Method m = v.getClass().getMethod("getMaterial");
             m.setAccessible(true);
@@ -414,7 +415,6 @@ public class FluidPartDataCache {
             if (mid != null && seen.add(mid.toString())) out.add(mid);
         } catch (Exception ignored) {}
 
-        // getMatchingStacks -> ItemStack[]
         try {
             Method m = v.getClass().getMethod("getMatchingStacks");
             m.setAccessible(true);
@@ -428,13 +428,11 @@ public class FluidPartDataCache {
         } catch (Exception ignored) {}
     }
 
-    /** 从任意对象（recipe / 子配方）提取 input 材料列表 */
     private static List<MaterialId> extractInputMaterialsFrom(Object obj) {
         List<MaterialId> result = new ArrayList<>();
         Set<String> seen = new HashSet<>();
         if (obj == null) return result;
 
-        // 方法
         for (String mn : new String[]{"getInput", "getInputMaterial", "getMaterial",
                 "getMatchingMaterials", "getMaterials", "getMaterialIds"}) {
             try {
@@ -446,7 +444,6 @@ public class FluidPartDataCache {
             } catch (Exception ignored) {}
         }
 
-        // 字段（含 materialId —— MaterialCastingRecipe 里底材常放在这个字段）
         for (String fn : new String[]{"input", "inputMaterial", "inputId",
                 "material", "materialId", "materialIngredient",
                 "inputIngredient", "baseMaterial", "baseMaterialId"}) {
@@ -457,11 +454,9 @@ public class FluidPartDataCache {
         return result;
     }
 
-    /** 从单个对象提取输出材料 */
     private static MaterialId extractOutputMaterialFrom(Object obj) {
         if (obj == null) return null;
 
-        // 方法
         for (String mn : new String[]{"getResult", "getOutput", "getResultItem", "getOutputItem",
                 "getItemStack", "getStack", "getResultStack", "getOutputStack",
                 "getMaterial", "getOutputMaterial", "getResultMaterial"}) {
@@ -478,7 +473,6 @@ public class FluidPartDataCache {
             } catch (Exception ignored) {}
         }
 
-        // 字段
         for (String fn : new String[]{"result", "output", "resultItem", "outputItem",
                 "stack", "material", "outputMaterial", "resultMaterial"}) {
             Object v = findFieldValue(obj, fn);
@@ -492,7 +486,6 @@ public class FluidPartDataCache {
         return null;
     }
 
-    /** 拿 getRecipes() 结果 */
     private static List<Object> extractRecipeDisplays(Object recipe) {
         List<Object> out = new ArrayList<>();
         if (recipe == null) return out;
@@ -528,12 +521,15 @@ public class FluidPartDataCache {
     }
 
     // ============================================================
-    // ===== 3. 部件收集 ==========================================
+    // ===== 3. 部件收集（带缓存） ================================
     // ============================================================
 
     private static List<PartInfo> collectPartsFor(MaterialId materialId) {
+        if (materialId == null) return new ArrayList<>();
+        List<PartInfo> cached = PARTS_CACHE.get(materialId);
+        if (cached != null) return cached;
+
         List<PartInfo> result = new ArrayList<>();
-        if (materialId == null) return result;
         IMaterialRegistry registry = MaterialRegistry.getInstance();
         Set<ResourceLocation> seenIds = new HashSet<>();
 
@@ -548,7 +544,6 @@ public class FluidPartDataCache {
             String displayName = item.getDescription().getString();
             if (displayName.isEmpty()) continue;
 
-            // ★ 多层判定替代单纯的 canUseMaterial
             if (!isPartUsable(registry, materialId, mi)) continue;
 
             try {
@@ -565,40 +560,22 @@ public class FluidPartDataCache {
         }
 
         result.sort((a, b) -> a.displayName.compareToIgnoreCase(b.displayName));
+        PARTS_CACHE.put(materialId, result);
         return result;
     }
 
-    /**
-     * 判断某个部件能否用于某材料。三层判定，逐层放宽：
-     *
-     *   层 1：canUseMaterial        —— TConstruct 官方判定（首选）
-     *   层 2：statType + getMaterialStats
-     *                              —— 绕过 canUseMaterial 直查 registry
-     *   层 3：推断不出 statType     —— 整合包可能加了非常规部件，宽松放行
-     *
-     * 层 2 存在但 registry 里没有该 stat 时返回 false，因为那时材料确实不支持这类部件。
-     */
     private static boolean isPartUsable(IMaterialRegistry registry, MaterialId materialId, IMaterialItem mi) {
-        // 层 1
         try {
             if (mi.canUseMaterial(materialId)) return true;
-        } catch (Throwable ignored) {
-            // canUseMaterial 在某些整合包实现里可能抛异常，忽略，继续下层
-        }
+        } catch (Throwable ignored) {}
 
-        // 层 2
         MaterialStatsId statType = inferStatType(mi);
         if (statType != null) {
             try {
                 if (registry.getMaterialStats(materialId, statType).isPresent()) return true;
             } catch (Throwable ignored) {}
-            // statType 已经能推断，但 registry 里没有对应数据
-            // → 材料确实不支持这类部件，不放行
             return false;
         }
-
-        // 层 3：statType 完全推断不出（整合包自定义部件路径不匹配原版规则）
-        // → 无法判断，宽松放行
         return true;
     }
 
@@ -786,23 +763,19 @@ public class FluidPartDataCache {
     private static FluidStack extractRecipeFluid(Object recipe) {
         if (recipe == null) return null;
 
-        // 直接找
         FluidStack direct = tryExtractFluidDirect(recipe);
         if (direct != null) return direct;
 
-        // 从 materialFluid 找
         Object mf = findFieldValue(recipe,
                 "materialFluid", "materialFluidRecipe", "fluidRecipe", "materialRecipe");
         if (mf != null) {
             FluidStack viaMf = tryExtractFluidDirect(mf);
             if (viaMf != null) return viaMf;
-            // materialFluid 可能又有一个 fluid 字段
             Object innerFluid = findFieldValue(mf, "fluid", "inputFluid");
             FluidStack f2 = fluidFromIngredient(innerFluid);
             if (f2 != null) return f2;
         }
 
-        // 从子配方找
         for (Object sub : extractRecipeDisplays(recipe)) {
             FluidStack subFluid = tryExtractFluidDirect(sub);
             if (subFluid != null) return subFluid;
@@ -857,7 +830,6 @@ public class FluidPartDataCache {
             if (fs instanceof FluidStack) return (FluidStack) fs;
         } catch (Exception ignored) {}
 
-        // 递归到内部的 fluid 字段
         Object inner = findFieldValue(fi, "fluid", "fluidStack");
         if (inner != null && inner != fi) return fluidFromIngredient(inner);
         return null;
@@ -940,22 +912,5 @@ public class FluidPartDataCache {
             }
         }
         return null;
-    }
-
-    private static boolean hasUsablePart(MaterialId materialId) {
-        if (materialId == null) return false;
-        String key = materialId.toString();
-        Boolean cached = USABLE_CACHE.get(key);
-        if (cached != null) return cached;
-
-        boolean found = false;
-        for (Item item : ForgeRegistries.ITEMS) {
-            if (!(item instanceof IMaterialItem)) continue;
-            try {
-                if (((IMaterialItem) item).canUseMaterial(materialId)) { found = true; break; }
-            } catch (Exception ignored) {}
-        }
-        USABLE_CACHE.put(key, found);
-        return found;
     }
 }
