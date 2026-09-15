@@ -28,6 +28,7 @@ import top.leipishu.tinkerssearch.data.FluidPartData.ModifierInfo;
 import top.leipishu.tinkerssearch.data.FluidPartData.PartInfo;
 import top.leipishu.tinkerssearch.data.FluidPartData.PartProperties;
 import top.leipishu.tinkerssearch.recipe.CastingRecipeHelper;
+import top.leipishu.tinkerssearch.recipe.MaterialCompatibility;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -130,19 +131,21 @@ public class FluidPartDataCache {
         MaterialId baseMat = resolveBaseMaterial(fluid);
         FluidStack fluidStack = new FluidStack(fluid, 1000);
 
-        List<PartInfo> baseParts = collectPartsFromCastingRecipes(fluidStack, baseMat);
-        boolean usedFallback = false;
-        if (baseParts.isEmpty() && baseMat != null) {
-            baseParts = collectPartsFor(baseMat);
-            usedFallback = true;
+        // 1a. 主路径：MaterialCastingRecipe + stats 判定
+        List<PartInfo> mainParts = collectPartsFromCastingRecipes(fluidStack, baseMat);
+
+        // 1b. 宽松路径：任何"输入流体匹配 + 输出是 IMaterialItem"的配方
+        if (mainParts.isEmpty()) {
+            mainParts = collectPartsFromAnyRecipe(fluidStack, baseMat);
         }
 
-        System.out.println("[Tinker's Search] FluidPartDataCache " + fluidId
-                + " → parts=" + baseParts.size()
-                + ", path=" + (usedFallback ? "FALLBACK" : "CAST_RECIPE")
-                + ", baseMat=" + (baseMat != null ? baseMat : "<null>"));
+        // 1c. 兜底：遍历所有 IMaterialItem
+        if (mainParts.isEmpty() && baseMat != null) {
+            mainParts = collectPartsFor(baseMat);
+        }
 
-        if (!baseParts.isEmpty()) {
+        // 写入页面
+        if (!mainParts.isEmpty()) {
             MaterialId entryKey = baseMat != null
                     ? baseMat
                     : new MaterialId(fluidId.getNamespace(), stripPrefix(fluidId.getPath()));
@@ -150,7 +153,7 @@ public class FluidPartDataCache {
                     ? getMaterialDisplayName(baseMat)
                     : defaultDisplayName(entryKey.getPath());
             entries.put(entryKey, new MaterialEntry(entryKey, title,
-                    MaterialEntry.SourceKind.BASE, null, null, baseParts));
+                    MaterialEntry.SourceKind.BASE, null, null, mainParts));
         }
 
         // ===== 阶段 2：复合关系 =====
@@ -262,6 +265,137 @@ public class FluidPartDataCache {
         return result;
     }
 
+    /**
+     * 独立路径：从 {@code MaterialCastingRecipe.getFluidRecipe().getInputs()}
+     * 反查本体材料能直接浇筑出的部件。
+     *
+     * <p>与 {@link #collectPartsFromCastingRecipes} 的唯一区别是入口：
+     * 后者走 stats 判定，本方法走流体 inputs 判定。
+     */
+    private static List<PartInfo> collectPartsFromDirectRecipe(FluidStack fluidStack, MaterialId materialId) {
+        List<PartInfo> result = new ArrayList<>();
+        if (fluidStack == null || fluidStack.isEmpty()) return result;
+
+        List<CastingRecipeHelper.CastingInfo> infos;
+        try {
+            infos = CastingRecipeHelper.getDirectPartCastingRecipes(fluidStack);
+        } catch (Throwable t) {
+            return result;
+        }
+        if (infos == null || infos.isEmpty()) return result;
+
+        IMaterialRegistry registry = MaterialRegistry.getInstance();
+        Set<ResourceLocation> seenIds = new HashSet<>();
+
+        for (CastingRecipeHelper.CastingInfo info : infos) {
+            try {
+                ItemStack output = info.outputItem;
+                if (output == null || output.isEmpty()) continue;
+
+                Item item = output.getItem();
+                if (!(item instanceof IMaterialItem)) continue;
+
+                ResourceLocation itemId = item.getRegistryName();
+                if (itemId == null || !seenIds.add(itemId)) continue;
+                if (!isToolPartPath(itemId.getPath().toLowerCase())) continue;
+
+                String displayName = item.getDescription().getString();
+                if (displayName.isEmpty()) continue;
+
+                MaterialStatsId statType = inferStatType((IMaterialItem) item);
+                PartProperties properties = buildProperties(registry, materialId, statType);
+
+                int requiredAmount = info.requiredAmount;
+                if (requiredAmount <= 0) {
+                    requiredAmount = CastingRecipeHelper.getRequiredAmountForPart(itemId);
+                }
+                if (requiredAmount <= 0) {
+                    requiredAmount = 90;
+                }
+
+                ItemStack displayStack = new ItemStack(item);
+                if (materialId != null) {
+                    displayStack.getOrCreateTag().putString("Material", materialId.toString());
+                }
+
+                result.add(new PartInfo(itemId, item, displayName, materialId, statType,
+                        properties, requiredAmount, displayStack));
+            } catch (Throwable ignored) {}
+        }
+
+        result.sort((a, b) -> a.displayName.compareToIgnoreCase(b.displayName));
+        return result;
+    }
+
+    /**
+     * 最宽松的部件收集路径。
+     *
+     * <p>从 {@link CastingRecipeHelper#getAnyPartCastingRecipes} 拿到所有
+     * "输出是部件 + 输入流体匹配"的配方，构造部件列表。
+     *
+     * <p>关键点：
+     * <ul>
+     *   <li>不像主路径依赖 {@code canUseMaterial}</li>
+     *   <li>不像 direct 路径依赖 {@code getFluidRecipe()}</li>
+     *   <li>保留 output 自带的 NBT（用于着色）</li>
+     * </ul>
+     */
+    private static List<PartInfo> collectPartsFromAnyRecipe(FluidStack fluidStack, MaterialId materialId) {
+        List<PartInfo> result = new ArrayList<>();
+        if (fluidStack == null || fluidStack.isEmpty()) return result;
+
+        List<CastingRecipeHelper.CastingInfo> infos;
+        try {
+            infos = CastingRecipeHelper.getAnyPartCastingRecipes(fluidStack);
+        } catch (Throwable t) {
+            return result;
+        }
+        if (infos == null || infos.isEmpty()) return result;
+
+        IMaterialRegistry registry = MaterialRegistry.getInstance();
+        Set<ResourceLocation> seenIds = new HashSet<>();
+
+        for (CastingRecipeHelper.CastingInfo info : infos) {
+            try {
+                ItemStack output = info.outputItem;
+                if (output == null || output.isEmpty()) continue;
+
+                Item item = output.getItem();
+                if (!(item instanceof IMaterialItem)) continue;
+
+                ResourceLocation itemId = item.getRegistryName();
+                if (itemId == null || !seenIds.add(itemId)) continue;
+                if (!isToolPartPath(itemId.getPath().toLowerCase())) continue;
+
+                String displayName = item.getDescription().getString();
+                if (displayName.isEmpty()) continue;
+
+                MaterialStatsId statType = inferStatType((IMaterialItem) item);
+                PartProperties properties = buildProperties(registry, materialId, statType);
+
+                int requiredAmount = info.requiredAmount;
+                if (requiredAmount <= 0) {
+                    requiredAmount = CastingRecipeHelper.getRequiredAmountForPart(itemId);
+                }
+                if (requiredAmount <= 0) {
+                    requiredAmount = 90;
+                }
+
+                // ★ 保留 output 自带的 NBT；若没有，才用 materialId 填
+                ItemStack displayStack = output.copy();
+                if (materialId != null && displayStack.getTag() == null) {
+                    displayStack.getOrCreateTag().putString("Material", materialId.toString());
+                }
+
+                result.add(new PartInfo(itemId, item, displayName, materialId, statType,
+                        properties, requiredAmount, displayStack));
+            } catch (Throwable ignored) {}
+        }
+
+        result.sort((a, b) -> a.displayName.compareToIgnoreCase(b.displayName));
+        return result;
+    }
+
     // ============================================================
     // ===== 回退路径：遍历所有 IMaterialItem ====================
     // ============================================================
@@ -310,18 +444,7 @@ public class FluidPartDataCache {
     }
 
     private static boolean isPartUsable(IMaterialRegistry registry, MaterialId materialId, IMaterialItem mi) {
-        try {
-            if (mi.canUseMaterial(materialId)) return true;
-        } catch (Throwable ignored) {}
-
-        MaterialStatsId statType = inferStatType(mi);
-        if (statType != null) {
-            try {
-                if (registry.getMaterialStats(materialId, statType).isPresent()) return true;
-            } catch (Throwable ignored) {}
-        }
-
-        return false;
+        return MaterialCompatibility.canUseMaterial(mi, materialId);
     }
 
     private static boolean isToolPartPath(String path) {

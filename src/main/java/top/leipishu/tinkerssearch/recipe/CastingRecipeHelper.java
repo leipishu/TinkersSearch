@@ -162,6 +162,125 @@ public class CastingRecipeHelper {
     }
 
     /**
+     * 独立路径：读取"本体材料能直接浇筑出的部件"。
+     *
+     * <p>与 {@link #getCastingRecipesForFluid} 的区别：
+     * <ul>
+     *   <li>只处理 {@link MaterialCastingRecipe}</li>
+     *   <li>用 {@code recipe.getFluidRecipe().getInputs()} 判定流体是否匹配，
+     *       不调用 {@link MaterialCompatibility#canUseMaterial}</li>
+     *   <li>因此不受 {@code MaterialRegistry} 中材料 stats 缺失影响</li>
+     * </ul>
+     *
+     * <p>用于 stats 判定失败（如黑曜石、下界合金等）但实际存在浇筑配方的材料。
+     */
+    public static List<CastingInfo> getDirectPartCastingRecipes(FluidStack fluidStack) {
+        List<CastingInfo> result = new ArrayList<>();
+        if (fluidStack == null || fluidStack.isEmpty()) return result;
+
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.getConnection() == null) return result;
+
+        RecipeManager recipeManager = mc.getConnection().getRecipeManager();
+        Set<ResourceLocation> seenOutputIds = new HashSet<>();
+
+        try {
+            for (Recipe<?> recipe : recipeManager.getRecipes()) {
+                if (!(recipe instanceof MaterialCastingRecipe)) continue;
+                processDirectPartCasting((MaterialCastingRecipe) recipe, fluidStack, result, seenOutputIds);
+            }
+        } catch (Exception e) {
+            System.err.println("Tinker's Search: Error loading direct part recipes: " + e.getMessage());
+        }
+
+        return result;
+    }
+
+    private static void processDirectPartCasting(MaterialCastingRecipe recipe, FluidStack targetFluid,
+                                                 List<CastingInfo> result, Set<ResourceLocation> seenOutputIds) {
+        try {
+            ItemStack output = RecipeReflection.tryGetOutput(recipe);
+            if (output == null || output.isEmpty()) return;
+            if (!(output.getItem() instanceof IMaterialItem)) return;
+
+            ResourceLocation outputId = output.getItem().getRegistryName();
+            if (outputId == null) return;
+
+            Boolean accepted = MaterialCompatibility.recipeAcceptsFluid(recipe, targetFluid);
+            if (accepted == null || !accepted) return;
+
+            int amount = MaterialCastingCost.getAmount(recipe);
+            if (!seenOutputIds.add(outputId)) return;
+
+            result.add(new CastingInfo(output.copy(), true, amount));
+        } catch (Exception ignored) {}
+    }
+
+    /**
+     * 最宽松的路径：遍历所有配方，只要满足
+     * <ol>
+     *   <li>输出是 {@link IMaterialItem}</li>
+     *   <li>输入流体匹配目标流体</li>
+     * </ol>
+     * 就收集。不限定配方类型，不看 stats，不看 MaterialRegistry。
+     *
+     * <p>覆盖场景：KubeJS / 数据包显式注册的"某流体 → 某部件"配方。
+     */
+    public static List<CastingInfo> getAnyPartCastingRecipes(FluidStack fluidStack) {
+        List<CastingInfo> result = new ArrayList<>();
+        if (fluidStack == null || fluidStack.isEmpty()) return result;
+
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.getConnection() == null) return result;
+
+        RecipeManager recipeManager = mc.getConnection().getRecipeManager();
+        Set<ResourceLocation> seenOutputIds = new HashSet<>();
+
+        try {
+            for (Recipe<?> recipe : recipeManager.getRecipes()) {
+                try {
+                    ItemStack output = RecipeReflection.tryGetOutput(recipe);
+                    if (output == null || output.isEmpty()) continue;
+                    if (!(output.getItem() instanceof IMaterialItem)) continue;
+
+                    ResourceLocation outputId = output.getItem().getRegistryName();
+                    if (outputId == null) continue;
+
+                    // 检查输入流体是否匹配
+                    List<FluidStack> recipeFluids = RecipeReflection.extractFluids(recipe);
+                    if (recipeFluids == null || recipeFluids.isEmpty()) continue;
+
+                    boolean fluidMatched = false;
+                    for (FluidStack f : recipeFluids) {
+                        if (RecipeReflection.matchesFluid(f, fluidStack)) {
+                            fluidMatched = true;
+                            break;
+                        }
+                    }
+                    if (!fluidMatched) continue;
+
+                    if (!seenOutputIds.add(outputId)) continue;
+
+                    // 拿消耗量：优先取匹配的那个流体 stack 的 amount
+                    int amount = MaterialCastingCost.MB_PER_COST;
+                    for (FluidStack f : recipeFluids) {
+                        if (RecipeReflection.matchesFluid(f, fluidStack) && f.getAmount() > 0) {
+                            amount = f.getAmount();
+                            break;
+                        }
+                    }
+
+                    result.add(new CastingInfo(output.copy(), false, amount));
+                } catch (Throwable ignored) {}
+            }
+        } catch (Exception e) {
+            System.err.println("Tinker's Search: Error loading any part recipes: " + e.getMessage());
+        }
+
+        return result;
+    }
+
+    /**
      * {@code MaterialCastingRecipe} 是"任意材料 → 该材料做的部件"的通用配方，
      * 匹配逻辑：
      *   1. 从 result 字段拿输出部件（{@link IMaterialItem}）

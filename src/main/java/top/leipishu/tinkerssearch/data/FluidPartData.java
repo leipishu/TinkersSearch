@@ -43,7 +43,7 @@ public class FluidPartData {
     // ============================================================
 
     public static class MaterialEntry {
-        public enum SourceKind { BASE, COMPOSITE }
+        public enum SourceKind { BASE, COMPOSITE, DIRECT }
 
         public final MaterialId materialId;
         public final String title;

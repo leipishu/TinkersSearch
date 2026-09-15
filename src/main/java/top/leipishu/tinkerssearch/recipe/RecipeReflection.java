@@ -13,6 +13,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * 配方读取的通用反射工具。
@@ -52,6 +53,8 @@ public class RecipeReflection {
 
     /** 尝试从 recipe 读取 ItemStack 输出；失败返回 {@code ItemStack.EMPTY}。 */
     public static ItemStack tryGetOutput(Recipe<?> recipe) {
+        if (recipe == null) return ItemStack.EMPTY;
+
         for (String name : new String[]{"getOutput", "getResult", "getResultItem"}) {
             try {
                 Method m = recipe.getClass().getMethod(name);
@@ -82,6 +85,8 @@ public class RecipeReflection {
 
     /** part_builder 配方的 result；失败返回 {@code ItemStack.EMPTY}。 */
     public static ItemStack tryGetPartBuilderResult(Recipe<?> recipe) {
+        if (recipe == null) return ItemStack.EMPTY;
+
         for (String name : new String[]{"getResultItem", "getResult", "getOutput", "getRecipeOutput"}) {
             try {
                 Method m = recipe.getClass().getMethod(name);
@@ -114,6 +119,8 @@ public class RecipeReflection {
 
     /** part_builder 配方的 cost 字段；找不到返回 null。 */
     public static Integer tryGetPartBuilderCost(Recipe<?> recipe) {
+        if (recipe == null) return null;
+
         try {
             Method m = recipe.getClass().getMethod("getCost");
             Object v = m.invoke(recipe);
@@ -142,6 +149,8 @@ public class RecipeReflection {
 
     /** 尝试从 recipe 读取第一个输入流体；失败返回 null。 */
     public static FluidStack getCastingFluid(Recipe<?> recipe) {
+        if (recipe == null) return null;
+
         // 1. 直接找 fluid 字段
         try {
             Object fluidIngredient = findFieldValue(recipe, "fluid", "fluidIngredient", "inputFluid");
@@ -181,6 +190,25 @@ public class RecipeReflection {
             }
         } catch (Exception ignored) {}
 
+        // 4. cachedFluidRecipe 里挖 inputs
+        try {
+            Object cached = findFieldValue(recipe,
+                    "cachedFluidRecipe", "fluidRecipe", "materialFluidRecipe", "materialRecipe");
+            if (cached instanceof Optional) {
+                Optional<?> opt = (Optional<?>) cached;
+                if (opt.isPresent()) {
+                    Object inner = opt.get();
+                    Object inputsObj = invokeNoArg(inner, "getInputs");
+                    if (inputsObj instanceof List) {
+                        for (Object input : (List<?>) inputsObj) {
+                            FluidStack fs = fluidFromIngredient(input);
+                            if (fs != null) return fs;
+                        }
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+
         return null;
     }
 
@@ -215,9 +243,19 @@ public class RecipeReflection {
         return null;
     }
 
-    /** 尝试把 recipe 的输入转成 {@code List<FluidStack>}；失败返回空列表。 */
+    /**
+     * 尝试把 recipe 的输入转成 {@code List<FluidStack>}；失败返回空列表。
+     *
+     * <p>查找顺序：
+     * <ol>
+     *   <li>方法 {@code getFluid} / {@code getFluidIngredient} / {@code getInputFluid}</li>
+     *   <li>字段 {@code fluid} / {@code input} / {@code fluidInput} / {@code fluidIngredient}</li>
+     *   <li>字段 {@code cachedFluidRecipe} 里的 {@code getInputs()}（匠魂 MaterialCastingRecipe 用）</li>
+     * </ol>
+     */
     public static List<FluidStack> extractFluids(Recipe<?> recipe) {
         List<FluidStack> result = new ArrayList<>();
+        if (recipe == null) return result;
 
         for (String mn : new String[]{"getFluid", "getFluidIngredient", "getInputFluid"}) {
             try {
@@ -243,6 +281,23 @@ public class RecipeReflection {
                     clazz = clazz.getSuperclass();
                 }
             } catch (Exception ignored) {}
+        }
+
+        // ===== 最后兜底：从 cachedFluidRecipe 里挖 inputs =====
+        Object cached = findFieldValue(recipe,
+                "cachedFluidRecipe", "fluidRecipe", "materialFluidRecipe", "materialRecipe");
+        if (cached instanceof Optional) {
+            Optional<?> opt = (Optional<?>) cached;
+            if (opt.isPresent()) {
+                Object inner = opt.get();
+                Object inputsObj = invokeNoArg(inner, "getInputs");
+                if (inputsObj instanceof List) {
+                    for (Object input : (List<?>) inputsObj) {
+                        List<FluidStack> got = toFluidList(input);
+                        result.addAll(got);
+                    }
+                }
+            }
         }
 
         return result;
@@ -292,6 +347,8 @@ public class RecipeReflection {
 
     /** 尝试从 recipe 读取材料 ID 对应的 {@link ResourceLocation}；失败返回 null。 */
     public static ResourceLocation extractMaterialId(Recipe<?> recipe) {
+        if (recipe == null) return null;
+
         for (String mn : new String[]{"getMaterial", "getOutput", "getMaterialId"}) {
             try {
                 Method m = recipe.getClass().getMethod(mn);
@@ -357,6 +414,8 @@ public class RecipeReflection {
     // ============================================================
 
     public static FluidStack getDisplayableCastingFluid(IDisplayableCastingRecipe recipe) {
+        if (recipe == null) return null;
+
         try {
             Method method = recipe.getClass().getMethod("getFluid");
             return (FluidStack) method.invoke(recipe);
@@ -379,6 +438,8 @@ public class RecipeReflection {
     }
 
     public static ItemStack getDisplayableCastingOutput(IDisplayableCastingRecipe recipe) {
+        if (recipe == null) return ItemStack.EMPTY;
+
         try {
             Method method = recipe.getClass().getMethod("getResult");
             Object result = method.invoke(recipe);
@@ -395,6 +456,8 @@ public class RecipeReflection {
     }
 
     public static boolean getDisplayableCastingHasCast(IDisplayableCastingRecipe recipe) {
+        if (recipe == null) return false;
+
         try {
             Method method = recipe.getClass().getMethod("hasCast");
             return (boolean) method.invoke(recipe);
@@ -417,5 +480,20 @@ public class RecipeReflection {
         if (a == null || b == null || a.isEmpty() || b.isEmpty()) return false;
         if (a.getFluid().getRegistryName() == null || b.getFluid().getRegistryName() == null) return false;
         return a.getFluid().getRegistryName().equals(b.getFluid().getRegistryName());
+    }
+
+    // ============================================================
+    // ===== 内部工具 =============================================
+    // ============================================================
+
+    /** 调用无参方法；失败返回 null。 */
+    private static Object invokeNoArg(Object obj, String name) {
+        if (obj == null) return null;
+        try {
+            Method m = obj.getClass().getMethod(name);
+            m.setAccessible(true);
+            return m.invoke(obj);
+        } catch (Exception ignored) {}
+        return null;
     }
 }
