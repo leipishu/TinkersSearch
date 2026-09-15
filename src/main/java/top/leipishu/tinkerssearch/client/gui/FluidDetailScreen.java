@@ -18,6 +18,7 @@ import slimeknights.tconstruct.smeltery.block.entity.controller.SmelteryBlockEnt
 import slimeknights.tconstruct.smeltery.block.entity.tank.SmelteryTank;
 import slimeknights.tconstruct.library.tools.part.IMaterialItem;
 
+import top.leipishu.tinkerssearch.client.gui.components.CardBackground;
 import top.leipishu.tinkerssearch.client.gui.components.SearchBox;
 import top.leipishu.tinkerssearch.client.gui.components.SearchBoxStyle;
 import top.leipishu.tinkerssearch.data.FluidPartData;
@@ -88,7 +89,6 @@ public class FluidDetailScreen extends Screen {
     private Font font;
     private ItemRenderer itemRenderer;
 
-    // ===== 搜索框组件 =====
     private final SearchBox searchBox = new SearchBox(SearchBoxStyle.detail());
 
     private int contentHeight = 0;
@@ -143,7 +143,6 @@ public class FluidDetailScreen extends Screen {
 
         CastingRecipeHelper.prewarmPartRequirements();
 
-        // ===== 搜索框初始化 =====
         searchBox.setHintText(new TranslatableComponent("gui.tinkerssearch.detail.search_hint"));
         searchBox.setOnTextChanged(s -> applyFilter());
 
@@ -476,11 +475,9 @@ public class FluidDetailScreen extends Screen {
             }
         }
 
-        // ===== 搜索框 =====
         searchBox.setBounds(baseX + searchBoxX, baseY + searchBoxY, searchBoxW, SEARCH_BOX_HEIGHT);
         searchBox.render(poseStack, mouseX, mouseY, font);
 
-        // ===== 铸造标题 =====
         String castingTitle = "\u00a76" + new TranslatableComponent("gui.tinkerssearch.detail.casting").getString() +
                 " \u00a77(\u00a7e" + filteredCastingInfos.size() + "\u00a77/\u00a78" + allCastingInfos.size() + "\u00a77)";
         font.draw(poseStack, castingTitle, baseX + PADDING, baseY + castingTitleY, 0xFFFFFF);
@@ -492,7 +489,6 @@ public class FluidDetailScreen extends Screen {
             renderCastingCards(poseStack, baseX, baseY + castingStartY, mouseX, mouseY);
         }
 
-        // ===== 部件标题（带页码） =====
         int totalPages = data.entries.size();
         String pageInfo = totalPages > 1 ? " \u00a77[" + (currentPageIndex + 1) + "/" + totalPages + "]" : "";
         int currentPageTotal = (currentEntry() != null) ? currentEntry().parts.size() : 0;
@@ -501,7 +497,6 @@ public class FluidDetailScreen extends Screen {
                 + " \u00a77(\u00a7e" + filteredPartInfos.size() + "\u00a77/\u00a78" + currentPageTotal + "\u00a77)";
         font.draw(poseStack, partTitle, baseX + PADDING, baseY + partTitleY, 0xFFFFFF);
 
-        // ===== 翻页栏 =====
         if (totalPages > 1) {
             int barY = baseY + partTitleY - 4;
             int rightX = baseX + windowWidth - PADDING;
@@ -530,12 +525,8 @@ public class FluidDetailScreen extends Screen {
                 && mouseY >= y && mouseY <= y + PAGE_BTN_H;
 
         int bg = hover ? 0xFF555555 : 0xFF333333;
-        fill(ps, x, y, x + PAGE_BTN_W, y + PAGE_BTN_H, bg);
         int border = hover ? 0xFF999999 : 0xFF555555;
-        fill(ps, x, y, x + PAGE_BTN_W, y + 1, border);
-        fill(ps, x, y + PAGE_BTN_H - 1, x + PAGE_BTN_W, y + PAGE_BTN_H, border);
-        fill(ps, x, y, x + 1, y + PAGE_BTN_H, border);
-        fill(ps, x + PAGE_BTN_W - 1, y, x + PAGE_BTN_W, y + PAGE_BTN_H, border);
+        CardBackground.draw(ps, x, y, PAGE_BTN_W, PAGE_BTN_H, bg, border);
 
         int textX = x + (PAGE_BTN_W - font.width(arrow)) / 2;
         int textY = y + (PAGE_BTN_H - font.lineHeight) / 2 + 1;
@@ -565,14 +556,9 @@ public class FluidDetailScreen extends Screen {
 
     private void drawCastingCard(PoseStack poseStack, int x, int y, int width,
                                  CastingRecipeHelper.CastingInfo info, boolean hover) {
-        fill(poseStack, x + 1, y + CARD_HEIGHT, x + width + 1, y + CARD_HEIGHT + 1, 0x40000000);
         int bg = hover ? 0xFF333A44 : 0xFF1E2228;
-        fill(poseStack, x, y, x + width, y + CARD_HEIGHT, bg);
         int border = hover ? 0xFF66AAFF : 0xFF3A4250;
-        fill(poseStack, x, y, x + width, y + 1, border);
-        fill(poseStack, x, y + CARD_HEIGHT - 1, x + width, y + CARD_HEIGHT, border);
-        fill(poseStack, x, y, x + 1, y + CARD_HEIGHT, border);
-        fill(poseStack, x + width - 1, y, x + width, y + CARD_HEIGHT, border);
+        CardBackground.drawWithShadow(poseStack, x, y, width, CARD_HEIGHT, bg, border, 0x40000000);
 
         ItemStack stack = info.outputItem;
         int iconSize = 28;
@@ -673,14 +659,9 @@ public class FluidDetailScreen extends Screen {
 
     private void drawPartBlock(PoseStack ps, PartLayout layout, boolean hover) {
         int x = layout.x, y = layout.y, w = layout.w, h = layout.h;
-        fill(ps, x + 1, y + h, x + w + 1, y + h + 1, 0x40000000);
         int bg = hover ? 0xFF2A3A2E : 0xFF1A2A1E;
-        fill(ps, x, y, x + w, y + h, bg);
         int border = hover ? 0xFF66BB66 : 0xFF2E4A32;
-        fill(ps, x, y, x + w, y + 1, border);
-        fill(ps, x, y + h - 1, x + w, y + h, border);
-        fill(ps, x, y, x + 1, y + h, border);
-        fill(ps, x + w - 1, y, x + w, y + h, border);
+        CardBackground.drawWithShadow(ps, x, y, w, h, bg, border, 0x40000000);
 
         int iconSize = 24;
         int iconX = x + (w - iconSize) / 2;
@@ -705,14 +686,9 @@ public class FluidDetailScreen extends Screen {
         int animX = slotX + (slotW - animW) / 2;
         int animY = slotY + (slotH - animH) / 2;
 
-        fill(ps, animX + 1, animY + animH, animX + animW + 1, animY + animH + 1, 0x40000000);
         int bg = hover ? 0xFF2A3A2E : 0xFF1A2A1E;
-        fill(ps, animX, animY, animX + animW, animY + animH, bg);
         int border = hover ? 0xFF66BB66 : 0xFF2E4A32;
-        fill(ps, animX, animY, animX + animW, animY + 1, border);
-        fill(ps, animX, animY + animH - 1, animX + animW, animY + animH, border);
-        fill(ps, animX, animY, animX + 1, animY + animH, border);
-        fill(ps, animX + animW - 1, animY, animX + animW, animY + animH, border);
+        CardBackground.drawWithShadow(ps, animX, animY, animW, animH, bg, border, 0x40000000);
 
         if (progress < 1.0f) return;
 
@@ -739,14 +715,9 @@ public class FluidDetailScreen extends Screen {
         int animX = slotX + (slotW - animW) / 2;
         int animY = slotY + (slotH - animH) / 2;
 
-        fill(ps, animX + 1, animY + animH, animX + animW + 1, animY + animH + 1, 0x40000000);
         int bg = hover ? 0xFF2A3A2E : 0xFF1A2A1E;
-        fill(ps, animX, animY, animX + animW, animY + animH, bg);
         int border = hover ? 0xFF66BB66 : 0xFF2E4A32;
-        fill(ps, animX, animY, animX + animW, animY + 1, border);
-        fill(ps, animX, animY + animH - 1, animX + animW, animY + animH, border);
-        fill(ps, animX, animY, animX + 1, animY + animH, border);
-        fill(ps, animX + animW - 1, animY, animX + animW, animY + animH, border);
+        CardBackground.drawWithShadow(ps, animX, animY, animW, animH, bg, border, 0x40000000);
     }
 
     private void drawExpandedHeader(PoseStack ps, PartInfo info, int slotX, int slotY, int slotW) {
@@ -919,7 +890,6 @@ public class FluidDetailScreen extends Screen {
             return true;
         }
 
-        // 翻页按钮
         for (int[] rect : pageButtonRects) {
             if (mouseX >= rect[0] && mouseX <= rect[0] + PAGE_BTN_W
                     && mouseY >= rect[1] && mouseY <= rect[1] + PAGE_BTN_H) {
@@ -928,7 +898,6 @@ public class FluidDetailScreen extends Screen {
             }
         }
 
-        // 部件点击
         for (PartLayout layout : partLayouts) {
             if (mouseX >= layout.x && mouseX <= layout.x + layout.w
                     && mouseY >= layout.y && mouseY <= layout.y + layout.h) {
@@ -943,7 +912,6 @@ public class FluidDetailScreen extends Screen {
             }
         }
 
-        // 搜索框
         searchBox.setBounds(centerX + searchBoxX, centerY + searchBoxY - totalScrollOffset,
                 searchBoxW, SEARCH_BOX_HEIGHT);
         if (searchBox.mouseClicked(mouseX, mouseY, button)) {
@@ -967,7 +935,6 @@ public class FluidDetailScreen extends Screen {
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        // 搜索框优先
         if (searchBox.keyPressed(keyCode, scanCode, modifiers)) {
             return true;
         }

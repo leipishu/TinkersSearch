@@ -14,10 +14,11 @@ import top.leipishu.tinkerssearch.alloy.AlloyRecipeData;
 import top.leipishu.tinkerssearch.alloy.AlloyResultCalculator;
 import top.leipishu.tinkerssearch.client.gui.FloatingSearchPanel;
 import top.leipishu.tinkerssearch.client.gui.PanelInteractionHandler;
+import top.leipishu.tinkerssearch.client.gui.components.CardBackground;
 import top.leipishu.tinkerssearch.client.gui.components.SearchBox;
 import top.leipishu.tinkerssearch.client.gui.components.SearchBoxStyle;
-import top.leipishu.tinkerssearch.data.FavoritesManager;
 import top.leipishu.tinkerssearch.client.render.ScissorHelper;
+import top.leipishu.tinkerssearch.data.FavoritesManager;
 import top.leipishu.tinkerssearch.smeltery.SmelteryDataHelper;
 
 import java.util.ArrayList;
@@ -79,9 +80,6 @@ public class PanelRenderer {
 
     // ==================== 公共方法 ====================
 
-    /**
-     * 检测是否点击了任何可跳转的产物名称
-     */
     public boolean isClickingResultName(int mouseX, int mouseY) {
         for (ClickableArea area : clickableAreas) {
             if (mouseX >= area.x && mouseX <= area.x + area.w &&
@@ -92,9 +90,6 @@ public class PanelRenderer {
         return false;
     }
 
-    /**
-     * 获取第一个可点击区域的名称（用于回退匹配）
-     */
     public String getClickableResultName() {
         if (!clickableAreas.isEmpty()) {
             ClickableArea area = clickableAreas.get(0);
@@ -103,9 +98,6 @@ public class PanelRenderer {
         return "";
     }
 
-    /**
-     * 获取第一个可点击区域的注册名（用于回退匹配）
-     */
     public String getClickableResultRegistryName() {
         if (!clickableAreas.isEmpty()) {
             ClickableArea area = clickableAreas.get(0);
@@ -114,9 +106,6 @@ public class PanelRenderer {
         return "";
     }
 
-    /**
-     * 获取指定位置的可点击区域名称
-     */
     public String getClickableResultName(int mouseX, int mouseY) {
         for (ClickableArea area : clickableAreas) {
             if (mouseX >= area.x && mouseX <= area.x + area.w &&
@@ -127,9 +116,6 @@ public class PanelRenderer {
         return "";
     }
 
-    /**
-     * 获取指定位置的可点击区域注册名
-     */
     public String getClickableResultRegistryName(int mouseX, int mouseY) {
         for (ClickableArea area : clickableAreas) {
             if (mouseX >= area.x && mouseX <= area.x + area.w &&
@@ -160,14 +146,11 @@ public class PanelRenderer {
         return new ArrayList<>();
     }
 
-    /**
-     * 计算合金卡片实际需要的高度（供 LayoutCalculator 调用）
-     */
     public int calculateActualCardHeight(AlloyResultCalculator.AlloyChainResult result, Font font, int cardWidth) {
         AlloyRecipeData recipe = result.getRecipe();
         AlloyRecipeData.AlloyFeasibility feasibility = result.getFeasibility();
 
-        int lineCount = 3; // 状态行 + 配方链行 + 分割线
+        int lineCount = 3;
 
         List<AlloyRecipeData.AlloyFeasibility.MissingFluid> missing = feasibility.getMissingFluids();
         if (!missing.isEmpty()) {
@@ -223,7 +206,6 @@ public class PanelRenderer {
     // ==================== 主渲染 ====================
 
     public void renderButton(PoseStack poseStack, int mouseX, int mouseY, float partialTick) {
-        // ===== 清空点击区域列表 =====
         clickableAreas.clear();
         ScissorHelper.reset();
 
@@ -307,10 +289,6 @@ public class PanelRenderer {
         font.draw(poseStack, new TranslatableComponent("gui.tinkerssearch.refresh"), btnX + 4, btnY + 3, 0xCCCCCC);
     }
 
-    // ============================================================
-    // ===== 搜索框（组件化）=====================================
-    // ============================================================
-
     private void renderSearchBox(PoseStack poseStack, int px, int py, int pw,
                                  int mouseX, int mouseY, Font font) {
         SearchBox box = interactionHandler.getSearchBox();
@@ -324,7 +302,6 @@ public class PanelRenderer {
         box.setBounds(boxX, boxY, boxW, boxH);
         box.render(poseStack, mouseX, mouseY, font);
 
-        // 计数（组件不负责，由调用方附加）
         int total = dataManager.getAllFluids().size();
         int matched = dataManager.getDisplayedFluids().size();
         String countStr = "§8" + matched + "/" + total;
@@ -502,21 +479,13 @@ public class PanelRenderer {
         boolean isBottom = dataManager.getBottomFluidName() != null && fluidName.equals(dataManager.getBottomFluidName()) && existsInSmeltery;
 
         int bg = hover ? 0xFF3A3A3A : 0xFF222222;
-        GuiComponent.fill(poseStack, x, y, x + w, y + h, bg);
-
+        int border;
         if (isBottom) {
-            int green = 0xFF00FF00;
-            GuiComponent.fill(poseStack, x, y, x + w, y + 1, green);
-            GuiComponent.fill(poseStack, x, y + h - 1, x + w, y + h, green);
-            GuiComponent.fill(poseStack, x, y, x + 1, y + h, green);
-            GuiComponent.fill(poseStack, x + w - 1, y, x + w, y + h, green);
+            border = 0xFF00FF00;
         } else {
-            int border = hover ? 0xFF888888 : 0xFF333333;
-            GuiComponent.fill(poseStack, x, y, x + w, y + 1, border);
-            GuiComponent.fill(poseStack, x, y + h - 1, x + w, y + h, border);
-            GuiComponent.fill(poseStack, x, y, x + 1, y + h, border);
-            GuiComponent.fill(poseStack, x + w - 1, y, x + w, y + h, border);
+            border = hover ? 0xFF888888 : 0xFF333333;
         }
+        CardBackground.draw(poseStack, x, y, w, h, bg, border);
 
         int iconSize = ICON_SIZE;
         int iconX = x + 3;
@@ -734,13 +703,8 @@ public class PanelRenderer {
         String name = fluid.getDisplayName().getString().replace("Molten ", "");
 
         int bg = selected ? 0xFF1A3A6A : (hover ? 0xFF3A3A3A : 0xFF222222);
-        GuiComponent.fill(poseStack, x, y, x + w, y + h, bg);
-
         int border = selected ? 0xFF4488FF : (hover ? 0xFF888888 : 0xFF333333);
-        GuiComponent.fill(poseStack, x, y, x + w, y + 1, border);
-        GuiComponent.fill(poseStack, x, y + h - 1, x + w, y + h, border);
-        GuiComponent.fill(poseStack, x, y, x + 1, y + h, border);
-        GuiComponent.fill(poseStack, x + w - 1, y, x + w, y + h, border);
+        CardBackground.draw(poseStack, x, y, w, h, bg, border);
 
         int iconSize = ICON_SIZE;
         int iconX = x + 3;
@@ -778,13 +742,8 @@ public class PanelRenderer {
 
         boolean feasible = result.isFullyFeasible();
         int bg = feasible ? 0xFF1A3A1A : 0xFF3A2A1A;
-        GuiComponent.fill(poseStack, x, y, x + w, y + cardH, bg);
-
         int border = feasible ? 0xFF44FF44 : 0xFFFF8800;
-        GuiComponent.fill(poseStack, x, y, x + w, y + 1, border);
-        GuiComponent.fill(poseStack, x, y + cardH - 1, x + w, y + cardH, border);
-        GuiComponent.fill(poseStack, x, y, x + 1, y + cardH, border);
-        GuiComponent.fill(poseStack, x + w - 1, y, x + w, y + cardH, border);
+        CardBackground.draw(poseStack, x, y, w, cardH, bg, border);
 
         // ===== 第1行：状态 =====
         String status = feasible ?
@@ -803,7 +762,7 @@ public class PanelRenderer {
         GuiComponent.fill(poseStack, x + 4, lineY, x + w - 4, lineY + 1, 0x44FFFFFF);
         lineY += 6;
 
-        // ===== 第2行：配方链（带可点击按钮） =====
+        // ===== 第2行：配方链 =====
         String chainStr = result.formatChain();
 
         int eqIndex = chainStr.indexOf(" = ");
@@ -851,7 +810,6 @@ public class PanelRenderer {
                 font.draw(poseStack, "§7" + restPart, restX, lineY, 0xCCCCCC);
             }
 
-            // 查找是否已有这个位置的 ClickableArea
             ClickableArea existingArea = null;
             for (ClickableArea ca : clickableAreas) {
                 if (ca.x == resultX && ca.y == lineY && ca.w == font.width(resultName) && ca.h == font.lineHeight) {
@@ -903,7 +861,7 @@ public class PanelRenderer {
             lineY += 12;
         }
 
-        // ===== 第5行：当前原料详情（换行） =====
+        // ===== 第5行：当前原料详情 =====
         if (lineY < y + cardH - 4) {
             StringBuilder ingredients = new StringBuilder();
             ingredients.append(new TranslatableComponent("gui.tinkerssearch.alloy_ingredients").getString());
