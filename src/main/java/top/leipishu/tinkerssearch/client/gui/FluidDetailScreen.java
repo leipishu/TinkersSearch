@@ -45,6 +45,9 @@ public class FluidDetailScreen extends Screen {
     private final SmelteryBlockEntity smeltery;
     private final int currentTemperature;
 
+    /** 打开前正在显示的父 Screen（冶炼炉），关闭时恢复。 */
+    private final Screen savedScreen;
+
     private int windowWidth = 400;
     private int windowHeight = 480;
     private int centerX;
@@ -135,10 +138,11 @@ public class FluidDetailScreen extends Screen {
         }
     }
 
-    public FluidDetailScreen(FluidStack fluidStack, SmelteryBlockEntity smeltery) {
+    public FluidDetailScreen(FluidStack fluidStack, SmelteryBlockEntity smeltery, Screen savedScreen) {
         super(new TextComponent("Fluid Details"));
         this.fluidStack = fluidStack;
         this.smeltery = smeltery;
+        this.savedScreen = savedScreen;
         this.currentTemperature = new SmelteryTemperatureReader().getCurrentSmelteryTemperature();
 
         CastingRecipeHelper.prewarmPartRequirements();
@@ -385,6 +389,21 @@ public class FluidDetailScreen extends Screen {
 
     @Override
     public void render(PoseStack poseStack, int mouseX, int mouseY, float partialTick) {
+        // ===== 1. 先渲染父 Screen（冶炼炉 + 面板），鼠标传 -1 隐藏其 hover 态 =====
+        if (savedScreen != null) {
+            savedScreen.render(poseStack, -1, -1, partialTick);
+        }
+
+        // ===== 2. 把 detail 渲染推到独立层，并禁用深度测试 =====
+        poseStack.pushPose();
+        poseStack.translate(0, 0, 500);
+        RenderSystem.disableDepthTest();
+        RenderSystem.depthMask(false);
+
+        // ===== 3. 半透明遮罩 =====
+        fill(poseStack, 0, 0, this.width, this.height, 0x80000000);
+
+        // ===== 4. 详情窗口 =====
         pendingTooltip = null;
         pageButtonRects.clear();
 
@@ -398,7 +417,6 @@ public class FluidDetailScreen extends Screen {
             recalculateLayout();
         }
 
-        fill(poseStack, 0, 0, this.width, this.height, 0x80000000);
         fill(poseStack, centerX + 2, centerY + 2, centerX + windowWidth + 2, centerY + windowHeight + 2, 0x40000000);
         fill(poseStack, centerX, centerY, centerX + windowWidth, centerY + windowHeight, 0xF0181818);
         drawBorder(poseStack, centerX, centerY, windowWidth, windowHeight, 0xFF555555);
@@ -416,11 +434,9 @@ public class FluidDetailScreen extends Screen {
         boolean scissorOk = ScissorHelper.enableScissor(clipX, clipY, clipW, clipH);
         if (scissorOk) {
             try {
-                RenderSystem.disableDepthTest();
                 renderContent(poseStack, mouseX, mouseY);
             } finally {
                 ScissorHelper.disableScissor();
-                RenderSystem.enableDepthTest();
             }
         } else {
             renderContent(poseStack, mouseX, mouseY);
@@ -441,6 +457,11 @@ public class FluidDetailScreen extends Screen {
             renderComponentTooltip(poseStack, pendingTooltip, mouseX, mouseY);
             pendingTooltip = null;
         }
+
+        // ===== 5. 恢复状态 =====
+        RenderSystem.depthMask(true);
+        RenderSystem.enableDepthTest();
+        poseStack.popPose();
     }
 
     private void renderContent(PoseStack poseStack, int mouseX, int mouseY) {
@@ -978,6 +999,11 @@ public class FluidDetailScreen extends Screen {
 
     @Override
     public void onClose() {
-        super.onClose();
+        Minecraft mc = Minecraft.getInstance();
+        if (savedScreen != null) {
+            mc.setScreen(savedScreen);
+        } else {
+            super.onClose();
+        }
     }
 }

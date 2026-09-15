@@ -5,6 +5,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.narration.NarrationElementOutput;
+import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.TextComponent;
 import net.minecraft.network.chat.TranslatableComponent;
 import net.minecraft.resources.ResourceLocation;
@@ -72,15 +73,12 @@ public class FloatingSearchPanel extends AbstractWidget {
         this.dataManager = new PanelDataManager(this, interactionHandler, alloyHandler);
         this.temperatureReader = new SmelteryTemperatureReader();
 
-        // ===== 先创建 layoutCalculator（panelRenderer 暂为 null） =====
         this.layoutCalculator = new PanelLayoutCalculator(this, dataManager, alloyHandler, null);
         this.animationManager = new PanelAnimationManager(this, interactionHandler, alloyHandler, dataManager);
 
-        // ===== 再创建 renderer =====
         this.renderer = new PanelRenderer(this, dataManager, layoutCalculator, animationManager,
                 interactionHandler, alloyHandler);
 
-        // ===== 设置 layoutCalculator 的 panelRenderer 引用 =====
         this.layoutCalculator.setPanelRenderer(renderer);
 
         interactionHandler.setDataRefs(dataManager.getAllFluids(), dataManager.getDisplayedFluids());
@@ -103,12 +101,10 @@ public class FloatingSearchPanel extends AbstractWidget {
     public boolean isAlloyMode() { return dataManager.isAlloyMode(); }
     public PanelInteractionHandler getInteractionHandler() { return interactionHandler; }
 
-    // ===== 展开状态（供外部Tab按钮使用） =====
     public boolean isExpanded() {
         return isVisible || isAnimating();
     }
 
-    // ===== Tab按钮位置（供外部点击检测和绘制使用） =====
     public int[] getTabButtonPosition() {
         boolean expanded = isExpanded();
         int panelX = getPanelX();
@@ -311,7 +307,6 @@ public class FloatingSearchPanel extends AbstractWidget {
         if (!isVisible) return false;
 
         if (dataManager.isAlloyMode()) {
-            // ===== 计算合金内容总高度和可见高度 =====
             int totalHeight = layoutCalculator.getAlloyContentHeight();
             int visibleHeight = layoutCalculator.getAlloyVisibleHeight();
             int maxOffset = Math.max(0, totalHeight - visibleHeight);
@@ -349,21 +344,17 @@ public class FloatingSearchPanel extends AbstractWidget {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        // ===== 优先检测：点击合金产物名称跳转 =====
         if (dataManager.isAlloyMode() && renderer.isClickingResultName((int)mouseX, (int)mouseY)) {
-            // 获取该位置的所有目标
             List<String> registryNames = renderer.getClickableResultRegistryNames((int)mouseX, (int)mouseY);
             List<String> displayNames = renderer.getClickableResultNames((int)mouseX, (int)mouseY);
 
             if ((registryNames != null && !registryNames.isEmpty()) ||
                     (displayNames != null && !displayNames.isEmpty())) {
 
-                // 尝试匹配所有目标
                 FluidStack matchedMaterial = null;
                 String matchedRegistry = "";
                 String matchedDisplay = "";
 
-                // 优先用注册名匹配
                 for (String regName : registryNames) {
                     FluidStack material = findTargetMaterial(regName, "");
                     if (material != null) {
@@ -373,7 +364,6 @@ public class FloatingSearchPanel extends AbstractWidget {
                     }
                 }
 
-                // 如果注册名匹配失败，用显示名匹配
                 if (matchedMaterial == null) {
                     for (String dispName : displayNames) {
                         FluidStack material = findTargetMaterial("", dispName);
@@ -392,7 +382,6 @@ public class FloatingSearchPanel extends AbstractWidget {
                     return true;
                 }
 
-                // 如果都匹配失败，用第一个作为搜索词
                 String searchReg = registryNames.isEmpty() ? "" : registryNames.get(0);
                 String searchDisp = displayNames.isEmpty() ? "" : displayNames.get(0);
                 String searchText = "/a/ " + (searchReg.isEmpty() ? searchDisp : searchReg);
@@ -403,7 +392,6 @@ public class FloatingSearchPanel extends AbstractWidget {
             return true;
         }
 
-        // ===== 检测Tab按钮 =====
         if (isTabButtonClicked(mouseX, mouseY)) {
             if (isAnimating()) {
                 return true;
@@ -461,9 +449,6 @@ public class FloatingSearchPanel extends AbstractWidget {
         return handleCardClick(mouseX, mouseY, button);
     }
 
-    /**
-     * 从多个来源查找目标材料
-     */
     private FluidStack findTargetMaterial(String registryName, String displayName) {
         if (registryName == null) registryName = "";
         if (displayName == null) displayName = "";
@@ -473,7 +458,6 @@ public class FloatingSearchPanel extends AbstractWidget {
             return null;
         }
 
-        // ===== 策略1：注册名精确匹配 =====
         if (!registryName.isEmpty()) {
             for (FluidStack fs : materials) {
                 ResourceLocation rl = fs.getFluid().getRegistryName();
@@ -483,7 +467,6 @@ public class FloatingSearchPanel extends AbstractWidget {
             }
         }
 
-        // ===== 策略2：显示名精确匹配 =====
         if (!displayName.isEmpty()) {
             for (FluidStack fs : materials) {
                 String name = fs.getDisplayName().getString()
@@ -496,7 +479,6 @@ public class FloatingSearchPanel extends AbstractWidget {
             }
         }
 
-        // ===== 策略3：显示名包含匹配 =====
         if (!displayName.isEmpty()) {
             String lowerDisplay = displayName.trim().toLowerCase();
             for (FluidStack fs : materials) {
@@ -511,7 +493,6 @@ public class FloatingSearchPanel extends AbstractWidget {
             }
         }
 
-        // ===== 策略4：注册名包含匹配 =====
         if (!registryName.isEmpty()) {
             String lowerRegistry = registryName.toLowerCase();
             for (FluidStack fs : materials) {
@@ -525,7 +506,6 @@ public class FloatingSearchPanel extends AbstractWidget {
             }
         }
 
-        // ===== 策略5：ForgeRegistries 直接查找 =====
         if (!registryName.isEmpty()) {
             try {
                 ResourceLocation rl = new ResourceLocation(registryName);
@@ -556,16 +536,11 @@ public class FloatingSearchPanel extends AbstractWidget {
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         if (!isVisible) return false;
 
-        // ===== 打印调试日志 =====
-        // System.out.println("[Tinker's Search] keyPressed: " + keyCode + ", focused=" + interactionHandler.isSearchBoxFocused());
-
         if (interactionHandler.isSearchBoxFocused()) {
-            // ===== 所有按键先交给 handleKeyPressed 处理 =====
             if (interactionHandler.handleKeyPressed(keyCode, scanCode, modifiers)) {
                 return true;
             }
 
-            // ===== 如果 handleKeyPressed 返回 false，检查 Enter/Escape =====
             if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER) {
                 interactionHandler.setSearchBoxFocused(false);
                 return true;
@@ -575,11 +550,9 @@ public class FloatingSearchPanel extends AbstractWidget {
                 return true;
             }
 
-            // ===== 其他按键阻止传播 =====
             return true;
         }
 
-        // ===== 搜索框未聚焦 =====
         if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
             return false;
         }
@@ -617,8 +590,6 @@ public class FloatingSearchPanel extends AbstractWidget {
             });
         }).start();
     }
-
-    // 在 FloatingSearchPanel.java 中找到 handleCardClick 方法，修改如下：
 
     private boolean handleCardClick(double mouseX, double mouseY, int button) {
         if (!isVisible) return false;
@@ -695,13 +666,11 @@ public class FloatingSearchPanel extends AbstractWidget {
                     return true;
                 }
 
-                // ===== 右键：打开详细信息浮窗 =====
                 if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
                     openFluidDetailScreen(fluid);
                     return true;
                 }
 
-                // ===== 左键：原有逻辑 =====
                 if (onIcon && jeiAvailable) {
                     return interactionHandler.handleJeiIconClick(fluid, button);
                 }
@@ -721,22 +690,19 @@ public class FloatingSearchPanel extends AbstractWidget {
     }
 
     /**
-     * 打开流体详细信息浮窗
-     */
-    /**
-     * 打开流体详细信息浮窗
+     * 打开流体详细信息浮窗。
+     *
+     * <p>不关闭冶炼炉界面；把当前 Screen 传给详情，关闭时可恢复。
      */
     private void openFluidDetailScreen(FluidStack fluid) {
         Minecraft mc = Minecraft.getInstance();
         SmelteryBlockEntity smeltery = null;
 
-        // ===== 方式1：从 DataManager 获取 =====
         BlockEntity target = dataManager.getSmelteryTileEntity();
         if (target instanceof SmelteryBlockEntity) {
             smeltery = (SmelteryBlockEntity) target;
         }
 
-        // ===== 方式2：如果获取不到，从屏幕反射获取 =====
         if (smeltery == null && mc.screen instanceof AbstractContainerScreen) {
             BlockEntity be = SmelteryClickHandler.getSmelteryFromScreen(
                     (AbstractContainerScreen<?>) mc.screen
@@ -746,7 +712,6 @@ public class FloatingSearchPanel extends AbstractWidget {
             }
         }
 
-        // ===== 方式3：通过 SmelteryDataHelper 获取 =====
         if (smeltery == null) {
             BlockEntity be = dataManager.getCachedTileEntity();
             if (be instanceof SmelteryBlockEntity) {
@@ -754,8 +719,9 @@ public class FloatingSearchPanel extends AbstractWidget {
             }
         }
 
-        // ===== 打开浮窗（即使 smeltery 为 null 也可以打开，只是不显示容量信息） =====
-        mc.setScreen(new FluidDetailScreen(fluid, smeltery));
+        Screen savedScreen = mc.screen;
+
+        mc.setScreen(new FluidDetailScreen(fluid, smeltery, savedScreen));
     }
 
     private boolean handleAlloyCardClick(double mouseX, double mouseY, int button) {
