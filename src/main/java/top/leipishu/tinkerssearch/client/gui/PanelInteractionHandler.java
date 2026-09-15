@@ -2,10 +2,12 @@ package top.leipishu.tinkerssearch.client.gui;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
+import net.minecraft.network.chat.TranslatableComponent;
 import net.minecraftforge.fluids.FluidStack;
 import net.minecraftforge.fml.ModList;
 import org.lwjgl.glfw.GLFW;
-import top.leipishu.tinkerssearch.config.PanelConfig;
+import top.leipishu.tinkerssearch.client.gui.components.SearchBox;
+import top.leipishu.tinkerssearch.client.gui.components.SearchBoxStyle;
 
 import java.lang.reflect.Method;
 import java.util.List;
@@ -19,9 +21,9 @@ public class PanelInteractionHandler {
     private final Runnable onRefresh;
     private final Consumer<List<FluidStack>> onFluidClick;
 
-    private boolean isSearchBoxFocused = false;
-    private String searchKeyword = "";
-    private int cursorPosition = 0;
+    // ===== 搜索框组件 =====
+    private final SearchBox searchBox = new SearchBox(SearchBoxStyle.panel());
+
     private long lastClickTime = 0;
 
     private List<FluidStack> allFluids;
@@ -52,6 +54,11 @@ public class PanelInteractionHandler {
             this.jeiRuntime = top.leipishu.tinkerssearch.jei.Jei.getJeiRuntime();
             cacheJeiMethods();
         }
+
+        // ===== 搜索框初始化 =====
+        this.searchBox.setHintText(new TranslatableComponent("gui.tinkerssearch.search_hint"));
+        this.searchBox.setOnTextChanged(s -> onRefresh.run());
+
         System.out.println("Tinker's Search: PanelInteractionHandler JEI available: " + jeiAvailable);
     }
 
@@ -136,43 +143,7 @@ public class PanelInteractionHandler {
     }
 
     // ============================================================
-    // ===== 新增：静态工具方法 - 根据鼠标 X 计算光标位置 =========
-    // ============================================================
-
-    /**
-     * 根据鼠标点击的 X 坐标精确计算光标位置（字符索引）
-     * 可被 FloatingSearchPanel 和 FluidDetailScreen 共用
-     *
-     * @param font        字体
-     * @param text        当前文本
-     * @param mouseX      鼠标 X 坐标
-     * @param textStartX  文本起始 X 坐标（即渲染时 textX）
-     * @return 光标位置（0 ~ text.length()）
-     */
-    public static int calculateCursorFromMouse(Font font, String text, double mouseX, int textStartX) {
-        int clickX = (int) mouseX - textStartX;
-        if (clickX <= 0) {
-            return 0;
-        }
-        if (text == null || text.isEmpty()) {
-            return 0;
-        }
-
-        int charIndex = 0;
-        int currentX = 0;
-        for (int i = 0; i < text.length(); i++) {
-            String subText = text.substring(0, i + 1);
-            int charWidth = font.width(subText) - font.width(text.substring(0, i));
-            // 鼠标位于字符中点左侧 → 光标放在这个字符前
-            if (currentX + charWidth / 2 > clickX) {
-                break;
-            }
-            currentX += charWidth;
-            charIndex = i + 1;
-        }
-        return Math.max(0, Math.min(charIndex, text.length()));
-    }
-
+    // ===== 数据引用 =============================================
     // ============================================================
 
     public void setDataRefs(List<FluidStack> allFluids, List<FluidStack> displayedFluids) {
@@ -180,92 +151,44 @@ public class PanelInteractionHandler {
         this.displayedFluids = displayedFluids;
     }
 
-    public boolean isSearchBoxFocused() {
-        return isSearchBoxFocused;
-    }
+    // ============================================================
+    // ===== 搜索框状态（转发给 SearchBox）========================
+    // ============================================================
 
-    public String getSearchKeyword() {
-        return searchKeyword;
-    }
+    public boolean isSearchBoxFocused() { return searchBox.isFocused(); }
 
-    public int getCursorPosition() {
-        return cursorPosition;
-    }
+    public String getSearchKeyword() { return searchBox.getText(); }
 
-    public void setSearchKeyword(String keyword) {
-        this.searchKeyword = keyword;
-        this.cursorPosition = keyword.length();
-    }
+    public int getCursorPosition() { return searchBox.getCursorPosition(); }
 
-    public void setCursorPosition(int position) {
-        this.cursorPosition = Math.max(0, Math.min(position, searchKeyword.length()));
-    }
+    public void setSearchKeyword(String keyword) { searchBox.setText(keyword); }
+
+    public void setCursorPosition(int position) { searchBox.setCursorPosition(position); }
+
+    public void setSearchBoxFocused(boolean focused) { searchBox.setFocused(focused); }
+
+    /** 供 {@code PanelRenderer} 渲染搜索框。 */
+    public SearchBox getSearchBox() { return searchBox; }
+
+    // ============================================================
+    // ===== 键盘 / 字符输入 =====================================
+    // ============================================================
 
     public boolean handleKeyPressed(int keyCode, int scanCode, int modifiers) {
-        if (!panel.isVisible() || !isSearchBoxFocused) return false;
-
-        switch (keyCode) {
-            case GLFW.GLFW_KEY_BACKSPACE:
-                if (!searchKeyword.isEmpty() && cursorPosition > 0) {
-                    String before = searchKeyword.substring(0, cursorPosition - 1);
-                    String after = searchKeyword.substring(cursorPosition);
-                    searchKeyword = before + after;
-                    cursorPosition--;
-                    onRefresh.run();
-                }
-                return true;
-
-            case GLFW.GLFW_KEY_DELETE:
-                if (!searchKeyword.isEmpty() && cursorPosition < searchKeyword.length()) {
-                    String before = searchKeyword.substring(0, cursorPosition);
-                    String after = searchKeyword.substring(cursorPosition + 1);
-                    searchKeyword = before + after;
-                    onRefresh.run();
-                }
-                return true;
-
-            case GLFW.GLFW_KEY_LEFT:
-                if (cursorPosition > 0) {
-                    cursorPosition--;
-                }
-                return true;
-
-            case GLFW.GLFW_KEY_RIGHT:
-                if (cursorPosition < searchKeyword.length()) {
-                    cursorPosition++;
-                }
-                return true;
-
-            case GLFW.GLFW_KEY_HOME:
-                cursorPosition = 0;
-                return true;
-
-            case GLFW.GLFW_KEY_END:
-                cursorPosition = searchKeyword.length();
-                return true;
-
-            case GLFW.GLFW_KEY_ENTER:
-            case GLFW.GLFW_KEY_KP_ENTER:
-            case GLFW.GLFW_KEY_ESCAPE:
-                isSearchBoxFocused = false;
-                return true;
-
-            default:
-                return false;
-        }
+        if (!panel.isVisible()) return false;
+        if (!searchBox.isFocused()) return false;
+        return searchBox.keyPressed(keyCode, scanCode, modifiers);
     }
 
     public boolean handleCharTyped(char codePoint, int modifiers) {
-        if (!panel.isVisible() || !isSearchBoxFocused) return false;
-        if (Character.isISOControl(codePoint)) return false;
-
-        String before = searchKeyword.substring(0, cursorPosition);
-        String after = searchKeyword.substring(cursorPosition);
-        searchKeyword = before + codePoint + after;
-        cursorPosition++;
-        onRefresh.run();
-        return true;
+        if (!panel.isVisible()) return false;
+        if (!searchBox.isFocused()) return false;
+        return searchBox.charTyped(codePoint, modifiers);
     }
+
+    // ============================================================
+    // ===== 鼠标事件 =============================================
+    // ============================================================
 
     public boolean handleMouseClicked(double mouseX, double mouseY, int button) {
         if (!panel.isVisible()) return false;
@@ -285,8 +208,7 @@ public class PanelInteractionHandler {
         }
 
         if (isInSearchBox(mouseX, mouseY, px, py, pw)) {
-            isSearchBoxFocused = true;
-            handleMouseClickSetCursor(mouseX, mouseY, px, py, pw);
+            handleSearchBoxClick(mouseX, mouseY);
             return true;
         }
 
@@ -296,8 +218,8 @@ public class PanelInteractionHandler {
         }
 
         if (isInPanel(mouseX, mouseY, px, py, pw)) {
-            if (isSearchBoxFocused) {
-                isSearchBoxFocused = false;
+            if (searchBox.isFocused()) {
+                searchBox.setFocused(false);
                 return true;
             }
         }
@@ -306,26 +228,22 @@ public class PanelInteractionHandler {
     }
 
     /**
-     * 点击搜索框时设置光标位置（使用静态工具方法）
+     * 把点击事件转发给搜索框；坐标由本方法根据面板位置计算。
      */
-    public boolean handleMouseClickSetCursor(double mouseX, double mouseY, int px, int py, int pw) {
-        if (!panel.isVisible() || !isSearchBoxFocused) return false;
+    public boolean handleSearchBoxClick(double mouseX, double mouseY) {
+        if (!panel.isVisible()) return false;
 
-        int boxX = px + 5;
-        int boxY = py + SEARCH_BOX_Y;
-        int boxW = pw - 10;
-        int boxH = SEARCH_BOX_H;
+        int px = panel.getPanelX();
+        int py = panel.getPanelY();
+        int pw = panel.getPanelWidth();
 
-        if (mouseX >= boxX && mouseX <= boxX + boxW &&
-                mouseY >= boxY && mouseY <= boxY + boxH) {
-
-            Font font = Minecraft.getInstance().font;
-            // 复用静态方法
-            cursorPosition = calculateCursorFromMouse(font, searchKeyword, mouseX, boxX + 4);
-            return true;
-        }
-        return false;
+        searchBox.setBounds(px + 5, py + SEARCH_BOX_Y, pw - 10, SEARCH_BOX_H);
+        return searchBox.mouseClicked(mouseX, mouseY, 0);
     }
+
+    // ============================================================
+    // ===== 命中检测 =============================================
+    // ============================================================
 
     private boolean isInRefreshButton(double mouseX, double mouseY, int px, int py) {
         return mouseX >= px + REFRESH_BTN_X && mouseX <= px + REFRESH_BTN_X + REFRESH_BTN_W &&
@@ -342,9 +260,10 @@ public class PanelInteractionHandler {
                 mouseY >= py && mouseY <= py + panel.getPanelHeight();
     }
 
-    /**
-     * 处理卡片点击
-     */
+    // ============================================================
+    // ===== 卡片点击 =============================================
+    // ============================================================
+
     private boolean handleCardClick(double mouseX, double mouseY, int px, int py, int pw, int button) {
         if (displayedFluids == null || displayedFluids.isEmpty()) return false;
 
@@ -629,20 +548,23 @@ public class PanelInteractionHandler {
         return null;
     }
 
-    public void setSearchBoxFocused(boolean focused) {
-        this.isSearchBoxFocused = focused;
-    }
+    // ============================================================
+    // ===== 公开操作 =============================================
+    // ============================================================
 
     public void clearSearch() {
-        this.searchKeyword = "";
-        this.cursorPosition = 0;
-        this.isSearchBoxFocused = false;
+        searchBox.clear();
+        searchBox.setFocused(false);
         onRefresh.run();
     }
 
     public void refreshData() {
         onRefresh.run();
     }
+
+    // ============================================================
+    // ===== 内部数据类 ===========================================
+    // ============================================================
 
     private static class CardClickInfo {
         final FluidStack fluid;

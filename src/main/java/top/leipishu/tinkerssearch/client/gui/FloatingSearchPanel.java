@@ -450,11 +450,7 @@ public class FloatingSearchPanel extends AbstractWidget {
         }
 
         // ===== 搜索框点击 =====
-        if (mouseX >= px + 5 && mouseX <= px + 5 + pw - 10 &&
-                mouseY >= py + PanelConfig.SEARCH_BOX_Y && mouseY <= py + PanelConfig.SEARCH_BOX_Y + PanelConfig.SEARCH_BOX_H) {
-            interactionHandler.setSearchBoxFocused(true);
-            // ===== 新增：点击搜索框设置光标位置 =====
-            interactionHandler.handleMouseClickSetCursor(mouseX, mouseY, px, py, pw);
+        if (interactionHandler.handleSearchBoxClick(mouseX, mouseY)) {
             return true;
         }
 

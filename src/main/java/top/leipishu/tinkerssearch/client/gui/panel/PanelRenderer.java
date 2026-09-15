@@ -14,6 +14,8 @@ import top.leipishu.tinkerssearch.alloy.AlloyRecipeData;
 import top.leipishu.tinkerssearch.alloy.AlloyResultCalculator;
 import top.leipishu.tinkerssearch.client.gui.FloatingSearchPanel;
 import top.leipishu.tinkerssearch.client.gui.PanelInteractionHandler;
+import top.leipishu.tinkerssearch.client.gui.components.SearchBox;
+import top.leipishu.tinkerssearch.client.gui.components.SearchBoxStyle;
 import top.leipishu.tinkerssearch.data.FavoritesManager;
 import top.leipishu.tinkerssearch.client.render.ScissorHelper;
 import top.leipishu.tinkerssearch.smeltery.SmelteryDataHelper;
@@ -266,9 +268,9 @@ public class PanelRenderer {
         renderRefreshButton(poseStack, px, py, mouseX, mouseY, font);
 
         if (dataManager.isAlloyMode()) {
-            renderAlloySearchBox(poseStack, px, py, pw, font);
+            renderAlloySearchBox(poseStack, px, py, pw, mouseX, mouseY, font);
         } else {
-            renderSearchBox(poseStack, px, py, pw, font);
+            renderSearchBox(poseStack, px, py, pw, mouseX, mouseY, font);
         }
 
         if (dataManager.isAlloyMode()) {
@@ -305,96 +307,54 @@ public class PanelRenderer {
         font.draw(poseStack, new TranslatableComponent("gui.tinkerssearch.refresh"), btnX + 4, btnY + 3, 0xCCCCCC);
     }
 
-    private void renderSearchBox(PoseStack poseStack, int px, int py, int pw, Font font) {
-        boolean focused = interactionHandler.isSearchBoxFocused();
-        String keyword = interactionHandler.getSearchKeyword();
-        int cursorPos = interactionHandler.getCursorPosition();
+    // ============================================================
+    // ===== 搜索框（组件化）=====================================
+    // ============================================================
+
+    private void renderSearchBox(PoseStack poseStack, int px, int py, int pw,
+                                 int mouseX, int mouseY, Font font) {
+        SearchBox box = interactionHandler.getSearchBox();
+        box.setStyle(SearchBoxStyle.panel());
 
         int boxX = px + 5;
         int boxY = py + SEARCH_BOX_Y;
         int boxW = pw - 10;
         int boxH = SEARCH_BOX_H;
 
-        int bg = focused ? 0xFF3A3A3A : 0xFF222222;
-        GuiComponent.fill(poseStack, boxX, boxY, boxX + boxW, boxY + boxH, bg);
+        box.setBounds(boxX, boxY, boxW, boxH);
+        box.render(poseStack, mouseX, mouseY, font);
 
-        int border = focused ? 0xFF888888 : 0xFF444444;
-        GuiComponent.fill(poseStack, boxX, boxY, boxX + boxW, boxY + 1, border);
-        GuiComponent.fill(poseStack, boxX, boxY + boxH - 1, boxX + boxW, boxY + boxH, border);
-        GuiComponent.fill(poseStack, boxX, boxY, boxX + 1, boxY + boxH, border);
-        GuiComponent.fill(poseStack, boxX + boxW - 1, boxY, boxX + boxW, boxY + boxH, border);
-
-        if (keyword.isEmpty()) {
-            font.draw(poseStack, new TranslatableComponent("gui.tinkerssearch.search_hint"), boxX + 4, boxY + 4, 0x666666);
-        } else {
-            // ===== 绘制光标前的文字 =====
-            String beforeCursor = keyword.substring(0, cursorPos);
-            String afterCursor = keyword.substring(cursorPos);
-            int beforeWidth = font.width(beforeCursor);
-
-            font.draw(poseStack, beforeCursor, boxX + 4, boxY + 4, 0xFFFFFF);
-            font.draw(poseStack, afterCursor, boxX + 4 + beforeWidth, boxY + 4, 0xFFFFFF);
-
-            // ===== 绘制光标 =====
-            if (focused && (System.currentTimeMillis() / 500 % 2 == 0)) {
-                int cursorX = boxX + 4 + beforeWidth;
-                if (cursorX < boxX + boxW - 2) {
-                    GuiComponent.fill(poseStack, cursorX, boxY + 2, cursorX + 1, boxY + boxH - 2, 0xFFFFFFFF);
-                }
-            }
-        }
-
+        // 计数（组件不负责，由调用方附加）
         int total = dataManager.getAllFluids().size();
         int matched = dataManager.getDisplayedFluids().size();
         String countStr = "§8" + matched + "/" + total;
-        font.draw(poseStack, countStr, px + pw - 35, boxY + 4, 0x888888);
+        int countRight = px + pw - 23;
+        font.draw(poseStack, countStr, countRight - font.width(countStr), boxY + 4, 0x888888);
 
         int lineY = boxY + boxH + 4;
-        GuiComponent.fill(poseStack, px + 5, lineY, px + pw - 5 - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING, lineY + 1, 0xFF333333);
+        GuiComponent.fill(poseStack, px + 5, lineY,
+                px + pw - 5 - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING, lineY + 1, 0xFF333333);
     }
 
-    private void renderAlloySearchBox(PoseStack poseStack, int px, int py, int pw, Font font) {
-        boolean focused = interactionHandler.isSearchBoxFocused();
-        String keyword = interactionHandler.getSearchKeyword();
-        int cursorPos = interactionHandler.getCursorPosition();
+    private void renderAlloySearchBox(PoseStack poseStack, int px, int py, int pw,
+                                      int mouseX, int mouseY, Font font) {
+        SearchBox box = interactionHandler.getSearchBox();
+        box.setStyle(SearchBoxStyle.alloy());
 
         int boxX = px + 5;
         int boxY = py + SEARCH_BOX_Y;
         int boxW = pw - 10;
         int boxH = SEARCH_BOX_H;
 
-        int bg = focused ? 0xFF2A2A3A : 0xFF1A1A2A;
-        GuiComponent.fill(poseStack, boxX, boxY, boxX + boxW, boxY + boxH, bg);
-
-        int border = focused ? 0xFF6688FF : 0xFF4466AA;
-        GuiComponent.fill(poseStack, boxX, boxY, boxX + boxW, boxY + 1, border);
-        GuiComponent.fill(poseStack, boxX, boxY + boxH - 1, boxX + boxW, boxY + boxH, border);
-        GuiComponent.fill(poseStack, boxX, boxY, boxX + 1, boxY + boxH, border);
-        GuiComponent.fill(poseStack, boxX + boxW - 1, boxY, boxX + boxW, boxY + boxH, border);
-
-        if (keyword.isEmpty()) {
-            font.draw(poseStack, "§7" + new TranslatableComponent("gui.tinkerssearch.alloy_search_hint").getString(), boxX + 4, boxY + 4, 0x666666);
-        } else {
-            // ===== 绘制光标前的文字 =====
-            String beforeCursor = keyword.substring(0, cursorPos);
-            String afterCursor = keyword.substring(cursorPos);
-            int beforeWidth = font.width(beforeCursor);
-
-            font.draw(poseStack, beforeCursor, boxX + 4, boxY + 4, 0xFFFFFF);
-            font.draw(poseStack, afterCursor, boxX + 4 + beforeWidth, boxY + 4, 0xFFFFFF);
-
-            // ===== 绘制光标 =====
-            if (focused && (System.currentTimeMillis() / 500 % 2 == 0)) {
-                int cursorX = boxX + 4 + beforeWidth;
-                if (cursorX < boxX + boxW - 2) {
-                    GuiComponent.fill(poseStack, cursorX, boxY + 2, cursorX + 1, boxY + boxH - 2, 0xFFFFFFFF);
-                }
-            }
-        }
+        box.setBounds(boxX, boxY, boxW, boxH);
+        box.render(poseStack, mouseX, mouseY, font);
 
         int lineY = boxY + boxH + 4;
-        GuiComponent.fill(poseStack, px + 5, lineY, px + pw - 5 - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING, lineY + 1, 0xFF333366);
+        GuiComponent.fill(poseStack, px + 5, lineY,
+                px + pw - 5 - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING, lineY + 1, 0xFF333366);
     }
+
+    // ==================== 普通模式内容 ====================
 
     private void renderNormalContent(PoseStack poseStack, int px, int py, int pw, int ph, int mouseX, int mouseY, Font font) {
         if (!dataManager.getDisplayedFavoriteFluids().isEmpty()) {
