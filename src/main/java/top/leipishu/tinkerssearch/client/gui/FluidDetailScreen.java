@@ -16,6 +16,7 @@ import net.minecraftforge.fluids.FluidStack;
 import org.lwjgl.glfw.GLFW;
 import slimeknights.tconstruct.smeltery.block.entity.controller.SmelteryBlockEntity;
 import slimeknights.tconstruct.smeltery.block.entity.tank.SmelteryTank;
+import slimeknights.tconstruct.library.tools.part.IMaterialItem;
 
 import top.leipishu.tinkerssearch.data.FluidPartData;
 import top.leipishu.tinkerssearch.data.FluidPartData.MaterialEntry;
@@ -148,7 +149,13 @@ public class FluidDetailScreen extends Screen {
 
         new Thread(() -> {
             try {
+                // ===== 铸造区：只显示锭/块等普通物品 =====
                 allCastingInfos = CastingRecipeHelper.getCastingRecipesForFluid(fluidStack);
+
+                // ★ 关键：过滤掉 IMaterialItem 输出，它们属于 parts 区
+                allCastingInfos.removeIf(info ->
+                        info.outputItem.getItem() instanceof IMaterialItem);
+
                 data = FluidPartDataCache.get(fluidStack);
                 filteredCastingInfos = new ArrayList<>(allCastingInfos);
                 filteredPartInfos = data.entries.isEmpty()
