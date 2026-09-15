@@ -19,9 +19,9 @@ import top.leipishu.tinkerssearch.client.gui.panel.PanelDataManager;
 import top.leipishu.tinkerssearch.client.gui.panel.PanelLayoutCalculator;
 import top.leipishu.tinkerssearch.client.gui.panel.PanelRenderer;
 import top.leipishu.tinkerssearch.config.PanelConfig;
-import top.leipishu.tinkerssearch.utils.SmelteryTemperatureReader;
-import top.leipishu.tinkerssearch.utils.FavoritesManager;
-import top.leipishu.tinkerssearch.utils.SmelteryClickHandler;
+import top.leipishu.tinkerssearch.smeltery.SmelteryTemperatureReader;
+import top.leipishu.tinkerssearch.data.FavoritesManager;
+import top.leipishu.tinkerssearch.smeltery.SmelteryClickHandler;
 
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import slimeknights.tconstruct.smeltery.block.entity.controller.SmelteryBlockEntity;

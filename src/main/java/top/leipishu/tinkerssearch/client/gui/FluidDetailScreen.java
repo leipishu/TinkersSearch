@@ -23,10 +23,10 @@ import top.leipishu.tinkerssearch.data.FluidPartData.MaterialEntry;
 import top.leipishu.tinkerssearch.data.FluidPartData.ModifierInfo;
 import top.leipishu.tinkerssearch.data.FluidPartData.PartInfo;
 import top.leipishu.tinkerssearch.data.FluidPartDataCache;
-import top.leipishu.tinkerssearch.utils.CastingRecipeHelper;
-import top.leipishu.tinkerssearch.utils.ScissorHelper;
-import top.leipishu.tinkerssearch.utils.SmelteryDataHelper;
-import top.leipishu.tinkerssearch.utils.SmelteryTemperatureReader;
+import top.leipishu.tinkerssearch.recipe.CastingRecipeHelper;
+import top.leipishu.tinkerssearch.client.render.ScissorHelper;
+import top.leipishu.tinkerssearch.smeltery.SmelteryDataHelper;
+import top.leipishu.tinkerssearch.smeltery.SmelteryTemperatureReader;
 
 import java.util.ArrayList;
 import java.util.HashMap;

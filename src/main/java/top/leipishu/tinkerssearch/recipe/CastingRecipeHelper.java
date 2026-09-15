@@ -1,4 +1,4 @@
-package top.leipishu.tinkerssearch.utils;
+package top.leipishu.tinkerssearch.recipe;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.resources.ResourceLocation;
@@ -9,7 +9,6 @@ import net.minecraft.world.item.crafting.RecipeManager;
 import net.minecraft.world.level.material.Fluid;
 import net.minecraftforge.fluids.FluidStack;
 import net.minecraftforge.registries.ForgeRegistries;
-import slimeknights.tconstruct.library.materials.IMaterialRegistry;
 import slimeknights.tconstruct.library.materials.MaterialRegistry;
 import slimeknights.tconstruct.library.materials.definition.IMaterial;
 import slimeknights.tconstruct.library.materials.definition.MaterialId;
@@ -21,6 +20,7 @@ import slimeknights.tconstruct.library.recipe.casting.IDisplayableCastingRecipe;
 import slimeknights.tconstruct.library.recipe.casting.ItemCastingRecipe;
 import slimeknights.tconstruct.library.recipe.casting.material.MaterialCastingRecipe;
 import slimeknights.tconstruct.library.tools.part.IMaterialItem;
+import top.leipishu.tinkerssearch.utils.PartPropertyHelper;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;

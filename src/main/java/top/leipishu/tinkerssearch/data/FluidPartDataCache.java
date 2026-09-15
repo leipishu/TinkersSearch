@@ -27,7 +27,7 @@ import top.leipishu.tinkerssearch.data.FluidPartData.MaterialEntry;
 import top.leipishu.tinkerssearch.data.FluidPartData.ModifierInfo;
 import top.leipishu.tinkerssearch.data.FluidPartData.PartInfo;
 import top.leipishu.tinkerssearch.data.FluidPartData.PartProperties;
-import top.leipishu.tinkerssearch.utils.CastingRecipeHelper;
+import top.leipishu.tinkerssearch.recipe.CastingRecipeHelper;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;

@@ -1,4 +1,4 @@
-package top.leipishu.tinkerssearch.utils;
+package top.leipishu.tinkerssearch.smeltery;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;

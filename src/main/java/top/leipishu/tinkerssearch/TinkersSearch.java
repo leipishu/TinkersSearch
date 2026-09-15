@@ -8,7 +8,6 @@ import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiComponent;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.world.level.block.entity.BlockEntity;
-import net.minecraftforge.client.event.InputEvent;
 import net.minecraftforge.client.event.ScreenEvent;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.TickEvent;
@@ -23,7 +22,7 @@ import org.lwjgl.opengl.GL11;
 import top.leipishu.tinkerssearch.client.gui.FloatingSearchPanel;
 import top.leipishu.tinkerssearch.client.gui.PanelInteractionHandler;
 import top.leipishu.tinkerssearch.jei.Jei;
-import top.leipishu.tinkerssearch.utils.CastingRecipeHelper;
+import top.leipishu.tinkerssearch.recipe.CastingRecipeHelper;
 
 import java.lang.reflect.Field;
 

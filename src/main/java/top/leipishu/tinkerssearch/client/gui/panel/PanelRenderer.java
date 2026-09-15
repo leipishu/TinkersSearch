@@ -14,9 +14,9 @@ import top.leipishu.tinkerssearch.alloy.AlloyRecipeData;
 import top.leipishu.tinkerssearch.alloy.AlloyResultCalculator;
 import top.leipishu.tinkerssearch.client.gui.FloatingSearchPanel;
 import top.leipishu.tinkerssearch.client.gui.PanelInteractionHandler;
-import top.leipishu.tinkerssearch.utils.FavoritesManager;
-import top.leipishu.tinkerssearch.utils.ScissorHelper;
-import top.leipishu.tinkerssearch.utils.SmelteryDataHelper;
+import top.leipishu.tinkerssearch.data.FavoritesManager;
+import top.leipishu.tinkerssearch.client.render.ScissorHelper;
+import top.leipishu.tinkerssearch.smeltery.SmelteryDataHelper;
 
 import java.util.ArrayList;
 import java.util.List;

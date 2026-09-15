@@ -6,9 +6,9 @@ import net.minecraftforge.fluids.FluidStack;
 import top.leipishu.tinkerssearch.alloy.AlloyQueryHandler;
 import top.leipishu.tinkerssearch.client.gui.FloatingSearchPanel;
 import top.leipishu.tinkerssearch.client.gui.PanelInteractionHandler;
-import top.leipishu.tinkerssearch.utils.FavoritesManager;
+import top.leipishu.tinkerssearch.data.FavoritesManager;
 import top.leipishu.tinkerssearch.utils.SearchHelper;
-import top.leipishu.tinkerssearch.utils.SmelteryDataHelper;
+import top.leipishu.tinkerssearch.smeltery.SmelteryDataHelper;
 
 import java.util.ArrayList;
 import java.util.List;
