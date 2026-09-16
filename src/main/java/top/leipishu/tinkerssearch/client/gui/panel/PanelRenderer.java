@@ -675,6 +675,7 @@ public class PanelRenderer {
 
         int cardStartY = startY;
         int cardAreaHeight = endY - cardStartY;
+        int cardAreaW = pw - 10 - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING;
 
         if (materials.isEmpty()) {
             font.draw(poseStack, "§7" + new TranslatableComponent("gui.tinkerssearch.no_match").getString(),
@@ -682,9 +683,7 @@ public class PanelRenderer {
             return;
         }
 
-        int margin = 4;
-        int availableWidth = pw - 10 - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING - margin * 2;
-        int cardW = (availableWidth - CARD_SPACING * (ITEMS_PER_ROW - 1)) / ITEMS_PER_ROW;
+        int cardW = (pw - 10 - CARD_SPACING - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING) / ITEMS_PER_ROW;
         int cardH = CARD_HEIGHT;
 
         int totalRows = (materials.size() + ITEMS_PER_ROW - 1) / ITEMS_PER_ROW;
@@ -694,7 +693,7 @@ public class PanelRenderer {
         alloyScrollOffset = Math.max(0, Math.min(alloyScrollOffset, maxOffset));
         dataManager.setAlloyScrollOffset(alloyScrollOffset);
 
-        boolean scissorOk = ScissorHelper.enableScissor(px + 5 + margin, cardStartY, availableWidth, cardAreaHeight);
+        boolean scissorOk = ScissorHelper.enableScissor(px + 5, cardStartY, cardAreaW, cardAreaHeight);
         if (scissorOk) {
             try {
                 RenderSystem.disableDepthTest();
@@ -702,7 +701,7 @@ public class PanelRenderer {
                 for (int i = 0; i < materials.size(); i++) {
                     int row = i / ITEMS_PER_ROW;
                     int col = i % ITEMS_PER_ROW;
-                    int cardX = px + 5 + margin + col * (cardW + CARD_SPACING);
+                    int cardX = px + 5 + col * (cardW + CARD_SPACING);
                     int cardY = actualStartY + row * (cardH + CARD_SPACING);
 
                     if (cardY + cardH < cardStartY || cardY > endY) continue;
@@ -724,7 +723,7 @@ public class PanelRenderer {
             for (int i = 0; i < materials.size(); i++) {
                 int row = i / ITEMS_PER_ROW;
                 int col = i % ITEMS_PER_ROW;
-                int cardX = px + 5 + margin + col * (cardW + CARD_SPACING);
+                int cardX = px + 5 + col * (cardW + CARD_SPACING);
                 int cardY = actualStartY + row * (cardH + CARD_SPACING);
 
                 if (cardY + cardH < cardStartY || cardY > endY) continue;

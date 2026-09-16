@@ -119,7 +119,7 @@ public class PanelLayoutCalculator {
 
     public int getAlloyVisibleHeight() {
         if (alloyHandler.getSelectedMaterial() == null) {
-            int startY = panel.getPanelY() + CARDS_START_Y + 18;
+            int startY = panel.getPanelY() + CARDS_START_Y;
             int endY = panel.getPanelY() + panel.getPanelHeight() - 4;
             return Math.max(0, endY - startY);
         } else {
