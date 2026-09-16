@@ -11,6 +11,7 @@ import net.minecraft.network.chat.Style;
 import net.minecraft.network.chat.TextColor;
 import net.minecraft.network.chat.TextComponent;
 import net.minecraft.network.chat.TranslatableComponent;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.fluids.FluidStack;
 import org.lwjgl.glfw.GLFW;
@@ -44,6 +45,9 @@ public class FluidDetailScreen extends Screen {
     private final FluidStack fluidStack;
     private final SmelteryBlockEntity smeltery;
     private final int currentTemperature;
+
+    /** 该流体在冶炼炉中的真实储量；不在炉里则为 0。 */
+    private final int displayAmount;
 
     /** 打开前正在显示的父 Screen（冶炼炉），关闭时恢复。 */
     private final Screen savedScreen;
@@ -149,6 +153,7 @@ public class FluidDetailScreen extends Screen {
         this.smeltery = smeltery;
         this.savedScreen = savedScreen;
         this.currentTemperature = new SmelteryTemperatureReader().getCurrentSmelteryTemperature();
+        this.displayAmount = resolveActualAmount(fluidStack, smeltery);
 
         CastingRecipeHelper.prewarmPartRequirements();
 
@@ -176,6 +181,33 @@ public class FluidDetailScreen extends Screen {
                 needsLayoutRecalc = true;
             });
         }).start();
+    }
+
+    /**
+     * 从冶炼炉 tank 里查该流体的真实储量。
+     * 不在炉里（例如只是收藏但从未装入）时返回 0。
+     */
+    private static int resolveActualAmount(FluidStack target, SmelteryBlockEntity smeltery) {
+        if (target == null || target.isEmpty()) return 0;
+        if (smeltery == null) return 0;
+
+        ResourceLocation targetId = target.getFluid().getRegistryName();
+        if (targetId == null) return 0;
+
+        SmelteryTank<?> tank = smeltery.getTank();
+        if (tank == null) return 0;
+
+        int count = tank.getTanks();
+        int total = 0;
+        for (int i = 0; i < count; i++) {
+            FluidStack fs = tank.getFluidInTank(i);
+            if (fs == null || fs.isEmpty()) continue;
+            ResourceLocation id = fs.getFluid().getRegistryName();
+            if (targetId.equals(id)) {
+                total += fs.getAmount();
+            }
+        }
+        return total;
     }
 
     private static String buildKey(PartInfo info) {
@@ -401,12 +433,10 @@ public class FluidDetailScreen extends Screen {
 
     @Override
     public void render(PoseStack poseStack, int mouseX, int mouseY, float partialTick) {
-        // ===== 1. 先渲染父 Screen（冶炼炉 + 面板），鼠标传 -1 隐藏其 hover 态 =====
         if (savedScreen != null) {
             savedScreen.render(poseStack, -1, -1, partialTick);
         }
 
-        // ===== 2. 推到高 z 层 + 禁用深度测试 =====
         poseStack.pushPose();
         poseStack.translate(0, 0, 500);
         RenderSystem.disableDepthTest();
@@ -425,21 +455,17 @@ public class FluidDetailScreen extends Screen {
             recalculateLayout();
         }
 
-        // ===== 半透明遮罩 =====
         fill(poseStack, 0, 0, this.width, this.height, 0x80000000);
 
-        // ===== 窗口背景 =====
         fill(poseStack, centerX + 2, centerY + 2, centerX + windowWidth + 2, centerY + windowHeight + 2, 0x40000000);
         fill(poseStack, centerX, centerY, centerX + windowWidth, centerY + windowHeight, 0xF0181818);
         drawBorder(poseStack, centerX, centerY, windowWidth, windowHeight, 0xFF555555);
 
-        // ===== 关闭按钮（搜索框风格） =====
         int closeX = centerX + windowWidth - PADDING - CLOSE_BTN_SIZE;
         int closeY = centerY + PADDING + 2;
         fill(poseStack, closeX, closeY, closeX + CLOSE_BTN_SIZE, closeY + CLOSE_BTN_SIZE, 0x88AA4444);
         font.draw(poseStack, "\u00a7f\u2715", closeX + 2, closeY + 2, 0xFFFFFF);
 
-        // ===== 固定内容（头部 + 搜索框），裁剪到固定区域 =====
         int clipX = centerX + PADDING;
         int clipW = windowWidth - PADDING * 2;
 
@@ -455,7 +481,6 @@ public class FluidDetailScreen extends Screen {
             }
         }
 
-        // ===== 滚动内容，裁剪到滚动区域 =====
         int scrollClipTop = centerY + scrollStartY;
         int scrollClipBottom = centerY + windowHeight - PADDING;
         int scrollClipHeight = scrollClipBottom - scrollClipTop;
@@ -484,15 +509,11 @@ public class FluidDetailScreen extends Screen {
             pendingTooltip = null;
         }
 
-        // ===== 恢复状态 =====
         RenderSystem.depthMask(true);
         RenderSystem.enableDepthTest();
         poseStack.popPose();
     }
 
-    /**
-     * 固定内容：图标 + 标题 + 数量/温度/容量 + 搜索框。不随滚动移动。
-     */
     private void renderFixedContent(PoseStack poseStack, int mouseX, int mouseY) {
         int baseX = centerX;
         int baseY = centerY;
@@ -505,7 +526,7 @@ public class FluidDetailScreen extends Screen {
 
         int infoY = baseY + infoStartY;
         String amount = "\u00a77" + new TranslatableComponent("gui.tinkerssearch.detail.amount").getString()
-                + ": \u00a7f" + fluidStack.getAmount() + " mB";
+                + ": \u00a7f" + displayAmount + " mB";
         font.draw(poseStack, amount, baseX + textStartX, infoY, 0xCCCCCC);
 
         String temp = "\u00a77" + new TranslatableComponent("gui.tinkerssearch.detail.temperature").getString() + ": " +
@@ -519,7 +540,7 @@ public class FluidDetailScreen extends Screen {
             if (tank != null) {
                 int capacity = tank.getCapacity();
                 String capacityStr = "\u00a77" + new TranslatableComponent("gui.tinkerssearch.detail.capacity").getString()
-                        + ": \u00a7f" + fluidStack.getAmount() + " / " + capacity + " mB";
+                        + ": \u00a7f" + displayAmount + " / " + capacity + " mB";
                 font.draw(poseStack, capacityStr, baseX + textStartX, infoY, 0xCCCCCC);
             }
         }
@@ -528,9 +549,6 @@ public class FluidDetailScreen extends Screen {
         searchBox.render(poseStack, mouseX, mouseY, font);
     }
 
-    /**
-     * 滚动内容：铸造卡片 + 部件卡片 + 页脚。按 totalScrollOffset 上移。
-     */
     private void renderScrolledContent(PoseStack poseStack, int mouseX, int mouseY) {
         int baseX = centerX;
         int baseY = centerY - totalScrollOffset;
@@ -547,7 +565,7 @@ public class FluidDetailScreen extends Screen {
             renderCastingCards(poseStack, baseX, baseY + castingStartY, mouseX, mouseY);
         }
 
-        // ===== 部件标题（带页码） =====
+        // ===== 部件标题 =====
         int totalPages = data.entries.size();
         String pageInfo = totalPages > 1 ? " \u00a77[" + (currentPageIndex + 1) + "/" + totalPages + "]" : "";
         int currentPageTotal = (currentEntry() != null) ? currentEntry().parts.size() : 0;
@@ -624,7 +642,6 @@ public class FluidDetailScreen extends Screen {
 
         ItemStack stack = info.outputItem;
 
-        // 图标区域 28x28，物品 16x16 在区域内居中
         int iconAreaSize = 28;
         int iconAreaX = x + 6;
         int iconAreaY = y + (CARD_HEIGHT - iconAreaSize) / 2;
@@ -647,7 +664,7 @@ public class FluidDetailScreen extends Screen {
         textY += 13;
 
         int required = info.requiredAmount;
-        int available = fluidStack.getAmount();
+        int available = displayAmount;
         int canCast = required > 0 ? available / required : 0;
 
         String meltLine;
@@ -729,8 +746,6 @@ public class FluidDetailScreen extends Screen {
         int border = hover ? 0xFF66BB66 : 0xFF2E4A32;
         CardBackground.drawWithShadow(ps, x, y, w, h, bg, border, 0x40000000);
 
-        // 物品图标 16x16：水平居中，垂直在"名称上方区域"居中
-        // 名称占据 h-14 到 h 的空间
         int iconX = x + (w - 16) / 2;
         int iconY = y + (h - 16 - 14) / 2;
 
@@ -815,7 +830,7 @@ public class FluidDetailScreen extends Screen {
         int maxW = slotW - 12;
 
         if (info.requiredAmount > 0) {
-            int available = fluidStack.getAmount();
+            int available = displayAmount;
             int canMake = available / info.requiredAmount;
             String meltLine;
             if (canMake >= 1) {
@@ -946,7 +961,6 @@ public class FluidDetailScreen extends Screen {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        // 关闭按钮
         int closeX = centerX + windowWidth - PADDING - CLOSE_BTN_SIZE;
         int closeY = centerY + PADDING + 2;
         if (mouseX >= closeX && mouseX <= closeX + CLOSE_BTN_SIZE
@@ -955,7 +969,6 @@ public class FluidDetailScreen extends Screen {
             return true;
         }
 
-        // 点击窗外
         if (mouseX < centerX || mouseX > centerX + windowWidth ||
                 mouseY < centerY || mouseY > centerY + windowHeight) {
             if (searchBox.isFocused()) {
@@ -966,7 +979,6 @@ public class FluidDetailScreen extends Screen {
             return true;
         }
 
-        // 翻页
         for (int[] rect : pageButtonRects) {
             if (mouseX >= rect[0] && mouseX <= rect[0] + PAGE_BTN_W
                     && mouseY >= rect[1] && mouseY <= rect[1] + PAGE_BTN_H) {
@@ -975,7 +987,6 @@ public class FluidDetailScreen extends Screen {
             }
         }
 
-        // 部件点击
         for (PartLayout layout : partLayouts) {
             if (mouseX >= layout.x && mouseX <= layout.x + layout.w
                     && mouseY >= layout.y && mouseY <= layout.y + layout.h) {
@@ -990,7 +1001,6 @@ public class FluidDetailScreen extends Screen {
             }
         }
 
-        // 搜索框（固定位置，不随滚动）
         searchBox.setBounds(centerX + searchBoxX, centerY + searchBoxY,
                 searchBoxW, SEARCH_BOX_HEIGHT);
         if (searchBox.mouseClicked(mouseX, mouseY, button)) {
