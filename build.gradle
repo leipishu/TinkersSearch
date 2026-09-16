@@ -21,7 +21,7 @@ ext {
 
 apply plugin: 'net.minecraftforge.gradle'
 
-version = '1.6.0-pre'
+version = '1.6.0-beta'
 group = 'top.leipishu.tinkerssearch'
 archivesBaseName = 'tinkerssearch'
 
@@ -75,6 +75,7 @@ minecraft {
 sourceSets.main.resources { srcDir 'src/generated/resources' }
 
 repositories {
+    mavenCentral()
     maven {
         name 'DVS1 Maven FS'
         url 'https://dvs1.progwml6.com/files/maven'
@@ -98,6 +99,14 @@ dependencies {
     // JEI - 可选依赖
     compileOnly fg.deobf("mezz.jei:jei-${minecraft_version}:9.7.1.255:api")
     runtimeOnly fg.deobf("mezz.jei:jei-${minecraft_version}:9.7.1.255")
+
+    // 1. 使用 minecraftLibrary 确保开发环境能加载 pinyin4j
+    minecraftLibrary 'com.belerweb:pinyin4j:2.5.1'
+
+    // 2. 使用 jarJar 将 pinyin4j 打包进最终的模组 Jar
+    jarJar(group: 'com.belerweb', name: 'pinyin4j', version: '[2.5,3.0)') {
+        jarJar.pin(it, '2.5.1') // 锁定打包版本
+    }
 }
 
 jar {
@@ -115,6 +124,7 @@ jar {
 }
 
 jar.finalizedBy('reobfJar')
+jarJar.enable()
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'

@@ -1,20 +1,29 @@
 package top.leipishu.tinkerssearch.utils;
 
 import net.minecraftforge.fluids.FluidStack;
+import top.leipishu.tinkerssearch.utils.pinyin.PinyinSearch;
+import top.leipishu.tinkerssearch.utils.pinyin.PinyinSearch.PinyinResult;
 
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 搜索帮助类 - 用于过滤流体列表
+ * 搜索帮助类 - 用于过滤流体列表。
+ *
+ * <p>匹配路径（任一命中即通过）：
+ * <ol>
+ *   <li>显示名 contains（忽略 "Molten " / "熔融" 前缀）</li>
+ *   <li>注册名 contains</li>
+ *   <li>拼音全拼 contains</li>
+ *   <li>拼音首字母 contains</li>
+ * </ol>
+ *
+ * <p>传入的 {@code keyword} 已在 {@link #filterFluids} 里统一转小写。
  */
 public class SearchHelper {
 
     /**
-     * 根据关键词过滤流体列表
-     * @param fluids 原始流体列表
-     * @param keyword 搜索关键词
-     * @return 过滤后的流体列表
+     * 根据关键词过滤流体列表。
      */
     public static List<FluidStack> filterFluids(List<FluidStack> fluids, String keyword) {
         List<FluidStack> result = new ArrayList<>();
@@ -39,24 +48,25 @@ public class SearchHelper {
     }
 
     /**
-     * 检查单个流体是否匹配关键词
+     * 检查单个流体是否匹配关键词。
+     *
+     * @param keyword 已小写化、已 trim
      */
     private static boolean matches(FluidStack fluid, String keyword) {
         if (fluid == null || fluid.isEmpty()) {
             return false;
         }
 
-        // 获取显示名称并移除前缀
+        // ===== 1. 显示名（去掉 Molten / 熔融 前缀）=====
         String displayName = fluid.getDisplayName().getString();
         String cleanName = displayName.replace("Molten ", "").replace("熔融", "");
         String lowerName = cleanName.toLowerCase();
 
-        // 检查是否包含关键词
         if (lowerName.contains(keyword)) {
             return true;
         }
 
-        // 检查流体注册名是否包含关键词
+        // ===== 2. 注册名 =====
         String registryName = fluid.getFluid().getRegistryName() != null
                 ? fluid.getFluid().getRegistryName().getPath()
                 : "";
@@ -64,21 +74,30 @@ public class SearchHelper {
             return true;
         }
 
+        // ===== 3. 拼音全拼 / 首字母 =====
+        try {
+            PinyinResult pinyin = PinyinSearch.getPinyin(cleanName);
+            if (pinyin.fullPinyin.contains(keyword)) return true;
+            if (pinyin.initials.contains(keyword)) return true;
+        } catch (Throwable ignored) {
+            // 拼音转换失败不影响字面匹配
+        }
+
         return false;
     }
 
     /**
-     * 检查关键词是否匹配任何流体
+     * 检查关键词是否匹配任何流体。
      */
     public static boolean hasMatches(List<FluidStack> fluids, String keyword) {
         if (keyword == null || keyword.trim().isEmpty()) {
-            return !fluids.isEmpty();
+            return fluids != null && !fluids.isEmpty();
         }
         return !filterFluids(fluids, keyword).isEmpty();
     }
 
     /**
-     * 获取匹配数量
+     * 获取匹配数量。
      */
     public static int getMatchCount(List<FluidStack> fluids, String keyword) {
         return filterFluids(fluids, keyword).size();
