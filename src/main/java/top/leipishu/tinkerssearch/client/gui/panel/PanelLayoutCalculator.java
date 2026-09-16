@@ -7,14 +7,28 @@ import top.leipishu.tinkerssearch.alloy.AlloyQueryHandler;
 import top.leipishu.tinkerssearch.alloy.AlloyRecipeData;
 import top.leipishu.tinkerssearch.alloy.AlloyResultCalculator;
 import top.leipishu.tinkerssearch.client.gui.FloatingSearchPanel;
-
 import java.util.ArrayList;
 import java.util.List;
 
 import static top.leipishu.tinkerssearch.config.PanelConfig.*;
 
 /**
- * 面板布局计算器 - 计算区域位置、卡片尺寸等
+ * 面板布局计算器。
+ *
+ * <p>面板从上到下依次为：
+ * <ol>
+ *   <li>标题栏 + 搜索框（固定）</li>
+ *   <li>收藏区：标题行 + 内容（折叠时内容高度为 0）</li>
+ *   <li>冶炼炉区：标题行 + 内容</li>
+ *   <li>全部材料区：标题行 + 内容（默认折叠）</li>
+ * </ol>
+ *
+ * <p>布局规则：
+ * <ul>
+ *   <li>全部材料块高度由自身内容决定，不随冶炼炉变化</li>
+ *   <li>冶炼炉高度 = 面板底部 - 冶炼炉内容起点 - 全部材料块 - 间距（若折叠则为 0）</li>
+ *   <li>全部材料标题 Y = 冶炼炉内容起点 + 冶炼炉高度 + 间距（紧跟在冶炼炉之后）</li>
+ * </ul>
  */
 public class PanelLayoutCalculator {
 
@@ -38,64 +52,96 @@ public class PanelLayoutCalculator {
         this.panelRenderer = panelRenderer;
     }
 
-    // ==================== 区域位置 ====================
+    // ==================== 收藏区 ====================
 
-    public int getFavoriteAreaStartY() {
-        return CARDS_START_Y + SECTION_LABEL_HEIGHT + TITLE_CARD_SPACING;
+    /** 收藏区标题行 Y（相对面板左上角）。 */
+    public int getFavoriteTitleY() {
+        return CARDS_START_Y;
     }
 
+    /** 收藏区内容起始 Y。 */
+    public int getFavoriteAreaStartY() {
+        return getFavoriteTitleY() + SECTION_LABEL_HEIGHT;
+    }
+
+    /** 收藏区内容高度（折叠时为 0）。 */
     public int getFavoriteAreaHeight() {
+        if (dataManager.isFavoritesCollapsed()) return 0;
         if (dataManager.getDisplayedFavoriteFluids().isEmpty()) return 0;
-        int cardW = (panel.getPanelWidth() - 10 - CARD_SPACING - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING) / ITEMS_PER_ROW;
         int totalRows = (dataManager.getDisplayedFavoriteFluids().size() + ITEMS_PER_ROW - 1) / ITEMS_PER_ROW;
         int contentHeight = totalRows * (CARD_HEIGHT + CARD_SPACING) - CARD_SPACING;
         return Math.min(contentHeight, (int)(panel.getPanelHeight() * 0.35));
     }
 
+    // ==================== 冶炼炉区 ====================
+
+    /** 冶炼炉区标题行 Y。 */
+    public int getSmelteryTitleY() {
+        int y = getFavoriteAreaStartY() + getFavoriteAreaHeight();
+        if (getFavoriteAreaHeight() > 0) y += SECTION_SPACING;
+        return y;
+    }
+
+    /** 冶炼炉区内容起始 Y。 */
     public int getSmelteryAreaStartY() {
-        int favEndY = panel.getPanelY() + getFavoriteAreaStartY() + getFavoriteAreaHeight();
-        if (dataManager.getDisplayedFavoriteFluids().isEmpty()) {
-            return panel.getPanelY() + CARDS_START_Y + SECTION_LABEL_HEIGHT + TITLE_CARD_SPACING;
-        }
-        return favEndY + SECTION_SPACING + SECTION_LABEL_HEIGHT + TITLE_CARD_SPACING;
+        return getSmelteryTitleY() + SECTION_LABEL_HEIGHT;
+    }
+
+    /**
+     * 冶炼炉区内容高度。
+     *
+     * <p>计算方式：面板底部 - 冶炼炉内容起点 - 全部材料块高度 - 间距。
+     * 折叠时返回 0。
+     */
+    public int getSmelteryAreaHeight() {
+        if (dataManager.isSmelteryCollapsed()) return 0;
+
+        int contentY = getSmelteryAreaStartY();
+        int allMatBlock = getAllMaterialsBlockHeight();
+        int panelBottom = panel.getPanelHeight() - 4;
+        int h = panelBottom - contentY - allMatBlock - SECTION_SPACING;
+        return Math.max(0, h);
+    }
+
+    // ==================== 全部材料区 ====================
+
+    /** 全部材料区内容高度（折叠时为 0）。 */
+    public int getAllMaterialsAreaHeight() {
+        if (dataManager.isAllMaterialsCollapsed()) return 0;
+        if (dataManager.getDisplayedAllMaterials().isEmpty()) return 0;
+        int totalRows = (dataManager.getDisplayedAllMaterials().size() + ITEMS_PER_ROW - 1) / ITEMS_PER_ROW;
+        int contentHeight = totalRows * (CARD_HEIGHT + CARD_SPACING) - CARD_SPACING;
+        return Math.min(contentHeight, (int)(panel.getPanelHeight() * 0.35));
+    }
+
+    /** 全部材料块（标题行 + 内容）的总高度。 */
+    public int getAllMaterialsBlockHeight() {
+        return SECTION_LABEL_HEIGHT + getAllMaterialsAreaHeight();
+    }
+
+    /**
+     * 全部材料区标题行 Y。
+     *
+     * <p>紧跟在冶炼炉内容之后（间距 = {@code SECTION_SPACING}）。
+     * 这样无论冶炼炉是否折叠，全部材料都位于其正下方，不会覆盖冶炼炉。
+     */
+    public int getAllMaterialsTitleY() {
+        int smelteryBottom = getSmelteryAreaStartY() + getSmelteryAreaHeight();
+        return smelteryBottom + SECTION_SPACING;
+    }
+
+    /** 全部材料区内容起始 Y。 */
+    public int getAllMaterialsContentY() {
+        return getAllMaterialsTitleY() + SECTION_LABEL_HEIGHT;
     }
 
     // ==================== 合金模式 ====================
 
-    /**
-     * 计算单个合金卡片的高度（委托给 PanelRenderer）
-     */
     private int calculateCardHeight(AlloyResultCalculator.AlloyChainResult result) {
         Minecraft mc = Minecraft.getInstance();
         Font font = mc.font;
         int cardWidth = panel.getPanelWidth() - 12 - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING;
         return panelRenderer.calculateActualCardHeight(result, font, cardWidth);
-    }
-
-    /**
-     * 收集后续合金结果（最多 limit 个）
-     */
-    private List<AlloyResultCalculator.AlloyChainResult> collectNextResults(AlloyResultCalculator.AlloyChainResult result, int limit) {
-        List<AlloyResultCalculator.AlloyChainResult> results = new ArrayList<>();
-        AlloyResultCalculator.AlloyChainResult current = result.getNext();
-        while (current != null && results.size() < limit) {
-            results.add(current);
-            current = current.getNext();
-        }
-        return results;
-    }
-
-    /**
-     * 统计后续合金总数
-     */
-    private int countNextResults(AlloyResultCalculator.AlloyChainResult result) {
-        int count = 0;
-        AlloyResultCalculator.AlloyChainResult current = result.getNext();
-        while (current != null) {
-            count++;
-            current = current.getNext();
-        }
-        return count;
     }
 
     public int getAlloyContentHeight() {

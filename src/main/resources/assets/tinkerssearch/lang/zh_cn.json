@@ -47,6 +47,7 @@
   "gui.tinkerssearch.detail.no_traits": "（无词条）",
   "gui.tinkerssearch.detail.no_desc": "无描述",
   "gui.tinkerssearch.detail.no_recipe": "无配方",
+  "gui.tinkerssearch.all_materials": "全部材料",
 
   "gui.tinkerssearch.tier.wood": "木",
   "gui.tinkerssearch.tier.stone": "石",

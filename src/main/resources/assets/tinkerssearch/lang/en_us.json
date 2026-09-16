@@ -47,6 +47,7 @@
   "gui.tinkerssearch.detail.no_traits": "(No traits)",
   "gui.tinkerssearch.detail.no_desc": "No description",
   "gui.tinkerssearch.detail.no_recipe": "No Recipe",
+  "gui.tinkerssearch.all_materials": "All Materials",
 
   "gui.tinkerssearch.tier.wood": "Wood",
   "gui.tinkerssearch.tier.stone": "Stone",

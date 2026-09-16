@@ -17,8 +17,10 @@ import org.lwjgl.glfw.GLFW;
 import top.leipishu.tinkerssearch.alloy.AlloyQueryHandler;
 import top.leipishu.tinkerssearch.client.gui.panel.PanelAnimationManager;
 import top.leipishu.tinkerssearch.client.gui.panel.PanelDataManager;
+import top.leipishu.tinkerssearch.client.gui.panel.PanelDataManager.AreaKind;
 import top.leipishu.tinkerssearch.client.gui.panel.PanelLayoutCalculator;
 import top.leipishu.tinkerssearch.client.gui.panel.PanelRenderer;
+import top.leipishu.tinkerssearch.client.gui.components.FoldHeader;
 import top.leipishu.tinkerssearch.config.PanelConfig;
 import top.leipishu.tinkerssearch.smeltery.SmelteryTemperatureReader;
 import top.leipishu.tinkerssearch.data.FavoritesManager;
@@ -31,20 +33,14 @@ import java.util.List;
 
 import static top.leipishu.tinkerssearch.config.PanelConfig.PANEL_WIDTH;
 
-/**
- * 浮动搜索面板 - 核心控制类
- */
 public class FloatingSearchPanel extends AbstractWidget {
 
-    // ===== Tab按钮常量 =====
     public static final int TAB_BUTTON_WIDTH = 14;
     public static final int TAB_BUTTON_HEIGHT = 30;
 
-    // ===== 状态 =====
     private boolean isVisible = false;
     private boolean isActuallyVisible = false;
 
-    // ===== 子管理器 =====
     private final PanelDataManager dataManager;
     private final PanelAnimationManager animationManager;
     private final PanelLayoutCalculator layoutCalculator;
@@ -53,7 +49,6 @@ public class FloatingSearchPanel extends AbstractWidget {
     private final PanelInteractionHandler interactionHandler;
     private final AlloyQueryHandler alloyHandler;
 
-    // ===== JEI =====
     private boolean jeiAvailable = false;
 
     public FloatingSearchPanel() {
@@ -112,17 +107,11 @@ public class FloatingSearchPanel extends AbstractWidget {
         int panelHeight = getPanelHeight();
 
         int btnX, btnY;
-        if (expanded) {
-            btnX = panelX + panelWidth - 1;
-        } else {
-            btnX = 0;
-        }
+        if (expanded) btnX = panelX + panelWidth - 1;
+        else btnX = 0;
         btnY = (panelHeight - TAB_BUTTON_HEIGHT) / 2;
 
-        if (btnX < 0) {
-            btnX = 0;
-        }
-
+        if (btnX < 0) btnX = 0;
         return new int[]{btnX, btnY};
     }
 
@@ -131,17 +120,24 @@ public class FloatingSearchPanel extends AbstractWidget {
     public List<FluidStack> getDisplayedFluids() { return dataManager.getDisplayedFluids(); }
     public List<FluidStack> getAllFavoriteFluids() { return dataManager.getAllFavoriteFluids(); }
     public List<FluidStack> getDisplayedFavoriteFluids() { return dataManager.getDisplayedFavoriteFluids(); }
+    public List<FluidStack> getDisplayedAllMaterials() { return dataManager.getDisplayedAllMaterials(); }
     public String getBottomFluidName() { return dataManager.getBottomFluidName(); }
     public int getScrollOffset() { return dataManager.getScrollOffset(); }
     public int getMaxScrollOffset() { return dataManager.getMaxScrollOffset(); }
     public int getFavScrollOffset() { return dataManager.getFavScrollOffset(); }
     public int getMaxFavScrollOffset() { return dataManager.getMaxFavScrollOffset(); }
+    public int getAllMaterialsScrollOffset() { return dataManager.getAllMaterialsScrollOffset(); }
+    public int getMaxAllMaterialsScrollOffset() { return dataManager.getMaxAllMaterialsScrollOffset(); }
     public int getAlloyScrollOffset() { return dataManager.getAlloyScrollOffset(); }
 
     // ===== 布局委托 =====
     public int getFavoriteAreaStartY() { return layoutCalculator.getFavoriteAreaStartY(); }
     public int getFavoriteAreaHeight() { return layoutCalculator.getFavoriteAreaHeight(); }
     public int getSmelteryAreaStartY() { return layoutCalculator.getSmelteryAreaStartY(); }
+    public int getSmelteryAreaHeight() { return layoutCalculator.getSmelteryAreaHeight(); }
+    public int getAllMaterialsTitleY() { return layoutCalculator.getAllMaterialsTitleY(); }
+    public int getAllMaterialsContentY() { return layoutCalculator.getAllMaterialsContentY(); }
+    public int getAllMaterialsAreaHeight() { return layoutCalculator.getAllMaterialsAreaHeight(); }
 
     // ===== Setters =====
     public void setPanelX(int x) { this.x = x; }
@@ -152,11 +148,10 @@ public class FloatingSearchPanel extends AbstractWidget {
         this.isVisible = visible;
         this.visible = visible;
     }
-    public void setActuallyVisible(boolean actuallyVisible) {
-        this.isActuallyVisible = actuallyVisible;
-    }
+    public void setActuallyVisible(boolean actuallyVisible) { this.isActuallyVisible = actuallyVisible; }
     public void setScrollOffset(int offset) { dataManager.setScrollOffset(offset); }
     public void setFavScrollOffset(int offset) { dataManager.setFavScrollOffset(offset); }
+    public void setAllMaterialsScrollOffset(int offset) { dataManager.setAllMaterialsScrollOffset(offset); }
     public void setAlloyScrollOffset(int offset) { dataManager.setAlloyScrollOffset(offset); }
 
     // ==================== 布局方法 ====================
@@ -175,11 +170,7 @@ public class FloatingSearchPanel extends AbstractWidget {
 
     public FluidStack getFluidAt(double mouseX, double mouseY) {
         if (!isVisible && !isAnimating()) return null;
-
-        if (dataManager.isAlloyMode()) {
-            return getAlloyFluidAt(mouseX, mouseY);
-        }
-
+        if (dataManager.isAlloyMode()) return getAlloyFluidAt(mouseX, mouseY);
         if (dataManager.getDisplayedFluids().isEmpty() && dataManager.getDisplayedFavoriteFluids().isEmpty()) return null;
 
         int px = getPanelX();
@@ -189,6 +180,20 @@ public class FloatingSearchPanel extends AbstractWidget {
         int cardW = (pw - 10 - PanelConfig.CARD_SPACING - PanelConfig.SCROLL_BAR_WIDTH - PanelConfig.SCROLL_BAR_PADDING) / PanelConfig.ITEMS_PER_ROW;
         int cardH = PanelConfig.CARD_HEIGHT;
 
+        // 收藏区
+        int favStartY = py + layoutCalculator.getFavoriteAreaStartY();
+        for (int i = 0; i < dataManager.getDisplayedFavoriteFluids().size(); i++) {
+            int row = i / PanelConfig.ITEMS_PER_ROW;
+            int col = i % PanelConfig.ITEMS_PER_ROW;
+            int cardX = px + 5 + col * (cardW + PanelConfig.CARD_SPACING);
+            int cardY = favStartY - dataManager.getFavScrollOffset() + row * (cardH + PanelConfig.CARD_SPACING);
+            if (mouseX >= cardX && mouseX <= cardX + cardW &&
+                    mouseY >= cardY && mouseY <= cardY + cardH) {
+                return dataManager.getDisplayedFavoriteFluids().get(i);
+            }
+        }
+
+        // 冶炼炉区
         int smelteryStartY = py + layoutCalculator.getSmelteryAreaStartY();
         for (int i = 0; i < dataManager.getDisplayedFluids().size(); i++) {
             int row = i / PanelConfig.ITEMS_PER_ROW;
@@ -201,28 +206,26 @@ public class FloatingSearchPanel extends AbstractWidget {
             }
         }
 
-        int favStartY = py + layoutCalculator.getFavoriteAreaStartY();
-        for (int i = 0; i < dataManager.getDisplayedFavoriteFluids().size(); i++) {
+        // 全部材料区
+        int allMatStartY = py + layoutCalculator.getAllMaterialsContentY();
+        for (int i = 0; i < dataManager.getDisplayedAllMaterials().size(); i++) {
             int row = i / PanelConfig.ITEMS_PER_ROW;
             int col = i % PanelConfig.ITEMS_PER_ROW;
             int cardX = px + 5 + col * (cardW + PanelConfig.CARD_SPACING);
-            int cardY = favStartY - dataManager.getFavScrollOffset() + row * (cardH + PanelConfig.CARD_SPACING);
+            int cardY = allMatStartY - dataManager.getAllMaterialsScrollOffset() + row * (cardH + PanelConfig.CARD_SPACING);
             if (mouseX >= cardX && mouseX <= cardX + cardW &&
                     mouseY >= cardY && mouseY <= cardY + cardH) {
-                return dataManager.getDisplayedFavoriteFluids().get(i);
+                return dataManager.getDisplayedAllMaterials().get(i);
             }
         }
+
         return null;
     }
 
-    // ==================== Tab按钮点击检测 ====================
-
     public boolean isTabButtonClicked(double mouseX, double mouseY) {
         int[] pos = getTabButtonPosition();
-        int btnX = pos[0];
-        int btnY = pos[1];
-        return mouseX >= btnX && mouseX <= btnX + TAB_BUTTON_WIDTH &&
-                mouseY >= btnY && mouseY <= btnY + TAB_BUTTON_HEIGHT;
+        return mouseX >= pos[0] && mouseX <= pos[0] + TAB_BUTTON_WIDTH &&
+                mouseY >= pos[1] && mouseY <= pos[1] + TAB_BUTTON_HEIGHT;
     }
 
     // ==================== 可见性控制 ====================
@@ -257,46 +260,28 @@ public class FloatingSearchPanel extends AbstractWidget {
         }
     }
 
-    public void toggleVisibility() {
-        setVisible(!this.isVisible);
-    }
+    public void toggleVisibility() { setVisible(!this.isVisible); }
 
-    // ==================== 温度读取 ====================
+    // ==================== 温度 ====================
 
-    public int getCurrentSmelteryTemperature() {
-        return temperatureReader.getCurrentSmelteryTemperature();
-    }
-
-    public int forceRefreshTemperature() {
-        return temperatureReader.forceRefreshTemperature();
-    }
-
-    public void refreshTemperature() {
-        forceRefreshTemperature();
-    }
+    public int getCurrentSmelteryTemperature() { return temperatureReader.getCurrentSmelteryTemperature(); }
+    public int forceRefreshTemperature() { return temperatureReader.forceRefreshTemperature(); }
+    public void refreshTemperature() { forceRefreshTemperature(); }
 
     // ==================== 数据刷新 ====================
 
     public void setSmelteryBlockEntity(BlockEntity tileEntity) {
         dataManager.setSmelteryTileEntity(tileEntity);
-        if (tileEntity != null) {
-            refreshMoltenFluids();
-        }
+        if (tileEntity != null) refreshMoltenFluids();
     }
 
-    public void refreshMoltenFluids() {
-        dataManager.refreshMoltenFluids();
-    }
+    public void refreshMoltenFluids() { dataManager.refreshMoltenFluids(); }
 
     public boolean moveFluidToBottom(FluidStack fluidStack) {
         if (fluidStack == null || fluidStack.isEmpty()) return false;
-
         dataManager.setBottomFluidName(fluidStack.getDisplayName().getString());
-
         boolean success = SmelteryClickHandler.clickFluidByStack(fluidStack);
-        if (success) {
-            dataManager.scheduleHighlightUpdate();
-        }
+        if (success) dataManager.scheduleHighlightUpdate();
         return success;
     }
 
@@ -315,28 +300,39 @@ public class FloatingSearchPanel extends AbstractWidget {
             return true;
         }
 
-        if (dataManager.getDisplayedFluids().isEmpty() && dataManager.getDisplayedFavoriteFluids().isEmpty()) return false;
-
         int actualX = getPanelX();
         if (mouseX < actualX || mouseX > actualX + this.width ||
                 mouseY < this.y || mouseY > this.y + this.height) {
             return false;
         }
 
+        // 收藏区
         int favStartY = this.y + layoutCalculator.getFavoriteAreaStartY();
         int favEndY = favStartY + layoutCalculator.getFavoriteAreaHeight();
-        int smelteryStartY = this.y + layoutCalculator.getSmelteryAreaStartY();
-        int smelteryEndY = this.y + this.height - 4;
-
-        if (mouseY >= favStartY && mouseY <= favEndY) {
+        if (layoutCalculator.getFavoriteAreaHeight() > 0 && mouseY >= favStartY && mouseY <= favEndY) {
             int newOffset = dataManager.getFavScrollOffset() - (int) (delta * PanelConfig.SCROLL_SPEED);
-            dataManager.setFavScrollOffset(Math.max(0, Math.min(newOffset, dataManager.getMaxFavScrollOffset())));
+            dataManager.setFavScrollOffset(newOffset);
             return true;
-        } else if (mouseY >= smelteryStartY && mouseY <= smelteryEndY) {
+        }
+
+        // 冶炼炉区
+        int smelteryStartY = this.y + layoutCalculator.getSmelteryAreaStartY();
+        int smelteryEndY = smelteryStartY + layoutCalculator.getSmelteryAreaHeight();
+        if (layoutCalculator.getSmelteryAreaHeight() > 0 && mouseY >= smelteryStartY && mouseY <= smelteryEndY) {
             int newOffset = dataManager.getScrollOffset() - (int) (delta * PanelConfig.SCROLL_SPEED);
             dataManager.setScrollOffset(newOffset);
             return true;
         }
+
+        // 全部材料区
+        int allMatStartY = this.y + layoutCalculator.getAllMaterialsContentY();
+        int allMatEndY = allMatStartY + layoutCalculator.getAllMaterialsAreaHeight();
+        if (layoutCalculator.getAllMaterialsAreaHeight() > 0 && mouseY >= allMatStartY && mouseY <= allMatEndY) {
+            int newOffset = dataManager.getAllMaterialsScrollOffset() - (int) (delta * PanelConfig.SCROLL_SPEED);
+            dataManager.setAllMaterialsScrollOffset(newOffset);
+            return true;
+        }
+
         return false;
     }
 
@@ -348,33 +344,18 @@ public class FloatingSearchPanel extends AbstractWidget {
             List<String> registryNames = renderer.getClickableResultRegistryNames((int)mouseX, (int)mouseY);
             List<String> displayNames = renderer.getClickableResultNames((int)mouseX, (int)mouseY);
 
-            if ((registryNames != null && !registryNames.isEmpty()) ||
-                    (displayNames != null && !displayNames.isEmpty())) {
-
+            if (!registryNames.isEmpty() || !displayNames.isEmpty()) {
                 FluidStack matchedMaterial = null;
-                String matchedRegistry = "";
-                String matchedDisplay = "";
-
                 for (String regName : registryNames) {
                     FluidStack material = findTargetMaterial(regName, "");
-                    if (material != null) {
-                        matchedMaterial = material;
-                        matchedRegistry = regName;
-                        break;
-                    }
+                    if (material != null) { matchedMaterial = material; break; }
                 }
-
                 if (matchedMaterial == null) {
                     for (String dispName : displayNames) {
                         FluidStack material = findTargetMaterial("", dispName);
-                        if (material != null) {
-                            matchedMaterial = material;
-                            matchedDisplay = dispName;
-                            break;
-                        }
+                        if (material != null) { matchedMaterial = material; break; }
                     }
                 }
-
                 if (matchedMaterial != null) {
                     int currentTemp = getCurrentSmelteryTemperature();
                     alloyHandler.refreshTemperature(currentTemp);
@@ -384,8 +365,7 @@ public class FloatingSearchPanel extends AbstractWidget {
 
                 String searchReg = registryNames.isEmpty() ? "" : registryNames.get(0);
                 String searchDisp = displayNames.isEmpty() ? "" : displayNames.get(0);
-                String searchText = "/a/ " + (searchReg.isEmpty() ? searchDisp : searchReg);
-                interactionHandler.setSearchKeyword(searchText);
+                interactionHandler.setSearchKeyword("/a/ " + (searchReg.isEmpty() ? searchDisp : searchReg));
                 refreshMoltenFluids();
                 return true;
             }
@@ -393,16 +373,12 @@ public class FloatingSearchPanel extends AbstractWidget {
         }
 
         if (isTabButtonClicked(mouseX, mouseY)) {
-            if (isAnimating()) {
-                return true;
-            }
+            if (isAnimating()) return true;
             toggleVisibility();
             return true;
         }
 
-        if (!isVisible && !isAnimating()) {
-            return false;
-        }
+        if (!isVisible && !isAnimating()) return false;
 
         int px = getPanelX();
         int py = this.y;
@@ -418,10 +394,8 @@ public class FloatingSearchPanel extends AbstractWidget {
             String backText = new TranslatableComponent("gui.tinkerssearch.alloy_back").getString();
             int backX = px + 5;
             int backY = py + PanelConfig.CARDS_START_Y + 16;
-            int backW = font.width(backText);
-            int backH = 12;
-            if (mouseX >= backX && mouseX <= backX + backW &&
-                    mouseY >= backY && mouseY <= backY + backH) {
+            if (mouseX >= backX && mouseX <= backX + font.width(backText) &&
+                    mouseY >= backY && mouseY <= backY + 12) {
                 alloyHandler.backToMaterials();
                 return true;
             }
@@ -435,6 +409,32 @@ public class FloatingSearchPanel extends AbstractWidget {
             forceRefreshTemperature();
             refreshMoltenFluids();
             return true;
+        }
+
+        // ===== 折叠头点击（非合金模式）=====
+        if (!dataManager.isAlloyMode()) {
+            int cardAreaW = pw - 10 - PanelConfig.SCROLL_BAR_WIDTH - PanelConfig.SCROLL_BAR_PADDING;
+
+            int favTitleY = py + layoutCalculator.getFavoriteTitleY();
+            if (FoldHeader.isHovered(px + 5, favTitleY, cardAreaW, PanelConfig.SECTION_LABEL_HEIGHT, mouseX, mouseY)) {
+                dataManager.toggleFavoritesCollapsed();
+                layoutCalculator.updatePanelPosition();
+                return true;
+            }
+
+            int smelteryTitleY = py + layoutCalculator.getSmelteryTitleY();
+            if (FoldHeader.isHovered(px + 5, smelteryTitleY, cardAreaW, PanelConfig.SECTION_LABEL_HEIGHT, mouseX, mouseY)) {
+                dataManager.toggleSmelteryCollapsed();
+                layoutCalculator.updatePanelPosition();
+                return true;
+            }
+
+            int allMatTitleY = py + layoutCalculator.getAllMaterialsTitleY();
+            if (FoldHeader.isHovered(px + 5, allMatTitleY, cardAreaW, PanelConfig.SECTION_LABEL_HEIGHT, mouseX, mouseY)) {
+                dataManager.toggleAllMaterialsCollapsed();
+                layoutCalculator.updatePanelPosition();
+                return true;
+            }
         }
 
         // ===== 搜索框点击 =====
@@ -454,81 +454,37 @@ public class FloatingSearchPanel extends AbstractWidget {
         if (displayName == null) displayName = "";
 
         List<FluidStack> materials = alloyHandler.getFilteredMaterials();
-        if (materials == null || materials.isEmpty()) {
-            return null;
-        }
+        if (materials == null || materials.isEmpty()) return null;
 
         if (!registryName.isEmpty()) {
             for (FluidStack fs : materials) {
                 ResourceLocation rl = fs.getFluid().getRegistryName();
-                if (rl != null && rl.getPath().equalsIgnoreCase(registryName)) {
-                    return fs;
-                }
+                if (rl != null && rl.getPath().equalsIgnoreCase(registryName)) return fs;
             }
         }
-
         if (!displayName.isEmpty()) {
             for (FluidStack fs : materials) {
-                String name = fs.getDisplayName().getString()
-                        .replace("Molten ", "")
-                        .replace("熔融", "")
-                        .trim();
-                if (name.equalsIgnoreCase(displayName.trim())) {
-                    return fs;
-                }
+                String name = fs.getDisplayName().getString().replace("Molten ", "").replace("熔融", "").trim();
+                if (name.equalsIgnoreCase(displayName.trim())) return fs;
             }
         }
-
         if (!displayName.isEmpty()) {
             String lowerDisplay = displayName.trim().toLowerCase();
             for (FluidStack fs : materials) {
-                String name = fs.getDisplayName().getString()
-                        .replace("Molten ", "")
-                        .replace("熔融", "")
-                        .trim()
-                        .toLowerCase();
-                if (name.contains(lowerDisplay) || lowerDisplay.contains(name)) {
-                    return fs;
-                }
+                String name = fs.getDisplayName().getString().replace("Molten ", "").replace("熔融", "").trim().toLowerCase();
+                if (name.contains(lowerDisplay) || lowerDisplay.contains(name)) return fs;
             }
         }
-
         if (!registryName.isEmpty()) {
             String lowerRegistry = registryName.toLowerCase();
             for (FluidStack fs : materials) {
                 ResourceLocation rl = fs.getFluid().getRegistryName();
                 if (rl != null) {
                     String path = rl.getPath().toLowerCase();
-                    if (path.contains(lowerRegistry) || lowerRegistry.contains(path)) {
-                        return fs;
-                    }
+                    if (path.contains(lowerRegistry) || lowerRegistry.contains(path)) return fs;
                 }
             }
         }
-
-        if (!registryName.isEmpty()) {
-            try {
-                ResourceLocation rl = new ResourceLocation(registryName);
-                Fluid fluid = net.minecraftforge.registries.ForgeRegistries.FLUIDS.getValue(rl);
-                if (fluid != null) {
-                    for (FluidStack fs : materials) {
-                        if (fs.getFluid().getRegistryName() != null &&
-                                fs.getFluid().getRegistryName().equals(rl)) {
-                            return fs;
-                        }
-                    }
-                    FluidStack newFs = new FluidStack(fluid, 1000);
-                    String newName = newFs.getDisplayName().getString()
-                            .replace("Molten ", "")
-                            .replace("熔融", "")
-                            .trim();
-                    if (!displayName.isEmpty() && newName.equalsIgnoreCase(displayName.trim())) {
-                        return newFs;
-                    }
-                }
-            } catch (Exception ignored) {}
-        }
-
         return null;
     }
 
@@ -537,30 +493,19 @@ public class FloatingSearchPanel extends AbstractWidget {
         if (!isVisible) return false;
 
         if (interactionHandler.isSearchBoxFocused()) {
-            if (interactionHandler.handleKeyPressed(keyCode, scanCode, modifiers)) {
-                return true;
-            }
+            if (interactionHandler.handleKeyPressed(keyCode, scanCode, modifiers)) return true;
 
-            if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER) {
+            if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER ||
+                    keyCode == GLFW.GLFW_KEY_ESCAPE) {
                 interactionHandler.setSearchBoxFocused(false);
                 return true;
             }
-            if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
-                interactionHandler.setSearchBoxFocused(false);
-                return true;
-            }
-
             return true;
         }
 
-        if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
-            return false;
-        }
+        if (keyCode == GLFW.GLFW_KEY_ESCAPE) return false;
 
-        if (interactionHandler.handleKeyPressedGlobal(keyCode, scanCode, modifiers)) {
-            return true;
-        }
-
+        if (interactionHandler.handleKeyPressedGlobal(keyCode, scanCode, modifiers)) return true;
         return interactionHandler.handleKeyPressed(keyCode, scanCode, modifiers);
     }
 
@@ -570,56 +515,67 @@ public class FloatingSearchPanel extends AbstractWidget {
         return interactionHandler.handleCharTyped(codePoint, modifiers);
     }
 
-    // ==================== 渲染 ====================
-
     @Override
     public void renderButton(PoseStack poseStack, int mouseX, int mouseY, float partialTick) {
         renderer.renderButton(poseStack, mouseX, mouseY, partialTick);
     }
 
-    // ==================== 内部事件处理 ====================
-
     private void onFluidClicked(List<FluidStack> fluids) {
         new Thread(() -> {
-            try {
-                Thread.sleep(300);
-            } catch (InterruptedException ignored) {
-            }
-            Minecraft.getInstance().execute(() -> {
-                refreshMoltenFluids();
-            });
+            try { Thread.sleep(300); } catch (InterruptedException ignored) {}
+            Minecraft.getInstance().execute(this::refreshMoltenFluids);
         }).start();
     }
 
     private boolean handleCardClick(double mouseX, double mouseY, int button) {
         if (!isVisible) return false;
-
-        if (dataManager.isAlloyMode()) {
-            return handleAlloyCardClick(mouseX, mouseY, button);
-        }
+        if (dataManager.isAlloyMode()) return handleAlloyCardClick(mouseX, mouseY, button);
 
         int px = getPanelX();
         int py = this.y;
         int pw = this.width;
 
-        int favStartY = py + layoutCalculator.getFavoriteAreaStartY();
-        int favEndY = favStartY + layoutCalculator.getFavoriteAreaHeight();
-        int smelteryStartY = py + layoutCalculator.getSmelteryAreaStartY();
-        int smelteryEndY = py + this.height - 4;
-
-        boolean inFavArea = mouseY >= favStartY && mouseY <= favEndY;
-        boolean inSmelteryArea = mouseY >= smelteryStartY && mouseY <= smelteryEndY;
-
-        if (!inFavArea && !inSmelteryArea) return false;
-
-        List<FluidStack> list = inFavArea ? dataManager.getDisplayedFavoriteFluids() : dataManager.getDisplayedFluids();
-        int scrollOff = inFavArea ? dataManager.getFavScrollOffset() : dataManager.getScrollOffset();
-        int areaStartY = inFavArea ? favStartY : smelteryStartY;
-
-        if (list.isEmpty()) return false;
-
         int cardW = (pw - 10 - PanelConfig.CARD_SPACING - PanelConfig.SCROLL_BAR_WIDTH - PanelConfig.SCROLL_BAR_PADDING) / PanelConfig.ITEMS_PER_ROW;
         int cardH = PanelConfig.CARD_HEIGHT;
+
+        // 收藏区
+        int favStartY = py + layoutCalculator.getFavoriteAreaStartY();
+        int favEndY = favStartY + layoutCalculator.getFavoriteAreaHeight();
+        if (layoutCalculator.getFavoriteAreaHeight() > 0 && mouseY >= favStartY && mouseY <= favEndY) {
+            return handleAreaCardClick(mouseX, mouseY, button,
+                    dataManager.getDisplayedFavoriteFluids(),
+                    dataManager.getFavScrollOffset(),
+                    favStartY, favEndY, px, cardW, cardH, AreaKind.FAVORITE);
+        }
+
+        // 冶炼炉区
+        int smelteryStartY = py + layoutCalculator.getSmelteryAreaStartY();
+        int smelteryEndY = smelteryStartY + layoutCalculator.getSmelteryAreaHeight();
+        if (layoutCalculator.getSmelteryAreaHeight() > 0 && mouseY >= smelteryStartY && mouseY <= smelteryEndY) {
+            return handleAreaCardClick(mouseX, mouseY, button,
+                    dataManager.getDisplayedFluids(),
+                    dataManager.getScrollOffset(),
+                    smelteryStartY, smelteryEndY, px, cardW, cardH, AreaKind.SMELTERY);
+        }
+
+        // 全部材料区
+        int allMatStartY = py + layoutCalculator.getAllMaterialsContentY();
+        int allMatEndY = allMatStartY + layoutCalculator.getAllMaterialsAreaHeight();
+        if (layoutCalculator.getAllMaterialsAreaHeight() > 0 && mouseY >= allMatStartY && mouseY <= allMatEndY) {
+            return handleAreaCardClick(mouseX, mouseY, button,
+                    dataManager.getDisplayedAllMaterials(),
+                    dataManager.getAllMaterialsScrollOffset(),
+                    allMatStartY, allMatEndY, px, cardW, cardH, AreaKind.ALL_MATERIALS);
+        }
+
+        return false;
+    }
+
+    private boolean handleAreaCardClick(double mouseX, double mouseY, int button,
+                                        List<FluidStack> list, int scrollOff,
+                                        int areaStartY, int areaEndY,
+                                        int px, int cardW, int cardH, AreaKind areaKind) {
+        if (list.isEmpty()) return false;
 
         int startY = areaStartY - scrollOff;
 
@@ -629,7 +585,7 @@ public class FloatingSearchPanel extends AbstractWidget {
             int cardX = px + 5 + col * (cardW + PanelConfig.CARD_SPACING);
             int cardY = startY + row * (cardH + PanelConfig.CARD_SPACING);
 
-            if (cardY + cardH < areaStartY || cardY > (inFavArea ? favEndY : smelteryEndY)) continue;
+            if (cardY + cardH < areaStartY || cardY > areaEndY) continue;
 
             if (mouseX >= cardX && mouseX <= cardX + cardW &&
                     mouseY >= cardY && mouseY <= cardY + cardH) {
@@ -637,8 +593,9 @@ public class FloatingSearchPanel extends AbstractWidget {
                 FluidStack fluid = list.get(i);
                 if (fluid == null || fluid.isEmpty()) return false;
 
+                // 判断该流体是否在冶炼炉中（非冶炼炉区需要查）
                 boolean existsInSmeltery = true;
-                if (inFavArea) {
+                if (areaKind != AreaKind.SMELTERY) {
                     existsInSmeltery = false;
                     for (FluidStack fs : dataManager.getAllFluids()) {
                         if (fs.getFluid().getRegistryName().equals(fluid.getFluid().getRegistryName())) {
@@ -675,7 +632,8 @@ public class FloatingSearchPanel extends AbstractWidget {
                     return interactionHandler.handleJeiIconClick(fluid, button);
                 }
 
-                if (inFavArea && !existsInSmeltery) {
+                // 收藏区 / 全部材料区：不在冶炼炉 → 拦截左键
+                if (areaKind != AreaKind.SMELTERY && !existsInSmeltery) {
                     return true;
                 }
 
@@ -689,38 +647,24 @@ public class FloatingSearchPanel extends AbstractWidget {
         return false;
     }
 
-    /**
-     * 打开流体详细信息浮窗。
-     *
-     * <p>不关闭冶炼炉界面；把当前 Screen 传给详情，关闭时可恢复。
-     */
     private void openFluidDetailScreen(FluidStack fluid) {
         Minecraft mc = Minecraft.getInstance();
         SmelteryBlockEntity smeltery = null;
 
         BlockEntity target = dataManager.getSmelteryTileEntity();
-        if (target instanceof SmelteryBlockEntity) {
-            smeltery = (SmelteryBlockEntity) target;
-        }
+        if (target instanceof SmelteryBlockEntity) smeltery = (SmelteryBlockEntity) target;
 
         if (smeltery == null && mc.screen instanceof AbstractContainerScreen) {
-            BlockEntity be = SmelteryClickHandler.getSmelteryFromScreen(
-                    (AbstractContainerScreen<?>) mc.screen
-            );
-            if (be instanceof SmelteryBlockEntity) {
-                smeltery = (SmelteryBlockEntity) be;
-            }
+            BlockEntity be = SmelteryClickHandler.getSmelteryFromScreen((AbstractContainerScreen<?>) mc.screen);
+            if (be instanceof SmelteryBlockEntity) smeltery = (SmelteryBlockEntity) be;
         }
 
         if (smeltery == null) {
             BlockEntity be = dataManager.getCachedTileEntity();
-            if (be instanceof SmelteryBlockEntity) {
-                smeltery = (SmelteryBlockEntity) be;
-            }
+            if (be instanceof SmelteryBlockEntity) smeltery = (SmelteryBlockEntity) be;
         }
 
         Screen savedScreen = mc.screen;
-
         mc.setScreen(new FluidDetailScreen(fluid, smeltery, savedScreen));
     }
 
@@ -735,10 +679,8 @@ public class FloatingSearchPanel extends AbstractWidget {
             String backText = new TranslatableComponent("gui.tinkerssearch.alloy_back").getString();
             int backX = px + 5;
             int backY = py + PanelConfig.CARDS_START_Y + 16;
-            int backW = font.width(backText);
-            int backH = 12;
-            if (mouseX >= backX && mouseX <= backX + backW &&
-                    mouseY >= backY && mouseY <= backY + backH) {
+            if (mouseX >= backX && mouseX <= backX + font.width(backText) &&
+                    mouseY >= backY && mouseY <= backY + 12) {
                 alloyHandler.backToMaterials();
                 return true;
             }
@@ -794,7 +736,6 @@ public class FloatingSearchPanel extends AbstractWidget {
 
         int cardW = (pw - 10 - PanelConfig.CARD_SPACING - PanelConfig.SCROLL_BAR_WIDTH - PanelConfig.SCROLL_BAR_PADDING) / PanelConfig.ITEMS_PER_ROW;
         int cardH = PanelConfig.CARD_HEIGHT;
-
         int actualStartY = startY - dataManager.getAlloyScrollOffset();
 
         for (int i = 0; i < materials.size(); i++) {
