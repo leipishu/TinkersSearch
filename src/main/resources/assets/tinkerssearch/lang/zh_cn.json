@@ -1,5 +1,5 @@
 {
-  "gui.tinkerssearch.search_hint": "搜索... (/a/ 合金查询)",
+  "gui.tinkerssearch.search_hint": "搜索...",
   "gui.tinkerssearch.refresh": "⟳刷新",
   "gui.tinkerssearch.favorites": "★ 收藏",
   "gui.tinkerssearch.smeltery": "🔥 冶炼炉",
@@ -21,7 +21,7 @@
   "gui.tinkerssearch.alloy_no_recipes": "未找到该材料的合金配方",
   "gui.tinkerssearch.alloy_child": "↳ 可继续合金: %s",
   "gui.tinkerssearch.alloy_missing_prefix": "缺少",
-  "gui.tinkerssearch.alloy_search_hint": "/a/ 材料名",
+  "gui.tinkerssearch.alloy_search_hint": "搜索...",
   "gui.tinkerssearch.alloy_times": "可执行 %d 次",
   "gui.tinkerssearch.alloy_need": "需要",
   "gui.tinkerssearch.alloy_temp": "温度",
@@ -59,5 +59,10 @@
   "gui.tinkerssearch.detail.composite_from": "复合自:",
 
   "gui.tinkerssearch.detail.page_prev": "上一页",
-  "gui.tinkerssearch.detail.page_next": "下一页"
+  "gui.tinkerssearch.detail.page_next": "下一页",
+
+  "gui.tinkerssearch.tab.smeltery": "冶炼炉",
+  "gui.tinkerssearch.tab.materials": "材料",
+  "gui.tinkerssearch.tab.alloy": "合金",
+  "gui.tinkerssearch.no_materials": "暂无材料"
 }

@@ -3,6 +3,7 @@ package top.leipishu.tinkerssearch.client.gui.panel;
 import top.leipishu.tinkerssearch.alloy.AlloyQueryHandler;
 import top.leipishu.tinkerssearch.client.gui.FloatingSearchPanel;
 import top.leipishu.tinkerssearch.client.gui.PanelInteractionHandler;
+import top.leipishu.tinkerssearch.client.gui.panel.PanelDataManager.Tab;
 
 /**
  * 面板动画管理器 - 管理面板展开/收起动画
@@ -28,8 +29,6 @@ public class PanelAnimationManager {
         this.dataManager = dataManager;
     }
 
-    // ==================== Getters ====================
-
     public boolean isAnimating() { return isAnimating; }
     public int getAnimationOffset() { return animationOffset; }
     public int getTargetOffset() { return targetOffset; }
@@ -38,8 +37,6 @@ public class PanelAnimationManager {
     public void setTargetOffset(int offset) { this.targetOffset = offset; }
     public void setAnimating(boolean animating) { this.isAnimating = animating; }
     public void setAnimationStartTime(long time) { this.animationStartTime = time; }
-
-    // ==================== 动画更新 ====================
 
     public void updateAnimation() {
         if (!isAnimating) return;
@@ -53,11 +50,7 @@ public class PanelAnimationManager {
             if (targetOffset < 0) {
                 panel.setVisibleInternal(false);
                 panel.setActuallyVisible(false);
-                if (dataManager.isAlloyMode()) {
-                    dataManager.setAlloyMode(false);
-                    alloyHandler.exitQueryMode();
-                    interactionHandler.setSearchKeyword("");
-                }
+                resetToSmelteryTab();
             } else {
                 panel.setActuallyVisible(true);
             }
@@ -70,13 +63,7 @@ public class PanelAnimationManager {
     }
 
     public void startHideAnimation() {
-        if (dataManager.isAlloyMode()) {
-            dataManager.setAlloyMode(false);
-            alloyHandler.exitQueryMode();
-            interactionHandler.setSearchKeyword("");
-            interactionHandler.setSearchBoxFocused(false);
-        }
-
+        resetToSmelteryTab();
         interactionHandler.setSearchBoxFocused(false);
         dataManager.resetScrollOffsets();
         targetOffset = -panel.getPanelWidth();
@@ -87,15 +74,22 @@ public class PanelAnimationManager {
 
     public void startShowAnimation() {
         panel.updatePanelPosition();
-
         panel.forceRefreshTemperature();
-
         dataManager.refreshMoltenFluids();
         panel.setVisibleInternal(true);
         animationOffset = -panel.getPanelWidth();
         targetOffset = 0;
         isAnimating = true;
         animationStartTime = System.currentTimeMillis();
-        // isActuallyVisible 会在动画完成后设置为 true
+    }
+
+    /** 重置到冶炼炉 Tab 并清空搜索框。 */
+    private void resetToSmelteryTab() {
+        if (dataManager.getCurrentTab() == Tab.ALLOY) {
+            alloyHandler.exitQueryMode();
+        }
+        dataManager.setCurrentTab(Tab.SMELTERY);
+        interactionHandler.setSearchKeyword("");
+        interactionHandler.setSearchBoxFocused(false);
     }
 }

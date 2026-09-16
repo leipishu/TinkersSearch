@@ -829,7 +829,8 @@ public class TinkersAlloyReader {
      */
     public static List<FluidStack> getAllSmelteryFluids() {
         long now = System.currentTimeMillis();
-        if (cachedAllMaterials != null && (now - cacheTime) < CACHE_DURATION) {
+        if (cachedAllMaterials != null && !cachedAllMaterials.isEmpty()
+                && (now - cacheTime) < CACHE_DURATION) {
             return cachedAllMaterials;
         }
 
@@ -856,23 +857,30 @@ public class TinkersAlloyReader {
             scanFluidRegistry(fluidSet);
         }
 
-        cachedAllMaterials = new ArrayList<>();
+        List<FluidStack> built = new ArrayList<>();
         for (ResourceLocation rl : fluidSet) {
             Fluid fluid = ForgeRegistries.FLUIDS.getValue(rl);
             if (fluid != null) {
-                cachedAllMaterials.add(new FluidStack(fluid, 1000));
+                built.add(new FluidStack(fluid, 1000));
             }
         }
 
-        // 按名称排序
-        cachedAllMaterials.sort((a, b) -> {
+        built.sort((a, b) -> {
             String nameA = a.getDisplayName().getString().replace("Molten ", "").replace("熔融", "");
             String nameB = b.getDisplayName().getString().replace("Molten ", "").replace("熔融", "");
             return nameA.compareToIgnoreCase(nameB);
         });
 
-        log("Total alloy-relevant fluids: " + cachedAllMaterials.size());
-        return cachedAllMaterials;
+        // ★ 只有当构建结果非空时才缓存；空结果下次重新构建，避免"临时失败"被冻结
+        if (!built.isEmpty()) {
+            cachedAllMaterials = built;
+            log("Total alloy-relevant fluids: " + built.size());
+        } else {
+            cachedAllMaterials = null;
+            log("WARN: getAllSmelteryFluids returned empty; will retry on next call");
+        }
+
+        return built;
     }
 
     /**

@@ -11,12 +11,19 @@ public class PanelConfig {
     // ===== 标题栏 =====
     public static final int TITLE_BAR_HEIGHT = 18;
 
+    // ===== Tab 按钮（位于标题栏下方，独立一行）=====
+    public static final int TAB_START_X = 4;
+    public static final int TAB_ITEM_WIDTH = 48;
+    public static final int TAB_ITEM_Y = 19;
+    public static final int TAB_ITEM_HEIGHT = 14;
+    public static final int TAB_COUNT = 3;
+
     // ===== 搜索框 =====
-    public static final int SEARCH_BOX_Y = 22;
+    public static final int SEARCH_BOX_Y = 35;
     public static final int SEARCH_BOX_H = 16;
 
     // ===== 卡片布局 =====
-    public static final int CARDS_START_Y = 46;
+    public static final int CARDS_START_Y = 55;
     public static final int CARD_HEIGHT = 36;
     public static final int CARD_SPACING = 6;
     public static final int ITEMS_PER_ROW = 2;
@@ -31,8 +38,8 @@ public class PanelConfig {
     public static final int SCROLL_BAR_WIDTH = 4;
     public static final int SCROLL_BAR_PADDING = 2;
 
-    // ===== 刷新按钮 =====
-    public static final int REFRESH_BTN_X = 155;
+    // ===== 刷新按钮（标题栏内，右侧）=====
+    public static final int REFRESH_BTN_X = 160;
     public static final int REFRESH_BTN_Y = 3;
     public static final int REFRESH_BTN_W = 55;
     public static final int REFRESH_BTN_H = 13;
@@ -59,10 +66,9 @@ public class PanelConfig {
     public static final int SCROLL_SPEED = 16;
 
     // ============================================================
-    // ===== 布局常量（供 PanelLayoutCalculator 使用） =====
+    // ===== 布局常量 =============================================
     // ============================================================
 
-    // ===== 收藏区域与冶炼炉区域分隔 =====
     public static final int SECTION_SPACING = 8;
     public static final int SECTION_LABEL_HEIGHT = 14;
     public static final int TITLE_CARD_SPACING = 4;

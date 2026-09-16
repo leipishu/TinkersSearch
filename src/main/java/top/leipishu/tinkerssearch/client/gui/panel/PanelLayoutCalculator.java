@@ -4,10 +4,9 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraftforge.fluids.FluidStack;
 import top.leipishu.tinkerssearch.alloy.AlloyQueryHandler;
-import top.leipishu.tinkerssearch.alloy.AlloyRecipeData;
 import top.leipishu.tinkerssearch.alloy.AlloyResultCalculator;
 import top.leipishu.tinkerssearch.client.gui.FloatingSearchPanel;
-import java.util.ArrayList;
+
 import java.util.List;
 
 import static top.leipishu.tinkerssearch.config.PanelConfig.*;
@@ -15,20 +14,8 @@ import static top.leipishu.tinkerssearch.config.PanelConfig.*;
 /**
  * 面板布局计算器。
  *
- * <p>面板从上到下依次为：
- * <ol>
- *   <li>标题栏 + 搜索框（固定）</li>
- *   <li>收藏区：标题行 + 内容（折叠时内容高度为 0）</li>
- *   <li>冶炼炉区：标题行 + 内容</li>
- *   <li>全部材料区：标题行 + 内容（默认折叠）</li>
- * </ol>
- *
- * <p>布局规则：
- * <ul>
- *   <li>全部材料块高度由自身内容决定，不随冶炼炉变化</li>
- *   <li>冶炼炉高度 = 面板底部 - 冶炼炉内容起点 - 全部材料块 - 间距（若折叠则为 0）</li>
- *   <li>全部材料标题 Y = 冶炼炉内容起点 + 冶炼炉高度 + 间距（紧跟在冶炼炉之后）</li>
- * </ul>
+ * <p>三个 Tab 共用同一套搜索框位置（{@code SEARCH_BOX_Y}），
+ * 内容区起点都是 {@code CARDS_START_Y}。
  */
 public class PanelLayoutCalculator {
 
@@ -52,9 +39,9 @@ public class PanelLayoutCalculator {
         this.panelRenderer = panelRenderer;
     }
 
-    // ==================== 收藏区 ====================
+    // ==================== 冶炼炉 Tab ====================
 
-    /** 收藏区标题行 Y（相对面板左上角）。 */
+    /** 收藏区标题行 Y。 */
     public int getFavoriteTitleY() {
         return CARDS_START_Y;
     }
@@ -64,16 +51,13 @@ public class PanelLayoutCalculator {
         return getFavoriteTitleY() + SECTION_LABEL_HEIGHT;
     }
 
-    /** 收藏区内容高度（折叠时为 0）。 */
+    /** 收藏区内容高度。 */
     public int getFavoriteAreaHeight() {
-        if (dataManager.isFavoritesCollapsed()) return 0;
         if (dataManager.getDisplayedFavoriteFluids().isEmpty()) return 0;
         int totalRows = (dataManager.getDisplayedFavoriteFluids().size() + ITEMS_PER_ROW - 1) / ITEMS_PER_ROW;
         int contentHeight = totalRows * (CARD_HEIGHT + CARD_SPACING) - CARD_SPACING;
         return Math.min(contentHeight, (int)(panel.getPanelHeight() * 0.35));
     }
-
-    // ==================== 冶炼炉区 ====================
 
     /** 冶炼炉区标题行 Y。 */
     public int getSmelteryTitleY() {
@@ -87,55 +71,27 @@ public class PanelLayoutCalculator {
         return getSmelteryTitleY() + SECTION_LABEL_HEIGHT;
     }
 
-    /**
-     * 冶炼炉区内容高度。
-     *
-     * <p>计算方式：面板底部 - 冶炼炉内容起点 - 全部材料块高度 - 间距。
-     * 折叠时返回 0。
-     */
+    /** 冶炼炉区内容高度（吃满剩余空间）。 */
     public int getSmelteryAreaHeight() {
-        if (dataManager.isSmelteryCollapsed()) return 0;
-
         int contentY = getSmelteryAreaStartY();
-        int allMatBlock = getAllMaterialsBlockHeight();
         int panelBottom = panel.getPanelHeight() - 4;
-        int h = panelBottom - contentY - allMatBlock - SECTION_SPACING;
-        return Math.max(0, h);
+        return Math.max(0, panelBottom - contentY);
     }
 
-    // ==================== 全部材料区 ====================
-
-    /** 全部材料区内容高度（折叠时为 0）。 */
-    public int getAllMaterialsAreaHeight() {
-        if (dataManager.isAllMaterialsCollapsed()) return 0;
-        if (dataManager.getDisplayedAllMaterials().isEmpty()) return 0;
-        int totalRows = (dataManager.getDisplayedAllMaterials().size() + ITEMS_PER_ROW - 1) / ITEMS_PER_ROW;
-        int contentHeight = totalRows * (CARD_HEIGHT + CARD_SPACING) - CARD_SPACING;
-        return Math.min(contentHeight, (int)(panel.getPanelHeight() * 0.35));
-    }
-
-    /** 全部材料块（标题行 + 内容）的总高度。 */
-    public int getAllMaterialsBlockHeight() {
-        return SECTION_LABEL_HEIGHT + getAllMaterialsAreaHeight();
-    }
-
-    /**
-     * 全部材料区标题行 Y。
-     *
-     * <p>紧跟在冶炼炉内容之后（间距 = {@code SECTION_SPACING}）。
-     * 这样无论冶炼炉是否折叠，全部材料都位于其正下方，不会覆盖冶炼炉。
-     */
-    public int getAllMaterialsTitleY() {
-        int smelteryBottom = getSmelteryAreaStartY() + getSmelteryAreaHeight();
-        return smelteryBottom + SECTION_SPACING;
-    }
+    // ==================== 全部材料 Tab ====================
 
     /** 全部材料区内容起始 Y。 */
     public int getAllMaterialsContentY() {
-        return getAllMaterialsTitleY() + SECTION_LABEL_HEIGHT;
+        return CARDS_START_Y;
     }
 
-    // ==================== 合金模式 ====================
+    /** 全部材料区内容高度（吃满剩余空间）。 */
+    public int getAllMaterialsAreaHeight() {
+        int panelBottom = panel.getPanelHeight() - 4;
+        return Math.max(0, panelBottom - CARDS_START_Y);
+    }
+
+    // ==================== 合金 Tab ====================
 
     private int calculateCardHeight(AlloyResultCalculator.AlloyChainResult result) {
         Minecraft mc = Minecraft.getInstance();
@@ -163,11 +119,11 @@ public class PanelLayoutCalculator {
 
     public int getAlloyVisibleHeight() {
         if (alloyHandler.getSelectedMaterial() == null) {
-            int startY = panel.getPanelY() + CARDS_START_Y + 18 + 18 + 4;
+            int startY = panel.getPanelY() + CARDS_START_Y + 18;
             int endY = panel.getPanelY() + panel.getPanelHeight() - 4;
             return Math.max(0, endY - startY);
         } else {
-            int startY = panel.getPanelY() + CARDS_START_Y + 18 + 14 + 12 + 12;
+            int startY = panel.getPanelY() + CARDS_START_Y + 14 + 12;
             int endY = panel.getPanelY() + panel.getPanelHeight() - 4;
             return Math.max(0, endY - startY);
         }

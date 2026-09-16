@@ -74,8 +74,14 @@ public class AlloyQueryHandler {
         this.currentResults.clear();
         this.lastKnownTemperature = currentTemperature;
 
-        allMaterials = TinkersAlloyReader.getAllSmelteryFluids();
-        filteredMaterials = filterMaterials(allMaterials, searchTerm);
+        List<FluidStack> source = TinkersAlloyReader.getAllSmelteryFluids();
+        if (source == null || source.isEmpty()) {
+            // 兜底：强制重载一次
+            TinkersAlloyReader.forceReload();
+            source = TinkersAlloyReader.getAllSmelteryFluids();
+        }
+        this.allMaterials = (source != null) ? source : new ArrayList<>();
+        this.filteredMaterials = filterMaterials(this.allMaterials, searchTerm);
     }
 
     private List<FluidStack> filterMaterials(List<FluidStack> materials, String searchTerm) {

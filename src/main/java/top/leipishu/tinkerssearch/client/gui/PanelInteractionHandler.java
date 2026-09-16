@@ -21,7 +21,6 @@ public class PanelInteractionHandler {
     private final Runnable onRefresh;
     private final Consumer<List<FluidStack>> onFluidClick;
 
-    // ===== 搜索框组件 =====
     private final SearchBox searchBox = new SearchBox(SearchBoxStyle.panel());
 
     private long lastClickTime = 0;
@@ -32,7 +31,6 @@ public class PanelInteractionHandler {
     private boolean jeiAvailable;
     private Object jeiRuntime;
 
-    // 缓存 JEI 方法
     private Method jeiGetJeiHelpers = null;
     private Method jeiGetFocusFactory = null;
     private Method jeiGetRecipesGui = null;
@@ -55,16 +53,12 @@ public class PanelInteractionHandler {
             cacheJeiMethods();
         }
 
-        // ===== 搜索框初始化 =====
         this.searchBox.setHintText(new TranslatableComponent("gui.tinkerssearch.search_hint"));
         this.searchBox.setOnTextChanged(s -> onRefresh.run());
 
         System.out.println("Tinker's Search: PanelInteractionHandler JEI available: " + jeiAvailable);
     }
 
-    /**
-     * 缓存 JEI 方法以提高性能
-     */
     @SuppressWarnings({"unchecked", "rawtypes"})
     private void cacheJeiMethods() {
         if (jeiRuntime == null || methodsCached) return;
@@ -72,69 +66,48 @@ public class PanelInteractionHandler {
         try {
             Class<?> runtimeClass = jeiRuntime.getClass();
 
-            // 1. IJeiRuntime.getJeiHelpers()
             jeiGetJeiHelpers = runtimeClass.getMethod("getJeiHelpers");
             Object jeiHelpers = jeiGetJeiHelpers.invoke(jeiRuntime);
 
             if (jeiHelpers != null) {
                 Class<?> helpersClass = jeiHelpers.getClass();
-                // 2. IJeiHelpers.getFocusFactory()
                 jeiGetFocusFactory = helpersClass.getMethod("getFocusFactory");
                 Object focusFactory = jeiGetFocusFactory.invoke(jeiHelpers);
 
                 if (focusFactory != null) {
                     Class<?> focusFactoryClass = focusFactory.getClass();
                     Class<?> focusModeClass = Class.forName("mezz.jei.api.recipe.IFocus$Mode");
-                    // 3. IFocusFactory.createFocus()
                     jeiCreateFocus = focusFactoryClass.getMethod("createFocus", focusModeClass, Object.class);
                 }
             }
 
-            // 4. IJeiRuntime.getRecipesGui()
             jeiGetRecipesGui = runtimeClass.getMethod("getRecipesGui");
-
-            // 5. IJeiRuntime.getRecipeManager() (备用)
             jeiGetRecipeManager = runtimeClass.getMethod("getRecipeManager");
 
-            // 6. 获取 show 方法
             Object recipesGui = jeiGetRecipesGui.invoke(jeiRuntime);
             if (recipesGui != null) {
                 Class<?> focusClass = Class.forName("mezz.jei.api.recipe.IFocus");
                 jeiShow = recipesGui.getClass().getMethod("show", focusClass);
             }
 
-            // 7. 备用：RecipeManager.showFocus()
             Object recipeManager = jeiGetRecipeManager.invoke(jeiRuntime);
             if (recipeManager != null) {
                 Class<?> focusClass = Class.forName("mezz.jei.api.recipe.IFocus");
                 try {
                     jeiShowFocus = recipeManager.getClass().getMethod("showFocus", focusClass);
-                } catch (NoSuchMethodException e) {
-                    // 可能没有这个方法
-                }
+                } catch (NoSuchMethodException e) {}
             }
 
-            // 8. IIngredientListOverlay.getIngredientUnderMouse() - 获取鼠标下的物品
             Method getIngredientListOverlay = runtimeClass.getMethod("getIngredientListOverlay");
             Object listOverlay = getIngredientListOverlay.invoke(jeiRuntime);
             if (listOverlay != null) {
-                Class<?> listOverlayClass = listOverlay.getClass();
-                // 无参数版本
                 try {
-                    jeiGetIngredientUnderMouse = listOverlayClass.getMethod("getIngredientUnderMouse");
-                } catch (NoSuchMethodException e) {
-                    // 可能参数不同
-                }
+                    jeiGetIngredientUnderMouse = listOverlay.getClass().getMethod("getIngredientUnderMouse");
+                } catch (NoSuchMethodException e) {}
             }
 
             methodsCached = true;
             System.out.println("Tinker's Search: JEI methods cached successfully");
-            System.out.println("  jeiGetJeiHelpers: " + (jeiGetJeiHelpers != null));
-            System.out.println("  jeiGetFocusFactory: " + (jeiGetFocusFactory != null));
-            System.out.println("  jeiCreateFocus: " + (jeiCreateFocus != null));
-            System.out.println("  jeiGetRecipesGui: " + (jeiGetRecipesGui != null));
-            System.out.println("  jeiShow: " + (jeiShow != null));
-            System.out.println("  jeiShowFocus: " + (jeiShowFocus != null));
 
         } catch (Exception e) {
             System.err.println("Tinker's Search: Failed to cache JEI methods: " + e.getMessage());
@@ -152,23 +125,28 @@ public class PanelInteractionHandler {
     }
 
     // ============================================================
-    // ===== 搜索框状态（转发给 SearchBox）========================
+    // ===== 搜索框状态 ==========================================
     // ============================================================
 
     public boolean isSearchBoxFocused() { return searchBox.isFocused(); }
-
     public String getSearchKeyword() { return searchBox.getText(); }
-
     public int getCursorPosition() { return searchBox.getCursorPosition(); }
-
     public void setSearchKeyword(String keyword) { searchBox.setText(keyword); }
-
     public void setCursorPosition(int position) { searchBox.setCursorPosition(position); }
-
     public void setSearchBoxFocused(boolean focused) { searchBox.setFocused(focused); }
-
-    /** 供 {@code PanelRenderer} 渲染搜索框。 */
     public SearchBox getSearchBox() { return searchBox; }
+
+    /** 根据当前 Tab 应用不同的搜索框配色。 */
+    public void applyStyleForTab(PanelDataManager_TabStyle style) {
+        switch (style) {
+            case ALLOY: searchBox.setStyle(SearchBoxStyle.alloy()); break;
+            case PANEL:
+            default: searchBox.setStyle(SearchBoxStyle.panel()); break;
+        }
+    }
+
+    /** 供外部调用，用枚举避免耦合到 PanelDataManager 内部 Tab。 */
+    public enum PanelDataManager_TabStyle { PANEL, ALLOY }
 
     // ============================================================
     // ===== 键盘 / 字符输入 =====================================
@@ -227,9 +205,6 @@ public class PanelInteractionHandler {
         return false;
     }
 
-    /**
-     * 把点击事件转发给搜索框；坐标由本方法根据面板位置计算。
-     */
     public boolean handleSearchBoxClick(double mouseX, double mouseY) {
         if (!panel.isVisible()) return false;
 
@@ -274,14 +249,11 @@ public class PanelInteractionHandler {
         boolean isOnIcon = info.isOnIcon;
 
         if (isOnIcon) {
-            // ===== 图标区域：使用 JEI Focus API =====
             return handleJeiIconClick(fluid, button);
         } else {
-            // ===== 卡片主体：左键移动，右键交给上层处理 =====
             if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
                 return panel.moveFluidToBottom(fluid);
             }
-            // 右键返回 false，让上层处理（打开详情）
             if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
                 return false;
             }
@@ -290,154 +262,90 @@ public class PanelInteractionHandler {
         return false;
     }
 
-    /**
-     * 处理 JEI 图标点击
-     * 使用 JEI Focus API（无按键冲突）
-     */
     @SuppressWarnings({"unchecked", "rawtypes"})
     public boolean handleJeiIconClick(FluidStack fluid, int button) {
         if (!jeiAvailable) return false;
 
-        // 重新获取 runtime
         jeiRuntime = top.leipishu.tinkerssearch.jei.Jei.getJeiRuntime();
-        if (jeiRuntime == null) {
-            System.out.println("Tinker's Search: JEI runtime is null");
-            return false;
-        }
+        if (jeiRuntime == null) return false;
 
-        // 如果方法没缓存，重新缓存
-        if (!methodsCached) {
-            cacheJeiMethods();
-        }
+        if (!methodsCached) cacheJeiMethods();
 
-        // ===== 方法1：使用 IFocusFactory + RecipesGui.show() =====
         if (jeiGetJeiHelpers != null && jeiGetFocusFactory != null && jeiCreateFocus != null && jeiShow != null) {
             try {
-                // 获取 IJeiHelpers
                 Object jeiHelpers = jeiGetJeiHelpers.invoke(jeiRuntime);
-                if (jeiHelpers == null) {
-                    System.out.println("Tinker's Search: IJeiHelpers is null");
-                    return tryFallback(fluid, button);
-                }
+                if (jeiHelpers == null) return tryFallback(fluid, button);
 
-                // 获取 IFocusFactory
                 Object focusFactory = jeiGetFocusFactory.invoke(jeiHelpers);
-                if (focusFactory == null) {
-                    System.out.println("Tinker's Search: IFocusFactory is null");
-                    return tryFallback(fluid, button);
-                }
+                if (focusFactory == null) return tryFallback(fluid, button);
 
-                // 获取 IFocus 相关的类
                 Class<?> focusModeClass = Class.forName("mezz.jei.api.recipe.IFocus$Mode");
 
-                // 根据按钮选择模式
                 Object mode;
                 if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
-                    // ===== 左键：试试 OUTPUT（显示配方） =====
                     mode = Enum.valueOf((Class<Enum>) focusModeClass, "OUTPUT");
-                    System.out.println("Tinker's Search: 左键 → OUTPUT for " + fluid.getDisplayName().getString());
                 } else if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
-                    // ===== 右键：试试 INPUT（显示用途） =====
                     mode = Enum.valueOf((Class<Enum>) focusModeClass, "INPUT");
-                    System.out.println("Tinker's Search: 右键 → INPUT for " + fluid.getDisplayName().getString());
                 } else {
                     return false;
                 }
 
-                // 创建 IFocus
                 Object focus = jeiCreateFocus.invoke(focusFactory, mode, fluid);
 
-                // 获取 RecipesGui 并显示
                 Object recipesGui = jeiGetRecipesGui.invoke(jeiRuntime);
                 if (recipesGui != null) {
                     jeiShow.invoke(recipesGui, focus);
-                    System.out.println("Tinker's Search: JEI Focus API succeeded (RecipesGui)");
                     return true;
                 }
 
             } catch (Exception e) {
                 System.err.println("Tinker's Search: Focus API failed: " + e.getMessage());
-                e.printStackTrace();
             }
         }
 
-        // ===== 方法2：使用 RecipeManager.showFocus() 备用 =====
         if (jeiGetRecipeManager != null && jeiShowFocus != null) {
             try {
                 Object recipeManager = jeiGetRecipeManager.invoke(jeiRuntime);
                 if (recipeManager != null) {
-                    // 需要创建 Focus
                     Object jeiHelpers = jeiGetJeiHelpers.invoke(jeiRuntime);
                     Object focusFactory = jeiGetFocusFactory.invoke(jeiHelpers);
                     Class<?> focusModeClass = Class.forName("mezz.jei.api.recipe.IFocus$Mode");
 
                     Object mode;
-                    if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
-                        mode = Enum.valueOf((Class<Enum>) focusModeClass, "INPUT");
-                    } else {
-                        mode = Enum.valueOf((Class<Enum>) focusModeClass, "OUTPUT");
-                    }
+                    if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) mode = Enum.valueOf((Class<Enum>) focusModeClass, "INPUT");
+                    else mode = Enum.valueOf((Class<Enum>) focusModeClass, "OUTPUT");
 
                     Object focus = jeiCreateFocus.invoke(focusFactory, mode, fluid);
                     jeiShowFocus.invoke(recipeManager, focus);
-                    System.out.println("Tinker's Search: JEI Focus API 成功 (RecipeManager)");
                     return true;
                 }
-            } catch (Exception e) {
-                System.out.println("Tinker's Search: RecipeManager fallback failed: " + e.getMessage());
-            }
+            } catch (Exception e) {}
         }
 
-        // ===== 方法3：模拟按键（最终回退） =====
         return tryFallback(fluid, button);
     }
 
-    /**
-     * 回退方案：模拟按键
-     */
     private boolean tryFallback(FluidStack fluid, int button) {
         try {
             Minecraft mc = Minecraft.getInstance();
             long windowHandle = mc.getWindow().getWindow();
 
             int key;
-            String keyName;
-            String action;
-
-            if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
-                // ===== 左键：R 键 = 显示配方 =====
-                key = GLFW.GLFW_KEY_R;
-                keyName = "R";
-                action = "配方";
-            } else if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
-                // ===== 右键：U 键 = 显示用途 =====
-                key = GLFW.GLFW_KEY_U;
-                keyName = "U";
-                action = "用途";
-            } else {
-                return false;
-            }
+            if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) key = GLFW.GLFW_KEY_R;
+            else if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) key = GLFW.GLFW_KEY_U;
+            else return false;
 
             mc.keyboardHandler.keyPress(windowHandle, key, 0, 1, 0);
             mc.keyboardHandler.keyPress(windowHandle, key, 0, 0, 0);
-
-            System.out.println("Tinker's Search: 模拟 " + action + " (" + keyName + "键)");
             return true;
-
-        } catch (Exception e) {
-            System.err.println("Tinker's Search: 模拟按键失败: " + e.getMessage());
-        }
+        } catch (Exception e) {}
         return false;
     }
 
-    /**
-     * 处理键盘按键（用于 JEI 书签）
-     */
     @SuppressWarnings({"unchecked", "rawtypes"})
     public boolean handleKeyPressedGlobal(int keyCode, int scanCode, int modifiers) {
         if (!panel.isVisible()) return false;
 
-        // A键 (GLFW_KEY_A = 65) - 添加到 JEI 书签
         if (keyCode == 65) {
             Minecraft mc = Minecraft.getInstance();
             double mouseX = mc.mouseHandler.xpos() / mc.getWindow().getGuiScale();
@@ -456,9 +364,6 @@ public class PanelInteractionHandler {
         return false;
     }
 
-    /**
-     * 添加到 JEI 书签
-     */
     @SuppressWarnings({"unchecked", "rawtypes"})
     private boolean addToJeiBookmark(FluidStack fluid) {
         if (!jeiAvailable) return false;
@@ -468,7 +373,6 @@ public class PanelInteractionHandler {
 
         try {
             Class<?> runtimeClass = jeiRuntime.getClass();
-
             Method getBookmarkOverlay = runtimeClass.getMethod("getBookmarkOverlay");
             Object bookmarkOverlay = getBookmarkOverlay.invoke(jeiRuntime);
 
@@ -480,7 +384,6 @@ public class PanelInteractionHandler {
                     try {
                         Method addBookmark = listOverlay.getClass().getMethod("addBookmark", Object.class);
                         addBookmark.invoke(listOverlay, fluid);
-                        System.out.println("Tinker's Search: 已添加到 JEI 书签 (列表): " + fluid.getDisplayName().getString());
                         return true;
                     } catch (Exception ignored) {}
                 }
@@ -492,28 +395,19 @@ public class PanelInteractionHandler {
             try {
                 Method addMethod = bookmarkClass.getMethod("addIngredient", Object.class);
                 addMethod.invoke(bookmarkOverlay, fluid);
-                System.out.println("Tinker's Search: 已添加到 JEI 书签: " + fluid.getDisplayName().getString());
                 return true;
             } catch (NoSuchMethodException e1) {
                 try {
                     Method addMethod = bookmarkClass.getMethod("addBookmark", Object.class);
                     addMethod.invoke(bookmarkOverlay, fluid);
-                    System.out.println("Tinker's Search: 已添加到 JEI 书签 (备用): " + fluid.getDisplayName().getString());
                     return true;
-                } catch (NoSuchMethodException e2) {
-                    System.err.println("Tinker's Search: 未找到书签添加方法");
-                }
+                } catch (NoSuchMethodException e2) {}
             }
-        } catch (Exception e) {
-            System.err.println("Tinker's Search: 添加书签失败: " + e.getMessage());
-        }
+        } catch (Exception e) {}
 
         return false;
     }
 
-    /**
-     * 获取点击位置的卡片和图标信息
-     */
     private CardClickInfo getCardAndIconAt(double mouseX, double mouseY, int px, int py, int pw) {
         if (displayedFluids == null || displayedFluids.isEmpty()) return null;
 
@@ -548,23 +442,13 @@ public class PanelInteractionHandler {
         return null;
     }
 
-    // ============================================================
-    // ===== 公开操作 =============================================
-    // ============================================================
-
     public void clearSearch() {
         searchBox.clear();
         searchBox.setFocused(false);
         onRefresh.run();
     }
 
-    public void refreshData() {
-        onRefresh.run();
-    }
-
-    // ============================================================
-    // ===== 内部数据类 ===========================================
-    // ============================================================
+    public void refreshData() { onRefresh.run(); }
 
     private static class CardClickInfo {
         final FluidStack fluid;
