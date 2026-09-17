@@ -34,13 +34,13 @@ public final class SearchBoxStyle {
         return new SearchBoxStyle();
     }
 
-    /** 浮动面板合金模式配色（蓝调）。 */
+    /** 浮动面板合金模式配色（暖金，与标题和 Tab 同色系）。 */
     public static SearchBoxStyle alloy() {
         SearchBoxStyle s = new SearchBoxStyle();
-        s.bgColor = 0xFF1A1A2A;
-        s.bgColorFocused = 0xFF2A2A3A;
-        s.borderColor = 0xFF4466AA;
-        s.borderColorFocused = 0xFF6688FF;
+        s.bgColor = 0xFF2A2318;
+        s.bgColorFocused = 0xFF3A3020;
+        s.borderColor = 0xFF6A5030;
+        s.borderColorFocused = 0xFFFFAA00;
         return s;
     }
 }

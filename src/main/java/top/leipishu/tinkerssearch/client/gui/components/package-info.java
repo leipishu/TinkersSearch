@@ -12,8 +12,6 @@
  *       搜索框样式配置</li>
  *   <li>{@link top.leipishu.tinkerssearch.client.gui.components.CardBackground} —
  *       卡片底色 + 边框绘制工具</li>
- *   <li>{@link top.leipishu.tinkerssearch.client.gui.components.FoldHeader} —
- *       折叠区域标题栏绘制工具</li>
  * </ul>
  */
 package top.leipishu.tinkerssearch.client.gui.components;

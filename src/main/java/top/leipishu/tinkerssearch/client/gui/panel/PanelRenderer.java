@@ -247,18 +247,20 @@ public class PanelRenderer {
                     mouseY >= tabY && mouseY <= tabY + tabH;
 
             int bg;
-            if (isActive) bg = 0xFF3A4A5A;
-            else if (isHover) bg = 0xFF2A2A2A;
-            else bg = 0xFF1E1E1E;
+            if (isActive) bg = 0xFF4A3820;      // 深金棕（激活）
+            else if (isHover) bg = 0xFF3A2E1A;  // 略亮金棕（悬停）
+            else bg = 0xFF241E12;                // 暗金棕（默认）
 
             GuiComponent.fill(poseStack, tabX, tabY, tabX + tabW, tabY + tabH, bg);
 
             if (isActive) {
-                GuiComponent.fill(poseStack, tabX, tabY + tabH - 1, tabX + tabW, tabY + tabH, 0xFF66AAFF);
+                // 底部高亮线：暖金色，跟 §6 标题同色系
+                GuiComponent.fill(poseStack, tabX, tabY + tabH - 1, tabX + tabW, tabY + tabH, 0xFFFFAA00);
             }
 
             String label = labels[i];
-            int textColor = isActive ? 0xFFFFFF : (isHover ? 0xCCCCCC : 0x999999);
+            // 激活：亮金；悬停：浅金；默认：暗金
+            int textColor = isActive ? 0xFFFFDD77 : (isHover ? 0xFFDDBB55 : 0xFFAA8844);
             int textW = font.width(label);
             font.draw(poseStack, label, tabX + (tabW - textW) / 2,
                     tabY + (tabH - font.lineHeight) / 2 + 1, textColor);
