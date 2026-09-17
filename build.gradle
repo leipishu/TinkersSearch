@@ -72,7 +72,7 @@ repositories {
         name 'ModMaven'
         url 'https://modmaven.dev'
     }
-    // ✅ 新增：JEI 官方 Maven 仓库
+    // JEI 官方 Maven 仓库
     maven {
         name 'Jared\'s maven'
         url 'https://maven.blamejared.com/'
@@ -88,12 +88,16 @@ dependencies {
     // Tinkers' Construct
     implementation fg.deobf("slimeknights.tconstruct:TConstruct:${minecraft_version}-${tinkers_version}")
 
-    // ✅ JEI - 完整依赖配置
-    // 编译时需要 API（用于编写代码）
+    // JEI - 完整依赖配置
     compileOnly fg.deobf("mezz.jei:jei-${minecraft_version}-common-api:${jei_version}")
     compileOnly fg.deobf("mezz.jei:jei-${minecraft_version}-forge-api:${jei_version}")
-    // 运行时需要完整模组
     runtimeOnly fg.deobf("mezz.jei:jei-${minecraft_version}-forge:${jei_version}")
+
+    // pinyin4j - 拼音搜索支持
+    minecraftLibrary 'com.belerweb:pinyin4j:2.5.1'
+    jarJar(group: 'com.belerweb', name: 'pinyin4j', version: '[2.5,3.0)') {
+        jarJar.pin(it, '2.5.1')
+    }
 }
 
 tasks.named('processResources', ProcessResources).configure {
@@ -125,6 +129,8 @@ tasks.named('jar', Jar).configure {
     }
     finalizedBy 'reobfJar'
 }
+
+jarJar.enable()
 
 publishing {
     publications {

@@ -36,6 +36,7 @@ public class AlloyRecipeData {
         List<AlloyFeasibility.MissingFluid> missing = new ArrayList<>();
         List<AlloyFeasibility.SufficientFluid> sufficient = new ArrayList<>();
 
+        // ===== 计算最大可执行次数 =====
         int maxTimes = Integer.MAX_VALUE;
 
         for (FluidIngredientData input : inputs) {
@@ -44,6 +45,7 @@ public class AlloyRecipeData {
             int available = 0;
             FluidStack matched = null;
 
+            // ✅ 1.20.1：通过 ForgeRegistries 获取注册名
             ResourceLocation inputRl = ForgeRegistries.FLUIDS.getKey(inputFluid.getFluid());
 
             for (FluidStack fs : availableFluids) {
@@ -55,6 +57,7 @@ public class AlloyRecipeData {
                 }
             }
 
+            // 如果这个流体是搜索的材料，视为足量（无限大）
             boolean isSelected = false;
             if (selectedMaterial != null) {
                 ResourceLocation selectedRl = ForgeRegistries.FLUIDS.getKey(selectedMaterial.getFluid());
@@ -69,6 +72,7 @@ public class AlloyRecipeData {
                         inputFluid, needed, available, matched
                 ));
 
+                // 非查询物才参与次数计算
                 if (!isSelected) {
                     int times = available / needed;
                     if (times < maxTimes) {
@@ -98,6 +102,9 @@ public class AlloyRecipeData {
         );
     }
 
+    /**
+     * 流体成分数据 - 不依赖匠魂的 FluidIngredient
+     */
     public static class FluidIngredientData {
         private final FluidStack fluid;
         private final int amount;
@@ -119,6 +126,8 @@ public class AlloyRecipeData {
         private final boolean temperatureOk;
         private final int requiredTemp;
         private final int currentTemp;
+
+        // ===== 新增：最大可执行次数 =====
         private final int maxTimes;
 
         public AlloyFeasibility(AlloyRecipeData recipe, boolean feasible,
@@ -142,6 +151,8 @@ public class AlloyRecipeData {
         public int getRequiredTemp() { return requiredTemp; }
         public int getCurrentTemp() { return currentTemp; }
         public AlloyRecipeData getRecipe() { return recipe; }
+
+        // ===== 新增：获取最大可执行次数 =====
         public int getMaxTimes() { return maxTimes; }
 
         public static class MissingFluid {

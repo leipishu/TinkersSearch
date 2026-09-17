@@ -8,16 +8,18 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraftforge.client.event.InputEvent;
-import net.minecraftforge.client.event.RenderTooltipEvent;
 import net.minecraftforge.client.event.ScreenEvent;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.ModList;
 import net.minecraftforge.fml.common.Mod;
+import net.minecraftforge.fml.ModList;
+import net.minecraftforge.client.event.RenderTooltipEvent;
 import org.lwjgl.glfw.GLFW;
+import org.lwjgl.opengl.GL11;
 import top.leipishu.tinkerssearch.client.gui.FloatingSearchPanel;
+import top.leipishu.tinkerssearch.client.gui.FluidDetailScreen;
 import top.leipishu.tinkerssearch.client.gui.PanelInteractionHandler;
 import top.leipishu.tinkerssearch.jei.Jei;
 
@@ -25,8 +27,6 @@ import java.lang.reflect.Field;
 
 @Mod("tinkerssearch")
 public class TinkersSearch {
-
-    public static final String MOD_ID = "tinkerssearch";
 
     private static FloatingSearchPanel searchPanel;
     private PanelInteractionHandler interactionHandler;
@@ -61,14 +61,20 @@ public class TinkersSearch {
         return searchPanel;
     }
 
-    // ============================================================
-    // ===== 屏幕初始化 =====
-    // ============================================================
+    /** 详情窗口打开时，本 mod 的其他事件应让位。 */
+    private boolean isDetailScreenOpen() {
+        return Minecraft.getInstance().screen instanceof FluidDetailScreen;
+    }
 
     @SubscribeEvent(priority = EventPriority.LOWEST)
     public void onScreenInit(ScreenEvent.Init event) {
         Screen screen = event.getScreen();
         if (screen == null) return;
+
+        // 详情窗口打开时，不改动面板状态（面板留给父屏幕继续持有）
+        if (screen instanceof FluidDetailScreen) {
+            return;
+        }
 
         boolean isSmeltery = isSmelteryScreen(screen);
 
@@ -121,8 +127,6 @@ public class TinkersSearch {
     }
 
     private void findSmelteryBlockEntity(Screen screen) {
-        if (screen == null) return;
-
         for (String name : SMELTERY_FIELD_NAMES) {
             try {
                 Field field = screen.getClass().getDeclaredField(name);
@@ -130,9 +134,7 @@ public class TinkersSearch {
                 Object obj = field.get(screen);
                 if (obj instanceof BlockEntity) {
                     smelteryBlockEntity = (BlockEntity) obj;
-                    if (searchPanel != null) {
-                        searchPanel.setSmelteryBlockEntity(smelteryBlockEntity);
-                    }
+                    searchPanel.setSmelteryBlockEntity(smelteryBlockEntity);
                     System.out.println("Tinker's Search: Found via '" + name + "'");
                     return;
                 }
@@ -157,13 +159,11 @@ public class TinkersSearch {
         }
     }
 
-    // ============================================================
-    // ===== 客户端 Tick =====
-    // ============================================================
-
     @SubscribeEvent
     public void onClientTick(TickEvent.ClientTickEvent event) {
         if (event.phase != TickEvent.Phase.END) return;
+
+        if (isDetailScreenOpen()) return;
 
         Minecraft mc = Minecraft.getInstance();
         Screen screen = mc.screen;
@@ -190,19 +190,12 @@ public class TinkersSearch {
         }
     }
 
-    // ============================================================
-    // ===== 键盘事件 =====
-    // ============================================================
-
     @SubscribeEvent(priority = EventPriority.HIGHEST)
     public void onKeyboardKeyPressedPre(ScreenEvent.KeyPressed event) {
+        if (isDetailScreenOpen()) return;
         if (searchPanel == null) return;
         if (!searchPanel.isVisible()) return;
-
-        // 只有搜索框聚焦时才拦截按键，否则放行
-        if (!interactionHandler.isSearchBoxFocused()) {
-            return;
-        }
+        if (!interactionHandler.isSearchBoxFocused()) return;
 
         int keyCode = event.getKeyCode();
 
@@ -221,31 +214,33 @@ public class TinkersSearch {
         event.setCanceled(true);
     }
 
-    @SubscribeEvent
-    public void onKeyInput(InputEvent.Key event) {
-        if (searchPanel == null) return;
+    private void togglePanel() {
+        System.out.println("Tinker's Search: Toggling panel!");
+        searchPanel.toggleVisibility();
 
-        int keyCode = event.getKey();
+        if (searchPanel.isVisible()) {
+            searchPanel.forceUpdatePosition();
+            searchPanel.refreshTemperature();
 
-        // 搜索框聚焦时处理搜索相关按键
-        if (interactionHandler != null && interactionHandler.isSearchBoxFocused()) {
-            if (interactionHandler.handleKeyPressed(keyCode, event.getScanCode(), event.getModifiers())) {
-                return;
+            Screen screen = Minecraft.getInstance().screen;
+            if (screen != null && isSmelteryScreen(screen)) {
+                findSmelteryBlockEntity(screen);
+                if (smelteryBlockEntity != null) {
+                    searchPanel.setSmelteryBlockEntity(smelteryBlockEntity);
+                    searchPanel.refreshMoltenFluids();
+                }
             }
-            if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER ||
-                    keyCode == GLFW.GLFW_KEY_ESCAPE) {
-                interactionHandler.setSearchBoxFocused(false);
-                return;
-            }
+            hasInitialized = true;
+        }
+
+        if (jeiAvailable) {
+            Jei.refreshExclusionAreas();
         }
     }
 
-    // ============================================================
-    // ===== 字符输入事件 =====
-    // ============================================================
-
     @SubscribeEvent(priority = EventPriority.HIGHEST)
     public void onCharTyped(ScreenEvent.CharacterTyped event) {
+        if (isDetailScreenOpen()) return;
         if (!isSmelteryScreen || searchPanel == null || !searchPanel.isVisible()) return;
         if (!interactionHandler.isSearchBoxFocused()) return;
 
@@ -254,12 +249,9 @@ public class TinkersSearch {
         }
     }
 
-    // ============================================================
-    // ===== 鼠标点击事件 =====
-    // ============================================================
-
     @SubscribeEvent(priority = EventPriority.HIGHEST)
-    public void onMouseClickPre(ScreenEvent.MouseButtonPressed event) {
+    public void onMouseClickPre(ScreenEvent.MouseButtonPressed.Pre event) {
+        if (isDetailScreenOpen()) return;
         if (!isSmelteryScreen || searchPanel == null) return;
 
         double mouseX = event.getMouseX();
@@ -288,12 +280,25 @@ public class TinkersSearch {
         }
     }
 
-    // ============================================================
-    // ===== 鼠标滚轮事件 =====
-    // ============================================================
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
+    public void onRenderTooltipPre(RenderTooltipEvent.Pre event) {
+        if (isDetailScreenOpen()) return;
+        if (!isSmelteryScreen || searchPanel == null) return;
+
+        if (searchPanel.isVisible() || searchPanel.isAnimating()) {
+            Minecraft mc = Minecraft.getInstance();
+            double mouseX = mc.mouseHandler.xpos() * mc.getWindow().getGuiScaledWidth() / mc.getWindow().getScreenWidth();
+            double mouseY = mc.mouseHandler.ypos() * mc.getWindow().getGuiScaledHeight() / mc.getWindow().getScreenHeight();
+
+            if (searchPanel.isPointInsidePanel(mouseX, mouseY)) {
+                event.setCanceled(true);
+            }
+        }
+    }
 
     @SubscribeEvent(priority = EventPriority.HIGHEST)
-    public void onMouseScroll(ScreenEvent.MouseScrolled event) {
+    public void onMouseScroll(ScreenEvent.MouseScrolled.Pre event) {
+        if (isDetailScreenOpen()) return;
         if (!isSmelteryScreen || searchPanel == null || !searchPanel.isVisible()) {
             return;
         }
@@ -304,66 +309,49 @@ public class TinkersSearch {
         }
     }
 
-    // ============================================================
-    // ===== Tooltip 事件 =====
-    // ============================================================
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
+    public void onMouseDragPre(ScreenEvent.MouseDragged.Pre event) {
+        if (isDetailScreenOpen()) return;
+        if (!isSmelteryScreen || searchPanel == null) return;
+        if (!searchPanel.isDraggingScrollBar()) return;
+
+        searchPanel.handleMouseDrag(event.getMouseX(), event.getMouseY());
+        event.setCanceled(true);
+    }
 
     @SubscribeEvent(priority = EventPriority.HIGHEST)
-    public void onRenderTooltipPre(RenderTooltipEvent.Pre event) {
+    public void onMouseReleasedPre(ScreenEvent.MouseButtonReleased.Pre event) {
+        if (isDetailScreenOpen()) return;
         if (!isSmelteryScreen || searchPanel == null) return;
+        if (!searchPanel.isDraggingScrollBar()) return;
 
-        if (searchPanel.isVisible() || searchPanel.isAnimating()) {
-            Minecraft mc = Minecraft.getInstance();
-            if (mc == null || mc.getWindow() == null) return;
-            double mouseX = mc.mouseHandler.xpos() * mc.getWindow().getGuiScaledWidth() / mc.getWindow().getScreenWidth();
-            double mouseY = mc.mouseHandler.ypos() * mc.getWindow().getGuiScaledHeight() / mc.getWindow().getScreenHeight();
-
-            if (searchPanel.isPointInsidePanel(mouseX, mouseY)) {
-                event.setCanceled(true);
-            }
-        }
+        searchPanel.handleMouseRelease();
+        event.setCanceled(true);
     }
-
-    // ============================================================
-    // ===== 面板切换 =====
-    // ============================================================
-
-    private void togglePanel() {
-        System.out.println("Tinker's Search: Toggling panel!");
-        searchPanel.toggleVisibility();
-
-        if (searchPanel.isVisible()) {
-            searchPanel.forceUpdatePosition();
-            searchPanel.refreshTemperature();
-
-            Screen screen = Minecraft.getInstance().screen;
-            if (screen != null && isSmelteryScreen(screen)) {
-                findSmelteryBlockEntity(screen);
-                if (smelteryBlockEntity != null) {
-                    searchPanel.setSmelteryBlockEntity(smelteryBlockEntity);
-                    searchPanel.refreshMoltenFluids();
-                }
-            }
-            hasInitialized = true;
-        }
-
-        if (jeiAvailable) {
-            Jei.refreshExclusionAreas();
-        }
-    }
-
-    // ============================================================
-    // ===== 最终渲染层 =====
-    // ============================================================
 
     @SubscribeEvent(priority = EventPriority.LOWEST)
     public void onScreenDrawPost(ScreenEvent.Render event) {
+        if (isDetailScreenOpen()) return;
         if (!isSmelteryScreen || searchPanel == null) return;
 
         GuiGraphics graphics = event.getGuiGraphics();
 
         graphics.pose().pushPose();
         graphics.pose().translate(0, 0, 500);
+
+        try {
+            GL11.glClear(GL11.GL_DEPTH_BUFFER_BIT);
+        } catch (Exception ignored) {}
+
+        boolean depthTestWasEnabled = false;
+        boolean blendWasEnabled = false;
+        boolean scissorWasEnabled = false;
+
+        try {
+            depthTestWasEnabled = GL11.glIsEnabled(GL11.GL_DEPTH_TEST);
+            blendWasEnabled = GL11.glIsEnabled(GL11.GL_BLEND);
+            scissorWasEnabled = GL11.glIsEnabled(GL11.GL_SCISSOR_TEST);
+        } catch (Exception ignored) {}
 
         RenderSystem.disableDepthTest();
         RenderSystem.depthMask(false);
@@ -382,14 +370,27 @@ public class TinkersSearch {
             drawTabButton(graphics);
 
         } finally {
-            RenderSystem.enableDepthTest();
+            try {
+                if (depthTestWasEnabled) RenderSystem.enableDepthTest();
+                else RenderSystem.disableDepthTest();
+
+                if (blendWasEnabled) RenderSystem.enableBlend();
+                else RenderSystem.disableBlend();
+
+                if (scissorWasEnabled) {
+                    try {
+                        GlStateManager._enableScissorTest();
+                    } catch (Exception ignored) {}
+                } else {
+                    try {
+                        GlStateManager._disableScissorTest();
+                    } catch (Exception ignored) {}
+                }
+            } catch (Exception ignored) {}
+
             graphics.pose().popPose();
         }
     }
-
-    // ============================================================
-    // ===== Tab按钮绘制 =====
-    // ============================================================
 
     private void drawTabButton(GuiGraphics graphics) {
         if (searchPanel == null) return;
@@ -443,4 +444,7 @@ public class TinkersSearch {
         int textColor = hover ? 0xFFFFFFFF : 0xCCCCCCCC;
         graphics.drawString(font, arrow, textX, textY, textColor);
     }
+
+    // Note: Forge removed the recipes-updated event in 1.19.2+, so the corresponding handler is omitted.
+    // CastingRecipeHelper.invalidateCache() can be triggered elsewhere (e.g. PlayerTickEvent check) if needed.
 }
