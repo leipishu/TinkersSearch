@@ -15,6 +15,7 @@ import top.leipishu.tinkerssearch.alloy.AlloyResultCalculator;
 import top.leipishu.tinkerssearch.client.gui.FloatingSearchPanel;
 import top.leipishu.tinkerssearch.client.gui.PanelInteractionHandler;
 import top.leipishu.tinkerssearch.client.gui.components.CardBackground;
+import top.leipishu.tinkerssearch.client.gui.components.ScrollBar;
 import top.leipishu.tinkerssearch.client.gui.components.SearchBox;
 import top.leipishu.tinkerssearch.client.gui.components.SearchBoxStyle;
 import top.leipishu.tinkerssearch.client.gui.panel.PanelDataManager.AreaKind;
@@ -38,6 +39,12 @@ public class PanelRenderer {
     private final AlloyQueryHandler alloyHandler;
 
     private final List<ClickableArea> clickableAreas = new ArrayList<>();
+
+    // ===== 滚动条实例 =====
+    private final ScrollBar favScrollBar = new ScrollBar();
+    private final ScrollBar smelteryScrollBar = new ScrollBar();
+    private final ScrollBar allMaterialsScrollBar = new ScrollBar();
+    private final ScrollBar alloyScrollBar = new ScrollBar();
 
     private static class ClickableArea {
         int x, y, w, h;
@@ -70,6 +77,12 @@ public class PanelRenderer {
         this.animationManager = animationManager;
         this.interactionHandler = interactionHandler;
         this.alloyHandler = alloyHandler;
+
+        // ===== 滚动条回调 =====
+        favScrollBar.setOnOffsetChanged(v -> dataManager.setFavScrollOffset(v));
+        smelteryScrollBar.setOnOffsetChanged(v -> dataManager.setScrollOffset(v));
+        allMaterialsScrollBar.setOnOffsetChanged(v -> dataManager.setAllMaterialsScrollOffset(v));
+        alloyScrollBar.setOnOffsetChanged(v -> dataManager.setAlloyScrollOffset(v));
     }
 
     // ==================== 公共方法 ====================
@@ -157,6 +170,12 @@ public class PanelRenderer {
 
     public void renderButton(PoseStack poseStack, int mouseX, int mouseY, float partialTick) {
         clickableAreas.clear();
+        // 清空滚动条状态，避免切 Tab 后残留 bounds
+        favScrollBar.setBounds(0, 0, 0, 0);
+        smelteryScrollBar.setBounds(0, 0, 0, 0);
+        allMaterialsScrollBar.setBounds(0, 0, 0, 0);
+        alloyScrollBar.setBounds(0, 0, 0, 0);
+
         ScissorHelper.reset();
 
         if (panel.isVisible() && !panel.isVisible()) {
@@ -220,13 +239,9 @@ public class PanelRenderer {
 
     private void renderTabBar(PoseStack poseStack, int px, int py, int pw,
                               int mouseX, int mouseY, Font font) {
-        // ===== 标题栏背景 =====
         GuiComponent.fill(poseStack, px + 1, py + 1, px + pw - 2, py + TITLE_BAR_HEIGHT, 0xFF2A2A2A);
-
-        // ===== 标题 =====
         font.draw(poseStack, "§6Tinker's Search", px + 5, py + 5, 0xFFFFFF);
 
-        // ===== Tab 栏 =====
         Tab[] tabs = Tab.values();
         String[] labels = {
                 new TranslatableComponent("gui.tinkerssearch.tab.smeltery").getString(),
@@ -247,19 +262,17 @@ public class PanelRenderer {
                     mouseY >= tabY && mouseY <= tabY + tabH;
 
             int bg;
-            if (isActive) bg = 0xFF4A3820;      // 深金棕（激活）
-            else if (isHover) bg = 0xFF3A2E1A;  // 略亮金棕（悬停）
-            else bg = 0xFF241E12;                // 暗金棕（默认）
+            if (isActive) bg = 0xFF6A5030;
+            else if (isHover) bg = 0xFF4E4028;
+            else bg = 0xFF3A3020;
 
             GuiComponent.fill(poseStack, tabX, tabY, tabX + tabW, tabY + tabH, bg);
 
             if (isActive) {
-                // 底部高亮线：暖金色，跟 §6 标题同色系
                 GuiComponent.fill(poseStack, tabX, tabY + tabH - 1, tabX + tabW, tabY + tabH, 0xFFFFAA00);
             }
 
             String label = labels[i];
-            // 激活：亮金；悬停：浅金；默认：暗金
             int textColor = isActive ? 0xFFFFDD77 : (isHover ? 0xFFDDBB55 : 0xFFAA8844);
             int textW = font.width(label);
             font.draw(poseStack, label, tabX + (tabW - textW) / 2,
@@ -312,7 +325,6 @@ public class PanelRenderer {
         int countRight = px + pw - 23;
         font.draw(poseStack, countStr, countRight - font.width(countStr), boxY + 4, 0x888888);
 
-        // 分隔线：冶炼炉 Tab 不画（收藏区自带标题）
         if (tab != Tab.SMELTERY) {
             int lineY = boxY + boxH + 4;
             GuiComponent.fill(poseStack, px + 5, lineY,
@@ -344,7 +356,7 @@ public class PanelRenderer {
                                        int mouseX, int mouseY, Font font) {
         int cardAreaW = pw - 10 - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING;
 
-        // ===== 收藏区标题 =====
+        // 收藏区
         if (!dataManager.getDisplayedFavoriteFluids().isEmpty()) {
             int favTitleY = py + layoutCalculator.getFavoriteTitleY();
             font.draw(poseStack, "§6" + new TranslatableComponent("gui.tinkerssearch.favorites").getString(),
@@ -367,11 +379,12 @@ public class PanelRenderer {
                     renderFavoriteCards(poseStack, px, pw, mouseX, mouseY, font, favStartY, favHeight);
                 }
                 renderScrollBar(poseStack, px, favStartY, favHeight, pw,
-                        dataManager.getFavScrollOffset(), dataManager.getMaxFavScrollOffset());
+                        dataManager.getFavScrollOffset(), dataManager.getMaxFavScrollOffset(),
+                        favScrollBar, mouseX, mouseY);
             }
         }
 
-        // ===== 冶炼炉区标题 =====
+        // 冶炼炉区
         int smelteryTitleY = py + layoutCalculator.getSmelteryTitleY();
         font.draw(poseStack, "§e" + new TranslatableComponent("gui.tinkerssearch.smeltery").getString(),
                 px + 5, smelteryTitleY, 0xFFFFFF);
@@ -393,7 +406,8 @@ public class PanelRenderer {
                 renderSmelteryCards(poseStack, px, pw, smelteryStartY, smelteryHeight, mouseX, mouseY, font);
             }
             renderScrollBar(poseStack, px, smelteryStartY, smelteryHeight, pw,
-                    dataManager.getScrollOffset(), dataManager.getMaxScrollOffset());
+                    dataManager.getScrollOffset(), dataManager.getMaxScrollOffset(),
+                    smelteryScrollBar, mouseX, mouseY);
         }
     }
 
@@ -451,7 +465,7 @@ public class PanelRenderer {
         }
     }
 
-    // ==================== 全部材料 Tab ====================
+    // ==================== 材料 Tab ====================
 
     private void renderMaterialsContent(PoseStack poseStack, int px, int py, int pw, int ph,
                                         int mouseX, int mouseY, Font font) {
@@ -479,7 +493,8 @@ public class PanelRenderer {
             renderAllMaterialsCards(poseStack, px, pw, startY, endY, mouseX, mouseY, font);
         }
         renderScrollBar(poseStack, px, startY, height, pw,
-                dataManager.getAllMaterialsScrollOffset(), dataManager.getMaxAllMaterialsScrollOffset());
+                dataManager.getAllMaterialsScrollOffset(), dataManager.getMaxAllMaterialsScrollOffset(),
+                allMaterialsScrollBar, mouseX, mouseY);
     }
 
     private void renderAllMaterialsCards(PoseStack poseStack, int px, int pw, int areaStartY, int areaEndY,
@@ -575,25 +590,53 @@ public class PanelRenderer {
         }
     }
 
-    private void renderScrollBar(PoseStack poseStack, int px, int areaStartY, int areaHeight, int panelWidth,
-                                 int scrollOffset, int maxScrollOffset) {
-        if (maxScrollOffset <= 0) return;
+    // ==================== 滚动条 ====================
 
-        int barX = px + panelWidth - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING;
-        int barY = areaStartY;
-        int barH = areaHeight;
+    private void renderScrollBar(PoseStack ps, int px, int areaStartY, int areaHeight, int pw,
+                                 int offset, int maxOffset, ScrollBar bar,
+                                 int mouseX, int mouseY) {
+        bar.setBounds(px + pw - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING,
+                areaStartY, SCROLL_BAR_WIDTH, areaHeight);
+        bar.setRange(offset, maxOffset);
+        bar.render(ps, mouseX, mouseY);
+    }
 
-        GuiComponent.fill(poseStack, barX, barY, barX + SCROLL_BAR_WIDTH, barY + barH, 0x33FFFFFF);
+    // ==================== 滚动条拖拽 API ====================
 
-        float ratio = (float) scrollOffset / (float) maxScrollOffset;
-        int thumbH = Math.max(16, (int) (barH * 0.3f));
-        int thumbY = barY + (int) (ratio * (barH - thumbH));
-        GuiComponent.fill(poseStack, barX, thumbY, barX + SCROLL_BAR_WIDTH, thumbY + thumbH, 0x99FFFFFF);
+    public boolean beginScrollBarDrag(double mouseX, double mouseY) {
+        if (favScrollBar.tryBeginDrag(mouseX, mouseY)) return true;
+        if (smelteryScrollBar.tryBeginDrag(mouseX, mouseY)) return true;
+        if (allMaterialsScrollBar.tryBeginDrag(mouseX, mouseY)) return true;
+        if (alloyScrollBar.tryBeginDrag(mouseX, mouseY)) return true;
+        return false;
+    }
+
+    public boolean updateScrollBarDrag(double mouseY) {
+        if (favScrollBar.updateDrag(mouseY)) return true;
+        if (smelteryScrollBar.updateDrag(mouseY)) return true;
+        if (allMaterialsScrollBar.updateDrag(mouseY)) return true;
+        if (alloyScrollBar.updateDrag(mouseY)) return true;
+        return false;
+    }
+
+    public void endScrollBarDrag() {
+        favScrollBar.endDrag();
+        smelteryScrollBar.endDrag();
+        allMaterialsScrollBar.endDrag();
+        alloyScrollBar.endDrag();
+    }
+
+    public boolean isDraggingScrollBar() {
+        return favScrollBar.isDragging()
+                || smelteryScrollBar.isDragging()
+                || allMaterialsScrollBar.isDragging()
+                || alloyScrollBar.isDragging();
     }
 
     // ==================== 合金 Tab ====================
 
-    private void renderAlloyContent(PoseStack poseStack, int px, int py, int pw, int ph, int mouseX, int mouseY, Font font) {
+    private void renderAlloyContent(PoseStack poseStack, int px, int py, int pw, int ph,
+                                    int mouseX, int mouseY, Font font) {
         int startY = py + CARDS_START_Y;
         int endY = py + ph - 4;
 
@@ -610,7 +653,8 @@ public class PanelRenderer {
 
         FluidStack selected = alloyHandler.getSelectedMaterial();
         String selectedName = selected.getDisplayName().getString().replace("Molten ", "");
-        font.draw(poseStack, "§b" + selectedName + " §7" + new TranslatableComponent("gui.tinkerssearch.alloy_results").getString() + ":",
+        font.draw(poseStack, "§b" + selectedName + " §7"
+                        + new TranslatableComponent("gui.tinkerssearch.alloy_results").getString() + ":",
                 px + 5, contentY, 0xFFFFFF);
         contentY += 12;
 
@@ -667,7 +711,8 @@ public class PanelRenderer {
         }
 
         if (maxOffset > 0) {
-            renderScrollBar(poseStack, px, cardStartY, cardAreaHeight, pw, alloyScrollOffset, maxOffset);
+            renderScrollBar(poseStack, px, cardStartY, cardAreaHeight, pw, alloyScrollOffset, maxOffset,
+                    alloyScrollBar, mouseX, mouseY);
         }
     }
 
@@ -741,7 +786,8 @@ public class PanelRenderer {
         }
 
         if (maxOffset > 0) {
-            renderScrollBar(poseStack, px, cardStartY, cardAreaHeight, pw, alloyScrollOffset, maxOffset);
+            renderScrollBar(poseStack, px, cardStartY, cardAreaHeight, pw, alloyScrollOffset, maxOffset,
+                    alloyScrollBar, mouseX, mouseY);
         }
     }
 

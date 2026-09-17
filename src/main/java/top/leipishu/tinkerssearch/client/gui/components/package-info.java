@@ -12,6 +12,8 @@
  *       搜索框样式配置</li>
  *   <li>{@link top.leipishu.tinkerssearch.client.gui.components.CardBackground} —
  *       卡片底色 + 边框绘制工具</li>
+ *   <li>{@link top.leipishu.tinkerssearch.client.gui.components.ScrollBar} —
+ *       滚动条：轨道 + thumb 绘制、鼠标拖拽</li>
  * </ul>
  */
 package top.leipishu.tinkerssearch.client.gui.components;

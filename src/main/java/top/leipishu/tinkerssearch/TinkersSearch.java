@@ -312,6 +312,26 @@ public class TinkersSearch {
         }
     }
 
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
+    public void onMouseDragPre(ScreenEvent.MouseDragEvent.Pre event) {
+        if (isDetailScreenOpen()) return;
+        if (!isSmelteryScreen || searchPanel == null) return;
+        if (!searchPanel.isDraggingScrollBar()) return;
+
+        searchPanel.handleMouseDrag(event.getMouseX(), event.getMouseY());
+        event.setCanceled(true);
+    }
+
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
+    public void onMouseReleasedPre(ScreenEvent.MouseReleasedEvent.Pre event) {
+        if (isDetailScreenOpen()) return;
+        if (!isSmelteryScreen || searchPanel == null) return;
+        if (!searchPanel.isDraggingScrollBar()) return;
+
+        searchPanel.handleMouseRelease();
+        event.setCanceled(true);
+    }
+
     @SubscribeEvent(priority = EventPriority.LOWEST)
     public void onScreenDrawPost(ScreenEvent.DrawScreenEvent.Post event) {
         if (isDetailScreenOpen()) return;
