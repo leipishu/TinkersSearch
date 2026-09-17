@@ -14,3 +14,23 @@ You should have received a copy of the GNU Lesser General Public License
 along with Tinker's Search. If not, see <https://www.gnu.org/licenses/>.
 
 SPDX-License-Identifier: LGPL-3.0-only
+
+-------------------------------------------------------------------------------
+Bundled Third-Party Software
+-------------------------------------------------------------------------------
+
+The "Full" build of Tinker's Search bundles the following third-party
+library via Jar-in-Jar:
+
+  - pinyin4j
+    Copyright (c) 2006 - 2009, Daniel Leidert
+    Licensed under the Apache License, Version 2.0
+    https://github.com/belerweb/pinyin4j
+
+A copy of the Apache License 2.0 is available at:
+    https://www.apache.org/licenses/LICENSE-2.0
+
+The "Lite" build of Tinker's Search does NOT include pinyin4j and
+therefore does not fall under the above bundling notice.
+
+-------------------------------------------------------------------------------
