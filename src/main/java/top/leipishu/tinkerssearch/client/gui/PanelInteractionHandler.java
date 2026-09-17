@@ -4,9 +4,12 @@ import mezz.jei.api.ingredients.IIngredientType;
 import mezz.jei.api.runtime.IJeiRuntime;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
+import net.minecraft.network.chat.Component;
 import net.minecraftforge.fluids.FluidStack;
 import net.minecraftforge.fml.ModList;
 import org.lwjgl.glfw.GLFW;
+import top.leipishu.tinkerssearch.client.gui.components.SearchBox;
+import top.leipishu.tinkerssearch.client.gui.components.SearchBoxStyle;
 
 import java.lang.reflect.Method;
 import java.util.List;
@@ -20,9 +23,8 @@ public class PanelInteractionHandler {
     private final Runnable onRefresh;
     private final Consumer<List<FluidStack>> onFluidClick;
 
-    private boolean isSearchBoxFocused = false;
-    private String searchKeyword = "";
-    private int cursorPosition = 0;
+    private final SearchBox searchBox = new SearchBox(SearchBoxStyle.panel());
+
     private long lastClickTime = 0;
 
     private List<FluidStack> allFluids;
@@ -31,7 +33,7 @@ public class PanelInteractionHandler {
     private boolean jeiAvailable;
     private IJeiRuntime jeiRuntime;
 
-    // 缓存反射方法
+    // ===== JEI 反射方法缓存 =====
     private Method jeiGetJeiHelpers;
     private Method jeiGetFocusFactory;
     private Method jeiGetRecipesGui;
@@ -51,11 +53,18 @@ public class PanelInteractionHandler {
             this.jeiRuntime = top.leipishu.tinkerssearch.jei.Jei.getJeiRuntime();
             cacheJeiMethods();
         }
+
+        this.searchBox.setHintText(Component.translatable("gui.tinkerssearch.search_hint"));
+        this.searchBox.setOnTextChanged(s -> onRefresh.run());
+
         System.out.println("Tinker's Search: PanelInteractionHandler JEI available: " + jeiAvailable);
     }
 
     /**
-     * 缓存 JEI 方法（使用反射，兼容不同版本）
+     * 缓存 JEI 方法（使用反射，兼容不同版本）。
+     *
+     * <p>优先使用新 JEI API（{@code RecipeIngredientRole + IIngredientType} 三参 {@code createFocus}）；
+     * 若找不到则回退到老 JEI API（{@code IFocus$Mode} 双参 {@code createFocus}）。
      */
     private void cacheJeiMethods() {
         if (jeiRuntime == null || methodsCached) return;
@@ -75,7 +84,7 @@ public class PanelInteractionHandler {
 
                 if (focusFactory != null) {
                     Class<?> focusFactoryClass = focusFactory.getClass();
-                    // 3. 获取 createFocus 方法
+                    // 3. 获取 createFocus 方法 - 优先 3 参新 API
                     try {
                         jeiCreateFocus = focusFactoryClass.getMethod("createFocus",
                                 Class.forName("mezz.jei.api.recipe.RecipeIngredientRole"),
@@ -103,7 +112,7 @@ public class PanelInteractionHandler {
                 jeiShow = recipesGui.getClass().getMethod("show", focusClass);
             }
 
-            // 5. 获取 ForgeTypes.FLUID_STACK
+            // 5. 获取 ForgeTypes.FLUID_STACK（新 JEI）或 VanillaTypes.FLUID_STACK（老 JEI）
             try {
                 Class<?> forgeTypesClass = Class.forName("mezz.jei.api.forge.ForgeTypes");
                 fluidStackType = forgeTypesClass.getField("FLUID_STACK").get(null);
@@ -119,7 +128,7 @@ public class PanelInteractionHandler {
             }
 
             methodsCached = true;
-            System.out.println("Tinker's Search: JEI methods cached");
+            System.out.println("Tinker's Search: JEI methods cached successfully");
 
         } catch (Exception e) {
             System.err.println("Tinker's Search: Failed to cache JEI methods: " + e.getMessage());
@@ -127,109 +136,58 @@ public class PanelInteractionHandler {
         }
     }
 
-    // ==================== 数据管理 ====================
+    // ============================================================
+    // ===== 数据引用 =============================================
+    // ============================================================
 
     public void setDataRefs(List<FluidStack> allFluids, List<FluidStack> displayedFluids) {
         this.allFluids = allFluids;
         this.displayedFluids = displayedFluids;
     }
 
-    // ==================== 搜索框状态 ====================
+    // ============================================================
+    // ===== 搜索框状态 ==========================================
+    // ============================================================
 
-    public boolean isSearchBoxFocused() {
-        return isSearchBoxFocused;
-    }
+    public boolean isSearchBoxFocused() { return searchBox.isFocused(); }
+    public String getSearchKeyword() { return searchBox.getText(); }
+    public int getCursorPosition() { return searchBox.getCursorPosition(); }
+    public void setSearchKeyword(String keyword) { searchBox.setText(keyword); }
+    public void setCursorPosition(int position) { searchBox.setCursorPosition(position); }
+    public void setSearchBoxFocused(boolean focused) { searchBox.setFocused(focused); }
+    public SearchBox getSearchBox() { return searchBox; }
 
-    public void setSearchBoxFocused(boolean focused) {
-        this.isSearchBoxFocused = focused;
-    }
-
-    public String getSearchKeyword() {
-        return searchKeyword;
-    }
-
-    public void setSearchKeyword(String keyword) {
-        this.searchKeyword = keyword;
-        this.cursorPosition = keyword.length();
-    }
-
-    public int getCursorPosition() {
-        return cursorPosition;
-    }
-
-    public void setCursorPosition(int position) {
-        this.cursorPosition = Math.max(0, Math.min(position, searchKeyword.length()));
-    }
-
-    // ==================== 键盘输入处理 ====================
-
-    public boolean handleKeyPressed(int keyCode, int scanCode, int modifiers) {
-        if (!panel.isVisible() || !isSearchBoxFocused) return false;
-
-        switch (keyCode) {
-            case GLFW.GLFW_KEY_BACKSPACE:
-                if (!searchKeyword.isEmpty() && cursorPosition > 0) {
-                    String before = searchKeyword.substring(0, cursorPosition - 1);
-                    String after = searchKeyword.substring(cursorPosition);
-                    searchKeyword = before + after;
-                    cursorPosition--;
-                    onRefresh.run();
-                }
-                return true;
-
-            case GLFW.GLFW_KEY_DELETE:
-                if (!searchKeyword.isEmpty() && cursorPosition < searchKeyword.length()) {
-                    String before = searchKeyword.substring(0, cursorPosition);
-                    String after = searchKeyword.substring(cursorPosition + 1);
-                    searchKeyword = before + after;
-                    onRefresh.run();
-                }
-                return true;
-
-            case GLFW.GLFW_KEY_LEFT:
-                if (cursorPosition > 0) {
-                    cursorPosition--;
-                }
-                return true;
-
-            case GLFW.GLFW_KEY_RIGHT:
-                if (cursorPosition < searchKeyword.length()) {
-                    cursorPosition++;
-                }
-                return true;
-
-            case GLFW.GLFW_KEY_HOME:
-                cursorPosition = 0;
-                return true;
-
-            case GLFW.GLFW_KEY_END:
-                cursorPosition = searchKeyword.length();
-                return true;
-
-            case GLFW.GLFW_KEY_ENTER:
-            case GLFW.GLFW_KEY_KP_ENTER:
-            case GLFW.GLFW_KEY_ESCAPE:
-                isSearchBoxFocused = false;
-                return true;
-
-            default:
-                return false;
+    /** 根据当前 Tab 应用不同的搜索框配色。 */
+    public void applyStyleForTab(PanelDataManager_TabStyle style) {
+        switch (style) {
+            case ALLOY: searchBox.setStyle(SearchBoxStyle.alloy()); break;
+            case PANEL:
+            default: searchBox.setStyle(SearchBoxStyle.panel()); break;
         }
     }
 
-    public boolean handleCharTyped(char codePoint, int modifiers) {
-        if (!panel.isVisible() || !isSearchBoxFocused) return false;
-        if (Character.isISOControl(codePoint)) return false;
+    /** 供外部调用，用枚举避免耦合到 PanelDataManager 内部 Tab。 */
+    public enum PanelDataManager_TabStyle { PANEL, ALLOY }
 
-        String before = searchKeyword.substring(0, cursorPosition);
-        String after = searchKeyword.substring(cursorPosition);
-        searchKeyword = before + codePoint + after;
-        cursorPosition++;
-        onRefresh.run();
-        return true;
+    // ============================================================
+    // ===== 键盘 / 字符输入 =====================================
+    // ============================================================
+
+    public boolean handleKeyPressed(int keyCode, int scanCode, int modifiers) {
+        if (!panel.isVisible()) return false;
+        if (!searchBox.isFocused()) return false;
+        return searchBox.keyPressed(keyCode, scanCode, modifiers);
     }
 
-    // ==================== 鼠标点击处理 ====================
+    public boolean handleCharTyped(char codePoint, int modifiers) {
+        if (!panel.isVisible()) return false;
+        if (!searchBox.isFocused()) return false;
+        return searchBox.charTyped(codePoint, modifiers);
+    }
+
+    // ============================================================
+    // ===== 鼠标事件 =============================================
+    // ============================================================
 
     public boolean handleMouseClicked(double mouseX, double mouseY, int button) {
         if (!panel.isVisible()) return false;
@@ -249,8 +207,7 @@ public class PanelInteractionHandler {
         }
 
         if (isInSearchBox(mouseX, mouseY, px, py, pw)) {
-            isSearchBoxFocused = true;
-            handleMouseClickSetCursor(mouseX, mouseY, px, py, pw);
+            handleSearchBoxClick(mouseX, mouseY);
             return true;
         }
 
@@ -260,8 +217,8 @@ public class PanelInteractionHandler {
         }
 
         if (isInPanel(mouseX, mouseY, px, py, pw)) {
-            if (isSearchBoxFocused) {
-                isSearchBoxFocused = false;
+            if (searchBox.isFocused()) {
+                searchBox.setFocused(false);
                 return true;
             }
         }
@@ -269,39 +226,20 @@ public class PanelInteractionHandler {
         return false;
     }
 
-    public boolean handleMouseClickSetCursor(double mouseX, double mouseY, int px, int py, int pw) {
-        if (!panel.isVisible() || !isSearchBoxFocused) return false;
+    public boolean handleSearchBoxClick(double mouseX, double mouseY) {
+        if (!panel.isVisible()) return false;
 
-        int boxX = px + 5;
-        int boxY = py + SEARCH_BOX_Y;
-        int boxW = pw - 10;
-        int boxH = SEARCH_BOX_H;
+        int px = panel.getPanelX();
+        int py = panel.getPanelY();
+        int pw = panel.getPanelWidth();
 
-        if (mouseX >= boxX && mouseX <= boxX + boxW &&
-                mouseY >= boxY && mouseY <= boxY + boxH) {
-
-            Font font = Minecraft.getInstance().font;
-            int clickX = (int) mouseX - boxX - 4;
-            int charIndex = 0;
-            int currentX = 0;
-
-            for (int i = 0; i < searchKeyword.length(); i++) {
-                String subText = searchKeyword.substring(0, i + 1);
-                int charWidth = font.width(subText) - font.width(searchKeyword.substring(0, i));
-                if (currentX + charWidth / 2 > clickX) {
-                    break;
-                }
-                currentX += charWidth;
-                charIndex = i + 1;
-            }
-
-            cursorPosition = Math.max(0, Math.min(charIndex, searchKeyword.length()));
-            return true;
-        }
-        return false;
+        searchBox.setBounds(px + 5, py + SEARCH_BOX_Y, pw - 10, SEARCH_BOX_H);
+        return searchBox.mouseClicked(mouseX, mouseY, 0);
     }
 
-    // ==================== 区域检测 ====================
+    // ============================================================
+    // ===== 命中检测 =============================================
+    // ============================================================
 
     private boolean isInRefreshButton(double mouseX, double mouseY, int px, int py) {
         return mouseX >= px + REFRESH_BTN_X && mouseX <= px + REFRESH_BTN_X + REFRESH_BTN_W &&
@@ -318,7 +256,9 @@ public class PanelInteractionHandler {
                 mouseY >= py && mouseY <= py + panel.getPanelHeight();
     }
 
-    // ==================== 卡片点击 ====================
+    // ============================================================
+    // ===== 卡片点击 =============================================
+    // ============================================================
 
     private boolean handleCardClick(double mouseX, double mouseY, int px, int py, int pw, int button) {
         if (displayedFluids == null || displayedFluids.isEmpty()) return false;
@@ -335,13 +275,24 @@ public class PanelInteractionHandler {
             if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
                 return panel.moveFluidToBottom(fluid);
             }
+            if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
+                return false;
+            }
         }
 
         return false;
     }
 
-    // ==================== JEI 交互 ====================
+    // ============================================================
+    // ===== JEI 交互 ============================================
+    // ============================================================
 
+    /**
+     * 处理 JEI 图标点击 - 使用反射以兼容不同 JEI 版本。
+     *
+     * <p>优先使用新 JEI API（3 参 {@code createFocus(RecipeIngredientRole, IIngredientType, Object)}）；
+     * 若 {@code createFocus} 是 2 参形式，则回退到老 JEI API（{@code createFocus(IFocus$Mode, Object)}）。
+     */
     @SuppressWarnings({"unchecked", "rawtypes"})
     public boolean handleJeiIconClick(FluidStack fluid, int button) {
         if (!jeiAvailable) return false;
@@ -356,48 +307,50 @@ public class PanelInteractionHandler {
             cacheJeiMethods();
         }
 
-        try {
-            Class<?> roleClass = Class.forName("mezz.jei.api.recipe.RecipeIngredientRole");
-            Object role;
-            if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
-                role = Enum.valueOf((Class<Enum>) roleClass, "OUTPUT");
-                System.out.println("Tinker's Search: left click → OUTPUT for " + fluid.getDisplayName().getString());
-            } else if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
-                role = Enum.valueOf((Class<Enum>) roleClass, "INPUT");
-                System.out.println("Tinker's Search: right click → INPUT for " + fluid.getDisplayName().getString());
-            } else {
-                return false;
-            }
+        if (jeiGetJeiHelpers == null || jeiGetFocusFactory == null
+                || jeiCreateFocus == null || jeiShow == null) {
+            return tryFallback(fluid, button);
+        }
 
+        try {
             Object jeiHelpers = jeiGetJeiHelpers.invoke(jeiRuntime);
-            if (jeiHelpers == null) {
-                return tryFallback(fluid, button);
-            }
+            if (jeiHelpers == null) return tryFallback(fluid, button);
 
             Object focusFactory = jeiGetFocusFactory.invoke(jeiHelpers);
-            if (focusFactory == null) {
-                return tryFallback(fluid, button);
-            }
+            if (focusFactory == null) return tryFallback(fluid, button);
 
             Object recipesGui = jeiGetRecipesGui.invoke(jeiRuntime);
-            if (recipesGui == null) {
-                return tryFallback(fluid, button);
-            }
+            if (recipesGui == null) return tryFallback(fluid, button);
 
             Object focus;
             if (jeiCreateFocus.getParameterCount() == 3) {
-                if (fluidStackType == null) {
-                    fluidStackType = FluidStack.class;
+                // ===== 新 JEI API：RecipeIngredientRole + IIngredientType =====
+                Class<?> roleClass = Class.forName("mezz.jei.api.recipe.RecipeIngredientRole");
+                Object role;
+                if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+                    role = Enum.valueOf((Class<Enum>) roleClass, "OUTPUT");
+                    System.out.println("Tinker's Search: left click → OUTPUT for "
+                            + fluid.getDisplayName().getString());
+                } else if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
+                    role = Enum.valueOf((Class<Enum>) roleClass, "INPUT");
+                    System.out.println("Tinker's Search: right click → INPUT for "
+                            + fluid.getDisplayName().getString());
+                } else {
+                    return false;
                 }
-                focus = jeiCreateFocus.invoke(focusFactory, role, fluidStackType, fluid);
+
+                Object ingredientType = (fluidStackType != null) ? fluidStackType : FluidStack.class;
+                focus = jeiCreateFocus.invoke(focusFactory, role, ingredientType, fluid);
             } else {
+                // ===== 老 JEI API：IFocus$Mode =====
+                Class<?> focusModeClass = Class.forName("mezz.jei.api.recipe.IFocus$Mode");
                 Object mode;
                 if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
-                    Class<?> modeClass = Class.forName("mezz.jei.api.recipe.IFocus$Mode");
-                    mode = Enum.valueOf((Class<Enum>) modeClass, "OUTPUT");
+                    mode = Enum.valueOf((Class<Enum>) focusModeClass, "OUTPUT");
+                } else if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
+                    mode = Enum.valueOf((Class<Enum>) focusModeClass, "INPUT");
                 } else {
-                    Class<?> modeClass = Class.forName("mezz.jei.api.recipe.IFocus$Mode");
-                    mode = Enum.valueOf((Class<Enum>) modeClass, "INPUT");
+                    return false;
                 }
                 focus = jeiCreateFocus.invoke(focusFactory, mode, fluid);
             }
@@ -417,7 +370,7 @@ public class PanelInteractionHandler {
     }
 
     /**
-     * 回退方案：模拟按键
+     * 回退方案：模拟按键（R / U）。
      */
     private boolean tryFallback(FluidStack fluid, int button) {
         try {
@@ -438,14 +391,85 @@ public class PanelInteractionHandler {
             mc.keyboardHandler.keyPress(windowHandle, key, 0, 1, 0);
             mc.keyboardHandler.keyPress(windowHandle, key, 0, 0, 0);
             return true;
-
         } catch (Exception e) {
             System.err.println("Tinker's Search: key simulation failed: " + e.getMessage());
         }
         return false;
     }
 
-    // ==================== 卡片检测 ====================
+    // ============================================================
+    // ===== 全局按键处理（press 'A' to bookmark） ===============
+    // ============================================================
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    public boolean handleKeyPressedGlobal(int keyCode, int scanCode, int modifiers) {
+        if (!panel.isVisible()) return false;
+
+        if (keyCode == 65) { // 'A' 键
+            Minecraft mc = Minecraft.getInstance();
+            double mouseX = mc.mouseHandler.xpos() / mc.getWindow().getGuiScale();
+            double mouseY = mc.mouseHandler.ypos() / mc.getWindow().getGuiScale();
+
+            int px = panel.getPanelX();
+            int py = panel.getPanelY();
+            int pw = panel.getPanelWidth();
+
+            CardClickInfo info = getCardAndIconAt(mouseX, mouseY, px, py, pw);
+            if (info != null && info.isOnIcon) {
+                return addToJeiBookmark(info.fluid);
+            }
+        }
+
+        return false;
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private boolean addToJeiBookmark(FluidStack fluid) {
+        if (!jeiAvailable) return false;
+
+        jeiRuntime = top.leipishu.tinkerssearch.jei.Jei.getJeiRuntime();
+        if (jeiRuntime == null) return false;
+
+        try {
+            Class<?> runtimeClass = jeiRuntime.getClass();
+            Method getBookmarkOverlay = runtimeClass.getMethod("getBookmarkOverlay");
+            Object bookmarkOverlay = getBookmarkOverlay.invoke(jeiRuntime);
+
+            if (bookmarkOverlay == null) {
+                Method getIngredientListOverlay = runtimeClass.getMethod("getIngredientListOverlay");
+                Object listOverlay = getIngredientListOverlay.invoke(jeiRuntime);
+
+                if (listOverlay != null) {
+                    try {
+                        Method addBookmark = listOverlay.getClass().getMethod("addBookmark", Object.class);
+                        addBookmark.invoke(listOverlay, fluid);
+                        return true;
+                    } catch (Exception ignored) {}
+                }
+                return false;
+            }
+
+            Class<?> bookmarkClass = bookmarkOverlay.getClass();
+
+            try {
+                Method addMethod = bookmarkClass.getMethod("addIngredient", Object.class);
+                addMethod.invoke(bookmarkOverlay, fluid);
+                return true;
+            } catch (NoSuchMethodException e1) {
+                try {
+                    Method addMethod = bookmarkClass.getMethod("addBookmark", Object.class);
+                    addMethod.invoke(bookmarkOverlay, fluid);
+                    return true;
+                } catch (NoSuchMethodException e2) {}
+            }
+        } catch (Exception e) {}
+
+        return false;
+    }
+
+    // ============================================================
+    // ===== 卡片命中检测 =========================================
+    // ============================================================
 
     private CardClickInfo getCardAndIconAt(double mouseX, double mouseY, int px, int py, int pw) {
         if (displayedFluids == null || displayedFluids.isEmpty()) return null;
@@ -482,15 +506,12 @@ public class PanelInteractionHandler {
     }
 
     public void clearSearch() {
-        this.searchKeyword = "";
-        this.cursorPosition = 0;
-        this.isSearchBoxFocused = false;
+        searchBox.clear();
+        searchBox.setFocused(false);
         onRefresh.run();
     }
 
-    public void refreshData() {
-        onRefresh.run();
-    }
+    public void refreshData() { onRefresh.run(); }
 
     private static class CardClickInfo {
         final FluidStack fluid;

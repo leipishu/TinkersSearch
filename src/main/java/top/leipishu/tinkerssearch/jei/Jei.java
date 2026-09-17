@@ -2,6 +2,7 @@ package top.leipishu.tinkerssearch.jei;
 
 import mezz.jei.api.IModPlugin;
 import mezz.jei.api.JeiPlugin;
+import mezz.jei.api.gui.handlers.IGuiContainerHandler;
 import mezz.jei.api.registration.IGuiHandlerRegistration;
 import mezz.jei.api.registration.IRecipeCatalystRegistration;
 import mezz.jei.api.registration.IRecipeRegistration;
@@ -40,12 +41,13 @@ public class Jei implements IModPlugin {
         if (!jeiAvailable) return;
 
         registration.addGuiContainerHandler((Class) AbstractContainerScreen.class,
-                new mezz.jei.api.gui.handlers.IGuiContainerHandler<AbstractContainerScreen<?>>() {
+                new IGuiContainerHandler<AbstractContainerScreen<?>>() {
                     @Override
                     public List<Rect2i> getGuiExtraAreas(AbstractContainerScreen<?> screen) {
                         FloatingSearchPanel panel = TinkersSearch.getSearchPanel();
                         if (panel == null) return Collections.emptyList();
 
+                        // 只有完全展开的面板才占用空间
                         if (!panel.isVisible() || panel.isAnimating()) {
                             return Collections.emptyList();
                         }
@@ -55,6 +57,7 @@ public class Jei implements IModPlugin {
                         int w = panel.getPanelWidth();
                         int h = panel.getPanelHeight();
 
+                        // 确保面板在屏幕范围内
                         Minecraft mc = Minecraft.getInstance();
                         if (mc == null || mc.getWindow() == null) {
                             return Collections.emptyList();

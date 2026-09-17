@@ -86,6 +86,12 @@ dependencies {
     compileOnly fg.deobf("mezz.jei:jei-${minecraft_version}-common-api:${jei_version}")
     compileOnly fg.deobf("mezz.jei:jei-${minecraft_version}-forge-api:${jei_version}")
     runtimeOnly fg.deobf("mezz.jei:jei-${minecraft_version}-forge:${jei_version}")
+
+    // pinyin4j - 拼音搜索支持
+    minecraftLibrary 'com.belerweb:pinyin4j:2.5.1'
+    jarJar(group: 'com.belerweb', name: 'pinyin4j', version: '[2.5,3.0)') {
+        jarJar.pin(it, '2.5.1')
+    }
 }
 
 tasks.named('processResources', ProcessResources).configure {
@@ -117,6 +123,8 @@ tasks.named('jar', Jar).configure {
     }
     finalizedBy 'reobfJar'
 }
+
+jarJar.enable()
 
 publishing {
     publications {

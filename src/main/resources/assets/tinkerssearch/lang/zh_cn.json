@@ -8,8 +8,10 @@
   "gui.tinkerssearch.no_match": "未找到匹配",
   "gui.tinkerssearch.locked": "不在冶炼炉中",
   "gui.tinkerssearch.click_move": "左键: 移至底部",
-  "key.category.tinkerssearch": "Tinkers' Search",
-  "key.tinkerssearch.toggle_panel": "开关面板",
+
+  "key.category.tinkerssearch": "匠魂搜索",
+  "key.tinkerssearch.toggle_panel": "切换搜索面板",
+
   "gui.tinkerssearch.alloy_query": "合金查询",
   "gui.tinkerssearch.alloy_materials": "材料列表",
   "gui.tinkerssearch.alloy_results": "合金结果",
@@ -26,5 +28,28 @@
   "gui.tinkerssearch.alloy_unable": "不可执行",
   "gui.tinkerssearch.alloy_temp_short": "温",
   "gui.tinkerssearch.alloy_next_missing": "后续缺少",
-  "gui.tinkerssearch.alloy_ingredients": "原料: "
+  "gui.tinkerssearch.alloy_ingredients": "原料: ",
+
+  "gui.tinkerssearch.tab.smeltery": "冶炼炉",
+  "gui.tinkerssearch.tab.materials": "材料",
+  "gui.tinkerssearch.tab.alloy": "合金",
+  "gui.tinkerssearch.no_materials": "暂无材料",
+
+  "gui.tinkerssearch.detail.title": "流体详情",
+  "gui.tinkerssearch.detail.amount": "当前量",
+  "gui.tinkerssearch.detail.temperature": "温度",
+  "gui.tinkerssearch.detail.capacity": "容量",
+  "gui.tinkerssearch.detail.casting": "可浇铸物品",
+  "gui.tinkerssearch.detail.parts": "可制作部件",
+  "gui.tinkerssearch.detail.no_casting": "§8（无可用铸造配方）",
+  "gui.tinkerssearch.detail.no_parts": "§8（此流体不能制作工具部件）",
+  "gui.tinkerssearch.detail.requires_cast": "需要铸模",
+  "gui.tinkerssearch.detail.close": "关闭",
+  "gui.tinkerssearch.detail.loading": "加载数据中...",
+  "gui.tinkerssearch.detail.unknown": "未知",
+  "gui.tinkerssearch.detail.search_hint": "搜索物品或部件...",
+  "gui.tinkerssearch.detail.traits": "词条:",
+  "gui.tinkerssearch.detail.no_traits": "（无词条）",
+  "gui.tinkerssearch.detail.no_desc": "无描述",
+  "gui.tinkerssearch.detail.no_recipe": "无配方"
 }
