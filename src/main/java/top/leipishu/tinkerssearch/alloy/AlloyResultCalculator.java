@@ -19,6 +19,7 @@ public class AlloyResultCalculator {
 
         List<AlloyChainResult> results = new ArrayList<>();
 
+        // ✅ 1.19.2：通过 ForgeRegistries 获取注册名
         ResourceLocation selectedRl = ForgeRegistries.FLUIDS.getKey(selectedFluid.getFluid());
 
         for (AlloyRecipeData recipe : allRecipes) {
@@ -76,6 +77,7 @@ public class AlloyResultCalculator {
 
     private static List<AlloyRecipeData> findChildRecipes(FluidStack product, List<AlloyRecipeData> allRecipes) {
         List<AlloyRecipeData> children = new ArrayList<>();
+        // ✅ 1.19.2：通过 ForgeRegistries 获取注册名
         ResourceLocation productRl = ForgeRegistries.FLUIDS.getKey(product.getFluid());
 
         for (AlloyRecipeData recipe : allRecipes) {

@@ -34,12 +34,18 @@ public class AlloyQueryHandler {
         System.out.println("[Tinker's Search] Temperature updated: " + currentTemperature + "°C");
     }
 
+    /**
+     * 强制刷新温度（打开面板时使用）
+     */
     public void forceRefreshTemperature(int currentTemperature) {
         this.lastKnownTemperature = currentTemperature;
         this.lastTemperatureUpdate = System.currentTimeMillis();
         System.out.println("[Tinker's Search] Temperature FORCE updated: " + currentTemperature + "°C");
     }
 
+    /**
+     * 清除温度缓存（更换燃料或刷新时调用）
+     */
     public void invalidateTemperatureCache() {
         this.lastKnownTemperature = 0;
         this.lastTemperatureUpdate = 0;
@@ -70,8 +76,14 @@ public class AlloyQueryHandler {
         this.currentResults.clear();
         this.lastKnownTemperature = currentTemperature;
 
-        allMaterials = TinkersAlloyReader.getAllSmelteryFluids();
-        filteredMaterials = filterMaterials(allMaterials, searchTerm);
+        List<FluidStack> source = TinkersAlloyReader.getAllSmelteryFluids();
+        if (source == null || source.isEmpty()) {
+            // 兜底：强制重载一次
+            TinkersAlloyReader.forceReload();
+            source = TinkersAlloyReader.getAllSmelteryFluids();
+        }
+        this.allMaterials = (source != null) ? source : new ArrayList<>();
+        this.filteredMaterials = filterMaterials(this.allMaterials, searchTerm);
     }
 
     private List<FluidStack> filterMaterials(List<FluidStack> materials, String searchTerm) {
@@ -115,6 +127,7 @@ public class AlloyQueryHandler {
         }
 
         boolean found = false;
+        // ✅ 1.19.2：通过 ForgeRegistries 获取注册名
         ResourceLocation targetRl = ForgeRegistries.FLUIDS.getKey(material.getFluid());
         for (FluidStack fs : simulatedFluids) {
             ResourceLocation fsRl = ForgeRegistries.FLUIDS.getKey(fs.getFluid());

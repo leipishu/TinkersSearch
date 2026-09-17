@@ -15,18 +15,21 @@ import top.leipishu.tinkerssearch.alloy.AlloyRecipeData;
 import top.leipishu.tinkerssearch.alloy.AlloyResultCalculator;
 import top.leipishu.tinkerssearch.client.gui.FloatingSearchPanel;
 import top.leipishu.tinkerssearch.client.gui.PanelInteractionHandler;
-import top.leipishu.tinkerssearch.utils.FavoritesManager;
-import top.leipishu.tinkerssearch.utils.ScissorHelper;
-import top.leipishu.tinkerssearch.utils.SmelteryDataHelper;
+import top.leipishu.tinkerssearch.client.gui.components.CardBackground;
+import top.leipishu.tinkerssearch.client.gui.components.ScrollBar;
+import top.leipishu.tinkerssearch.client.gui.components.SearchBox;
+import top.leipishu.tinkerssearch.client.gui.components.SearchBoxStyle;
+import top.leipishu.tinkerssearch.client.gui.panel.PanelDataManager.AreaKind;
+import top.leipishu.tinkerssearch.client.gui.panel.PanelDataManager.Tab;
+import top.leipishu.tinkerssearch.client.render.ScissorHelper;
+import top.leipishu.tinkerssearch.data.FavoritesManager;
+import top.leipishu.tinkerssearch.smeltery.SmelteryDataHelper;
 
 import java.util.ArrayList;
 import java.util.List;
 
 import static top.leipishu.tinkerssearch.config.PanelConfig.*;
 
-/**
- * 面板渲染器 - 所有渲染逻辑
- */
 public class PanelRenderer {
 
     private final FloatingSearchPanel panel;
@@ -36,8 +39,13 @@ public class PanelRenderer {
     private final PanelInteractionHandler interactionHandler;
     private final AlloyQueryHandler alloyHandler;
 
-    // ===== 可点击区域列表 =====
     private final List<ClickableArea> clickableAreas = new ArrayList<>();
+
+    // ===== 滚动条实例 =====
+    private final ScrollBar favScrollBar = new ScrollBar();
+    private final ScrollBar smelteryScrollBar = new ScrollBar();
+    private final ScrollBar allMaterialsScrollBar = new ScrollBar();
+    private final ScrollBar alloyScrollBar = new ScrollBar();
 
     private static class ClickableArea {
         int x, y, w, h;
@@ -54,12 +62,8 @@ public class PanelRenderer {
         }
 
         public void addTarget(String name, String registryName) {
-            if (name != null && !name.isEmpty()) {
-                this.names.add(name);
-            }
-            if (registryName != null && !registryName.isEmpty()) {
-                this.registryNames.add(registryName);
-            }
+            if (name != null && !name.isEmpty()) this.names.add(name);
+            if (registryName != null && !registryName.isEmpty()) this.registryNames.add(registryName);
         }
     }
 
@@ -74,6 +78,12 @@ public class PanelRenderer {
         this.animationManager = animationManager;
         this.interactionHandler = interactionHandler;
         this.alloyHandler = alloyHandler;
+
+        // ===== 滚动条回调 =====
+        favScrollBar.setOnOffsetChanged(v -> dataManager.setFavScrollOffset(v));
+        smelteryScrollBar.setOnOffsetChanged(v -> dataManager.setScrollOffset(v));
+        allMaterialsScrollBar.setOnOffsetChanged(v -> dataManager.setAllMaterialsScrollOffset(v));
+        alloyScrollBar.setOnOffsetChanged(v -> dataManager.setAlloyScrollOffset(v));
     }
 
     // ==================== 公共方法 ====================
@@ -86,42 +96,6 @@ public class PanelRenderer {
             }
         }
         return false;
-    }
-
-    public String getClickableResultName() {
-        if (!clickableAreas.isEmpty()) {
-            ClickableArea area = clickableAreas.get(0);
-            return area.names.isEmpty() ? "" : area.names.get(0);
-        }
-        return "";
-    }
-
-    public String getClickableResultRegistryName() {
-        if (!clickableAreas.isEmpty()) {
-            ClickableArea area = clickableAreas.get(0);
-            return area.registryNames.isEmpty() ? "" : area.registryNames.get(0);
-        }
-        return "";
-    }
-
-    public String getClickableResultName(int mouseX, int mouseY) {
-        for (ClickableArea area : clickableAreas) {
-            if (mouseX >= area.x && mouseX <= area.x + area.w &&
-                    mouseY >= area.y && mouseY <= area.y + area.h) {
-                return area.names.isEmpty() ? "" : area.names.get(0);
-            }
-        }
-        return "";
-    }
-
-    public String getClickableResultRegistryName(int mouseX, int mouseY) {
-        for (ClickableArea area : clickableAreas) {
-            if (mouseX >= area.x && mouseX <= area.x + area.w &&
-                    mouseY >= area.y && mouseY <= area.y + area.h) {
-                return area.registryNames.isEmpty() ? "" : area.registryNames.get(0);
-            }
-        }
-        return "";
     }
 
     public List<String> getClickableResultNames(int mouseX, int mouseY) {
@@ -144,8 +118,6 @@ public class PanelRenderer {
         return new ArrayList<>();
     }
 
-    // ==================== 计算高度 ====================
-
     public int calculateActualCardHeight(AlloyResultCalculator.AlloyChainResult result, Font font, int cardWidth) {
         AlloyRecipeData recipe = result.getRecipe();
         AlloyRecipeData.AlloyFeasibility feasibility = result.getFeasibility();
@@ -153,12 +125,8 @@ public class PanelRenderer {
         int lineCount = 3;
 
         List<AlloyRecipeData.AlloyFeasibility.MissingFluid> missing = feasibility.getMissingFluids();
-        if (!missing.isEmpty()) {
-            lineCount++;
-        }
-        if (result.getNext() == null) {
-            lineCount++;
-        }
+        if (!missing.isEmpty()) lineCount++;
+        if (result.getNext() == null) lineCount++;
 
         StringBuilder ingredients = new StringBuilder();
         ingredients.append(Component.translatable("gui.tinkerssearch.alloy_ingredients").getString());
@@ -167,15 +135,14 @@ public class PanelRenderer {
             if (i > 0) ingredients.append(" + ");
             AlloyRecipeData.FluidIngredientData input = inputs.get(i);
             FluidStack fs = input.getFluid();
-            String name = fs.getDisplayName().getString()
-                    .replace("Molten ", "")
-                    .replace("熔融", "");
+            String name = fs.getDisplayName().getString().replace("Molten ", "").replace("熔融", "");
             int needed = input.getAmount();
             int available = 0;
+            // ✅ 1.19.2：通过 ForgeRegistries 获取注册名
             ResourceLocation fsRl = ForgeRegistries.FLUIDS.getKey(fs.getFluid());
             for (FluidStack availableFs : dataManager.getAllFluids()) {
-                ResourceLocation availableRl = ForgeRegistries.FLUIDS.getKey(availableFs.getFluid());
-                if (availableRl != null && availableRl.equals(fsRl)) {
+                ResourceLocation availRl = ForgeRegistries.FLUIDS.getKey(availableFs.getFluid());
+                if (fsRl != null && fsRl.equals(availRl)) {
                     available = availableFs.getAmount();
                     break;
                 }
@@ -185,11 +152,9 @@ public class PanelRenderer {
             ingredients.append(name).append("§7(").append(available).append("/").append(needed).append("mB)");
         }
 
-        String ingredientText = ingredients.toString();
         int maxWidth = cardWidth - 12;
-        List<String> wrappedLines = wrapText(font, ingredientText, maxWidth);
-        int ingredientLines = Math.max(1, wrappedLines.size());
-        lineCount += ingredientLines;
+        List<String> wrappedLines = wrapText(font, ingredients.toString(), maxWidth);
+        lineCount += Math.max(1, wrappedLines.size());
 
         if (result.getNext() != null) {
             lineCount++;
@@ -209,6 +174,12 @@ public class PanelRenderer {
 
     public void renderButton(PoseStack poseStack, int mouseX, int mouseY, float partialTick) {
         clickableAreas.clear();
+        // 清空滚动条状态，避免切 Tab 后残留 bounds
+        favScrollBar.setBounds(0, 0, 0, 0);
+        smelteryScrollBar.setBounds(0, 0, 0, 0);
+        allMaterialsScrollBar.setBounds(0, 0, 0, 0);
+        alloyScrollBar.setBounds(0, 0, 0, 0);
+
         ScissorHelper.reset();
 
         if (panel.isVisible() && !panel.isVisible()) {
@@ -242,38 +213,75 @@ public class PanelRenderer {
         }
 
         GuiComponent.fill(poseStack, px, py, px + pw, py + ph, 0xFF1A1A1A);
-
         GuiComponent.fill(poseStack, px, py, px + 1, py + ph, 0x33FFFFFF);
         GuiComponent.fill(poseStack, px + pw - 1, py, px + pw, py + ph, 0x22FFFFFF);
         GuiComponent.fill(poseStack, px, py, px + pw, py + 1, 0x22FFFFFF);
         GuiComponent.fill(poseStack, px, py + ph - 1, px + pw, py + ph, 0x22FFFFFF);
 
-        renderTitleBar(poseStack, px, py, pw, font);
+        renderTabBar(poseStack, px, py, pw, mouseX, mouseY, font);
         renderRefreshButton(poseStack, px, py, mouseX, mouseY, font);
 
-        if (dataManager.isAlloyMode()) {
-            renderAlloySearchBox(poseStack, px, py, pw, font);
+        Tab tab = dataManager.getCurrentTab();
+        if (tab == Tab.ALLOY) {
+            renderAlloySearchBox(poseStack, px, py, pw, mouseX, mouseY, font);
         } else {
-            renderSearchBox(poseStack, px, py, pw, font);
+            renderSearchBox(poseStack, px, py, pw, mouseX, mouseY, font);
         }
 
-        if (dataManager.isAlloyMode()) {
-            renderAlloyContent(poseStack, px, py, pw, ph, mouseX, mouseY, font);
+        if (tab == Tab.SMELTERY) {
+            renderSmelteryContent(poseStack, px, py, pw, ph, mouseX, mouseY, font);
+        } else if (tab == Tab.MATERIALS) {
+            renderMaterialsContent(poseStack, px, py, pw, ph, mouseX, mouseY, font);
         } else {
-            renderNormalContent(poseStack, px, py, pw, ph, mouseX, mouseY, font);
+            renderAlloyContent(poseStack, px, py, pw, ph, mouseX, mouseY, font);
         }
 
         RenderSystem.enableDepthTest();
     }
 
-    // ==================== 辅助渲染 ====================
+    // ==================== Tab 栏 ====================
 
-    private void renderTitleBar(PoseStack poseStack, int px, int py, int pw, Font font) {
+    private void renderTabBar(PoseStack poseStack, int px, int py, int pw,
+                              int mouseX, int mouseY, Font font) {
         GuiComponent.fill(poseStack, px + 1, py + 1, px + pw - 2, py + TITLE_BAR_HEIGHT, 0xFF2A2A2A);
-        String title = dataManager.isAlloyMode() ?
-                Component.translatable("gui.tinkerssearch.alloy_query").getString() :
-                "Tinker's Search";
-        font.draw(poseStack, (dataManager.isAlloyMode() ? "§b" : "§6") + title, px + 5, py + 5, 0xFFFFFF);
+        font.draw(poseStack, "§6Tinker's Search", px + 5, py + 5, 0xFFFFFF);
+
+        Tab[] tabs = Tab.values();
+        String[] labels = {
+                Component.translatable("gui.tinkerssearch.tab.smeltery").getString(),
+                Component.translatable("gui.tinkerssearch.tab.materials").getString(),
+                Component.translatable("gui.tinkerssearch.tab.alloy").getString()
+        };
+
+        Tab active = dataManager.getCurrentTab();
+
+        for (int i = 0; i < TAB_COUNT; i++) {
+            int tabX = px + TAB_START_X + i * TAB_ITEM_WIDTH;
+            int tabY = py + TAB_ITEM_Y;
+            int tabW = TAB_ITEM_WIDTH - 2;
+            int tabH = TAB_ITEM_HEIGHT;
+
+            boolean isActive = (i < tabs.length) && (tabs[i] == active);
+            boolean isHover = mouseX >= tabX && mouseX <= tabX + tabW &&
+                    mouseY >= tabY && mouseY <= tabY + tabH;
+
+            int bg;
+            if (isActive) bg = 0xFF6A5030;
+            else if (isHover) bg = 0xFF4E4028;
+            else bg = 0xFF3A3020;
+
+            GuiComponent.fill(poseStack, tabX, tabY, tabX + tabW, tabY + tabH, bg);
+
+            if (isActive) {
+                GuiComponent.fill(poseStack, tabX, tabY + tabH - 1, tabX + tabW, tabY + tabH, 0xFFFFAA00);
+            }
+
+            String label = labels[i];
+            int textColor = isActive ? 0xFFFFDD77 : (isHover ? 0xFFDDBB55 : 0xFFAA8844);
+            int textW = font.width(label);
+            font.draw(poseStack, label, tabX + (tabW - textW) / 2,
+                    tabY + (tabH - font.lineHeight) / 2 + 1, textColor);
+        }
     }
 
     private void renderRefreshButton(PoseStack poseStack, int px, int py, int mouseX, int mouseY, Font font) {
@@ -291,163 +299,132 @@ public class PanelRenderer {
         font.draw(poseStack, Component.translatable("gui.tinkerssearch.refresh"), btnX + 4, btnY + 3, 0xCCCCCC);
     }
 
-    private void renderSearchBox(PoseStack poseStack, int px, int py, int pw, Font font) {
-        boolean focused = interactionHandler.isSearchBoxFocused();
-        String keyword = interactionHandler.getSearchKeyword();
-        int cursorPos = interactionHandler.getCursorPosition();
+    // ==================== 搜索框 ====================
+
+    private void renderSearchBox(PoseStack poseStack, int px, int py, int pw,
+                                 int mouseX, int mouseY, Font font) {
+        SearchBox box = interactionHandler.getSearchBox();
+        box.setStyle(SearchBoxStyle.panel());
 
         int boxX = px + 5;
         int boxY = py + SEARCH_BOX_Y;
         int boxW = pw - 10;
         int boxH = SEARCH_BOX_H;
 
-        int bg = focused ? 0xFF3A3A3A : 0xFF222222;
-        GuiComponent.fill(poseStack, boxX, boxY, boxX + boxW, boxY + boxH, bg);
+        box.setBounds(boxX, boxY, boxW, boxH);
+        box.render(poseStack, mouseX, mouseY, font);
 
-        int border = focused ? 0xFF888888 : 0xFF444444;
-        GuiComponent.fill(poseStack, boxX, boxY, boxX + boxW, boxY + 1, border);
-        GuiComponent.fill(poseStack, boxX, boxY + boxH - 1, boxX + boxW, boxY + boxH, border);
-        GuiComponent.fill(poseStack, boxX, boxY, boxX + 1, boxY + boxH, border);
-        GuiComponent.fill(poseStack, boxX + boxW - 1, boxY, boxX + boxW, boxY + boxH, border);
-
-        if (keyword.isEmpty()) {
-            font.draw(poseStack, Component.translatable("gui.tinkerssearch.search_hint"), boxX + 4, boxY + 4, 0x666666);
+        int total;
+        int matched;
+        Tab tab = dataManager.getCurrentTab();
+        if (tab == Tab.MATERIALS) {
+            total = dataManager.getAllMaterials().size();
+            matched = dataManager.getDisplayedAllMaterials().size();
         } else {
-            String beforeCursor = keyword.substring(0, cursorPos);
-            String afterCursor = keyword.substring(cursorPos);
-            int beforeWidth = font.width(beforeCursor);
-
-            font.draw(poseStack, beforeCursor, boxX + 4, boxY + 4, 0xFFFFFF);
-            font.draw(poseStack, afterCursor, boxX + 4 + beforeWidth, boxY + 4, 0xFFFFFF);
-
-            if (focused && (System.currentTimeMillis() / 500 % 2 == 0)) {
-                int cursorX = boxX + 4 + beforeWidth;
-                if (cursorX < boxX + boxW - 2) {
-                    GuiComponent.fill(poseStack, cursorX, boxY + 2, cursorX + 1, boxY + boxH - 2, 0xFFFFFFFF);
-                }
-            }
+            total = dataManager.getAllFluids().size();
+            matched = dataManager.getDisplayedFluids().size();
         }
 
-        int total = dataManager.getAllFluids().size();
-        int matched = dataManager.getDisplayedFluids().size();
         String countStr = "§8" + matched + "/" + total;
-        font.draw(poseStack, countStr, px + pw - 35, boxY + 4, 0x888888);
+        int countRight = px + pw - 23;
+        font.draw(poseStack, countStr, countRight - font.width(countStr), boxY + 4, 0x888888);
 
-        int lineY = boxY + boxH + 4;
-        GuiComponent.fill(poseStack, px + 5, lineY, px + pw - 5 - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING, lineY + 1, 0xFF333333);
+        if (tab != Tab.SMELTERY) {
+            int lineY = boxY + boxH + 4;
+            GuiComponent.fill(poseStack, px + 5, lineY,
+                    px + pw - 5 - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING, lineY + 1, 0xFF333333);
+        }
     }
 
-    private void renderAlloySearchBox(PoseStack poseStack, int px, int py, int pw, Font font) {
-        boolean focused = interactionHandler.isSearchBoxFocused();
-        String keyword = interactionHandler.getSearchKeyword();
-        int cursorPos = interactionHandler.getCursorPosition();
+    private void renderAlloySearchBox(PoseStack poseStack, int px, int py, int pw,
+                                      int mouseX, int mouseY, Font font) {
+        SearchBox box = interactionHandler.getSearchBox();
+        box.setStyle(SearchBoxStyle.alloy());
 
         int boxX = px + 5;
         int boxY = py + SEARCH_BOX_Y;
         int boxW = pw - 10;
         int boxH = SEARCH_BOX_H;
 
-        int bg = focused ? 0xFF2A2A3A : 0xFF1A1A2A;
-        GuiComponent.fill(poseStack, boxX, boxY, boxX + boxW, boxY + boxH, bg);
-
-        int border = focused ? 0xFF6688FF : 0xFF4466AA;
-        GuiComponent.fill(poseStack, boxX, boxY, boxX + boxW, boxY + 1, border);
-        GuiComponent.fill(poseStack, boxX, boxY + boxH - 1, boxX + boxW, boxY + boxH, border);
-        GuiComponent.fill(poseStack, boxX, boxY, boxX + 1, boxY + boxH, border);
-        GuiComponent.fill(poseStack, boxX + boxW - 1, boxY, boxX + boxW, boxY + boxH, border);
-
-        if (keyword.isEmpty()) {
-            font.draw(poseStack, "§7" + Component.translatable("gui.tinkerssearch.alloy_search_hint").getString(), boxX + 4, boxY + 4, 0x666666);
-        } else {
-            String beforeCursor = keyword.substring(0, cursorPos);
-            String afterCursor = keyword.substring(cursorPos);
-            int beforeWidth = font.width(beforeCursor);
-
-            font.draw(poseStack, beforeCursor, boxX + 4, boxY + 4, 0xFFFFFF);
-            font.draw(poseStack, afterCursor, boxX + 4 + beforeWidth, boxY + 4, 0xFFFFFF);
-
-            if (focused && (System.currentTimeMillis() / 500 % 2 == 0)) {
-                int cursorX = boxX + 4 + beforeWidth;
-                if (cursorX < boxX + boxW - 2) {
-                    GuiComponent.fill(poseStack, cursorX, boxY + 2, cursorX + 1, boxY + boxH - 2, 0xFFFFFFFF);
-                }
-            }
-        }
+        box.setBounds(boxX, boxY, boxW, boxH);
+        box.render(poseStack, mouseX, mouseY, font);
 
         int lineY = boxY + boxH + 4;
-        GuiComponent.fill(poseStack, px + 5, lineY, px + pw - 5 - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING, lineY + 1, 0xFF333366);
+        GuiComponent.fill(poseStack, px + 5, lineY,
+                px + pw - 5 - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING, lineY + 1, 0xFF333366);
     }
 
-    private void renderNormalContent(PoseStack poseStack, int px, int py, int pw, int ph, int mouseX, int mouseY, Font font) {
+    // ==================== 冶炼炉 Tab ====================
+
+    private void renderSmelteryContent(PoseStack poseStack, int px, int py, int pw, int ph,
+                                       int mouseX, int mouseY, Font font) {
+        int cardAreaW = pw - 10 - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING;
+
+        // 收藏区
         if (!dataManager.getDisplayedFavoriteFluids().isEmpty()) {
-            int favLabelY = py + CARDS_START_Y;
-            font.draw(poseStack, "§6" + Component.translatable("gui.tinkerssearch.favorites").getString(), px + 5, favLabelY, 0xFFFFFF);
+            int favTitleY = py + layoutCalculator.getFavoriteTitleY();
+            font.draw(poseStack, "§6" + Component.translatable("gui.tinkerssearch.favorites").getString(),
+                    px + 5, favTitleY, 0xFFFFFF);
 
-            int favStartY = py + layoutCalculator.getFavoriteAreaStartY();
-            int favAreaHeight = layoutCalculator.getFavoriteAreaHeight();
+            int favHeight = layoutCalculator.getFavoriteAreaHeight();
+            if (favHeight > 0) {
+                int favStartY = py + layoutCalculator.getFavoriteAreaStartY();
 
-            if (favAreaHeight > 0) {
-                boolean scissorOk = ScissorHelper.enableScissor(
-                        px + 5,
-                        favStartY,
-                        pw - 10 - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING,
-                        favAreaHeight
-                );
+                boolean scissorOk = ScissorHelper.enableScissor(px + 5, favStartY, cardAreaW, favHeight);
                 if (scissorOk) {
                     try {
                         RenderSystem.disableDepthTest();
-                        renderFavoriteCards(poseStack, px, py, pw, ph, mouseX, mouseY, font, favStartY, favAreaHeight);
+                        renderFavoriteCards(poseStack, px, pw, mouseX, mouseY, font, favStartY, favHeight);
                     } finally {
                         ScissorHelper.disableScissor();
                         RenderSystem.enableDepthTest();
                     }
                 } else {
-                    renderFavoriteCards(poseStack, px, py, pw, ph, mouseX, mouseY, font, favStartY, favAreaHeight);
+                    renderFavoriteCards(poseStack, px, pw, mouseX, mouseY, font, favStartY, favHeight);
                 }
-                renderScrollBar(poseStack, px, favStartY, favAreaHeight, pw, dataManager.getFavScrollOffset(), dataManager.getMaxFavScrollOffset());
+                renderScrollBar(poseStack, px, favStartY, favHeight, pw,
+                        dataManager.getFavScrollOffset(), dataManager.getMaxFavScrollOffset(),
+                        favScrollBar, mouseX, mouseY);
             }
-
-            int sepY = favStartY + favAreaHeight + SECTION_SPACING;
-            GuiComponent.fill(poseStack, px + 5, sepY, px + pw - 5 - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING, sepY + 1, 0xFF444444);
-
-            int smelterLabelY = sepY + SECTION_SPACING;
-            font.draw(poseStack, "§e" + Component.translatable("gui.tinkerssearch.smeltery").getString(), px + 5, smelterLabelY, 0xFFFFFF);
-        } else {
-            int smelterLabelY = py + CARDS_START_Y;
-            font.draw(poseStack, "§e" + Component.translatable("gui.tinkerssearch.smeltery").getString(), px + 5, smelterLabelY, 0xFFFFFF);
         }
 
-        int clipStartY = py + layoutCalculator.getSmelteryAreaStartY();
-        int clipEndY = py + ph - 4;
-        int clipWidth = pw - 10 - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING;
-        int clipHeight = clipEndY - clipStartY;
+        // 冶炼炉区
+        int smelteryTitleY = py + layoutCalculator.getSmelteryTitleY();
+        font.draw(poseStack, "§e" + Component.translatable("gui.tinkerssearch.smeltery").getString(),
+                px + 5, smelteryTitleY, 0xFFFFFF);
 
-        if (clipHeight > 0) {
-            boolean scissorOk = ScissorHelper.enableScissor(px + 5, clipStartY, clipWidth, clipHeight);
+        int smelteryHeight = layoutCalculator.getSmelteryAreaHeight();
+        if (smelteryHeight > 0) {
+            int smelteryStartY = py + layoutCalculator.getSmelteryAreaStartY();
+
+            boolean scissorOk = ScissorHelper.enableScissor(px + 5, smelteryStartY, cardAreaW, smelteryHeight);
             if (scissorOk) {
                 try {
                     RenderSystem.disableDepthTest();
-                    renderCards(poseStack, px, py, pw, ph, mouseX, mouseY, font);
+                    renderSmelteryCards(poseStack, px, pw, smelteryStartY, smelteryHeight, mouseX, mouseY, font);
                 } finally {
                     ScissorHelper.disableScissor();
                     RenderSystem.enableDepthTest();
                 }
             } else {
-                renderCards(poseStack, px, py, pw, ph, mouseX, mouseY, font);
+                renderSmelteryCards(poseStack, px, pw, smelteryStartY, smelteryHeight, mouseX, mouseY, font);
             }
-            renderScrollBar(poseStack, px, clipStartY, clipHeight, pw, dataManager.getScrollOffset(), dataManager.getMaxScrollOffset());
+            renderScrollBar(poseStack, px, smelteryStartY, smelteryHeight, pw,
+                    dataManager.getScrollOffset(), dataManager.getMaxScrollOffset(),
+                    smelteryScrollBar, mouseX, mouseY);
         }
     }
 
-    private void renderCards(PoseStack poseStack, int px, int py, int pw, int ph, int mouseX, int mouseY, Font font) {
-        int startY = py + layoutCalculator.getSmelteryAreaStartY() - dataManager.getScrollOffset();
-        int endY = py + ph - 4;
+    private void renderSmelteryCards(PoseStack poseStack, int px, int pw, int areaStartY, int areaHeight,
+                                     int mouseX, int mouseY, Font font) {
+        int startY = areaStartY - dataManager.getScrollOffset();
+        int endY = areaStartY + areaHeight;
 
         if (dataManager.getDisplayedFluids().isEmpty()) {
             String msg = interactionHandler.getSearchKeyword().isEmpty() ?
                     "§7" + Component.translatable("gui.tinkerssearch.no_fluids").getString() :
                     "§7" + Component.translatable("gui.tinkerssearch.no_match").getString();
-            font.draw(poseStack, msg, px + 5, startY + dataManager.getScrollOffset() + 10, 0x666666);
+            font.draw(poseStack, msg, px + 5, areaStartY + 10, 0x666666);
             return;
         }
 
@@ -457,28 +434,23 @@ public class PanelRenderer {
         for (int i = 0; i < dataManager.getDisplayedFluids().size(); i++) {
             int row = i / ITEMS_PER_ROW;
             int col = i % ITEMS_PER_ROW;
-
             int cardX = px + 5 + col * (cardW + CARD_SPACING);
             int cardY = startY + row * (cardH + CARD_SPACING);
 
-            if (cardY + cardH < py + layoutCalculator.getSmelteryAreaStartY() || cardY > endY) {
-                continue;
-            }
+            if (cardY + cardH < areaStartY || cardY > endY) continue;
 
             FluidStack fluid = dataManager.getDisplayedFluids().get(i);
-            boolean isHover = isHovered(cardX, cardY, cardW, cardH, mouseX, mouseY);
-            drawSingleCard(poseStack, cardX, cardY, cardW, cardH, fluid, isHover, font, false);
+            boolean hover = isHovered(cardX, cardY, cardW, cardH, mouseX, mouseY);
+            drawSingleCard(poseStack, cardX, cardY, cardW, cardH, fluid, hover, font, AreaKind.SMELTERY);
         }
     }
 
-    private void renderFavoriteCards(PoseStack poseStack, int px, int py, int pw, int ph, int mouseX, int mouseY, Font font, int areaStartY, int areaHeight) {
+    private void renderFavoriteCards(PoseStack poseStack, int px, int pw,
+                                     int mouseX, int mouseY, Font font, int areaStartY, int areaHeight) {
         int startY = areaStartY - dataManager.getFavScrollOffset();
         int endY = areaStartY + areaHeight;
 
-        if (dataManager.getDisplayedFavoriteFluids().isEmpty()) {
-            font.draw(poseStack, "§7" + Component.translatable("gui.tinkerssearch.no_favorites").getString(), px + 5, areaStartY + 10, 0x666666);
-            return;
-        }
+        if (dataManager.getDisplayedFavoriteFluids().isEmpty()) return;
 
         int cardW = (pw - 10 - CARD_SPACING - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING) / ITEMS_PER_ROW;
         int cardH = CARD_HEIGHT;
@@ -486,61 +458,106 @@ public class PanelRenderer {
         for (int i = 0; i < dataManager.getDisplayedFavoriteFluids().size(); i++) {
             int row = i / ITEMS_PER_ROW;
             int col = i % ITEMS_PER_ROW;
-
             int cardX = px + 5 + col * (cardW + CARD_SPACING);
             int cardY = startY + row * (cardH + CARD_SPACING);
 
-            if (cardY + cardH < areaStartY || cardY > endY) {
-                continue;
-            }
+            if (cardY + cardH < areaStartY || cardY > endY) continue;
 
             FluidStack fluid = dataManager.getDisplayedFavoriteFluids().get(i);
-            boolean isHover = isHovered(cardX, cardY, cardW, cardH, mouseX, mouseY);
-            drawSingleCard(poseStack, cardX, cardY, cardW, cardH, fluid, isHover, font, true);
+            boolean hover = isHovered(cardX, cardY, cardW, cardH, mouseX, mouseY);
+            drawSingleCard(poseStack, cardX, cardY, cardW, cardH, fluid, hover, font, AreaKind.FAVORITE);
         }
     }
 
-    private void drawSingleCard(PoseStack poseStack, int x, int y, int w, int h, FluidStack fluid, boolean hover, Font font, boolean isFavorite) {
+    // ==================== 材料 Tab ====================
+
+    private void renderMaterialsContent(PoseStack poseStack, int px, int py, int pw, int ph,
+                                        int mouseX, int mouseY, Font font) {
+        int cardAreaW = pw - 10 - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING;
+        int startY = py + layoutCalculator.getAllMaterialsContentY();
+        int height = layoutCalculator.getAllMaterialsAreaHeight();
+        int endY = startY + height;
+
+        if (dataManager.getDisplayedAllMaterials().isEmpty()) {
+            font.draw(poseStack, "§7" + Component.translatable("gui.tinkerssearch.no_materials").getString(),
+                    px + 5, startY + 10, 0x666666);
+            return;
+        }
+
+        boolean scissorOk = ScissorHelper.enableScissor(px + 5, startY, cardAreaW, height);
+        if (scissorOk) {
+            try {
+                RenderSystem.disableDepthTest();
+                renderAllMaterialsCards(poseStack, px, pw, startY, endY, mouseX, mouseY, font);
+            } finally {
+                ScissorHelper.disableScissor();
+                RenderSystem.enableDepthTest();
+            }
+        } else {
+            renderAllMaterialsCards(poseStack, px, pw, startY, endY, mouseX, mouseY, font);
+        }
+        renderScrollBar(poseStack, px, startY, height, pw,
+                dataManager.getAllMaterialsScrollOffset(), dataManager.getMaxAllMaterialsScrollOffset(),
+                allMaterialsScrollBar, mouseX, mouseY);
+    }
+
+    private void renderAllMaterialsCards(PoseStack poseStack, int px, int pw, int areaStartY, int areaEndY,
+                                         int mouseX, int mouseY, Font font) {
+        int startY = areaStartY - dataManager.getAllMaterialsScrollOffset();
+
+        int cardW = (pw - 10 - CARD_SPACING - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING) / ITEMS_PER_ROW;
+        int cardH = CARD_HEIGHT;
+
+        for (int i = 0; i < dataManager.getDisplayedAllMaterials().size(); i++) {
+            int row = i / ITEMS_PER_ROW;
+            int col = i % ITEMS_PER_ROW;
+            int cardX = px + 5 + col * (cardW + CARD_SPACING);
+            int cardY = startY + row * (cardH + CARD_SPACING);
+
+            if (cardY + cardH < areaStartY || cardY > areaEndY) continue;
+
+            FluidStack fluid = dataManager.getDisplayedAllMaterials().get(i);
+            boolean hover = isHovered(cardX, cardY, cardW, cardH, mouseX, mouseY);
+            drawSingleCard(poseStack, cardX, cardY, cardW, cardH, fluid, hover, font, AreaKind.ALL_MATERIALS);
+        }
+    }
+
+    // ==================== 卡片 ====================
+
+    private void drawSingleCard(PoseStack poseStack, int x, int y, int w, int h, FluidStack fluid,
+                                boolean hover, Font font, AreaKind areaKind) {
         String fluidName = fluid.getDisplayName().getString();
 
         // ✅ 1.19.2：通过 ForgeRegistries 获取注册名
         ResourceLocation regName = ForgeRegistries.FLUIDS.getKey(fluid.getFluid());
         if (fluidName == null || fluidName.isEmpty() || fluidName.equals("Air") || fluidName.equals("empty")) {
-            if (regName != null) {
-                fluidName = regName.getPath();
-            }
+            if (regName != null) fluidName = regName.getPath();
         }
 
         boolean existsInSmeltery = true;
-        if (isFavorite) {
+        int actualAmount = fluid.getAmount();
+
+        if (areaKind != AreaKind.SMELTERY) {
             existsInSmeltery = false;
             for (FluidStack fs : dataManager.getAllFluids()) {
+                // ✅ 1.19.2：通过 ForgeRegistries 获取注册名
                 ResourceLocation fsRl = ForgeRegistries.FLUIDS.getKey(fs.getFluid());
                 if (fsRl != null && fsRl.equals(regName)) {
                     existsInSmeltery = true;
+                    actualAmount = fs.getAmount();
                     break;
                 }
             }
         }
 
-        boolean isBottom = dataManager.getBottomFluidName() != null && fluidName.equals(dataManager.getBottomFluidName()) && existsInSmeltery;
+        boolean isBottom = dataManager.getBottomFluidName() != null
+                && fluidName.equals(dataManager.getBottomFluidName()) && existsInSmeltery;
 
         int bg = hover ? 0xFF3A3A3A : 0xFF222222;
-        GuiComponent.fill(poseStack, x, y, x + w, y + h, bg);
-
-        if (isBottom) {
-            int green = 0xFF00FF00;
-            GuiComponent.fill(poseStack, x, y, x + w, y + 1, green);
-            GuiComponent.fill(poseStack, x, y + h - 1, x + w, y + h, green);
-            GuiComponent.fill(poseStack, x, y, x + 1, y + h, green);
-            GuiComponent.fill(poseStack, x + w - 1, y, x + w, y + h, green);
-        } else {
-            int border = hover ? 0xFF888888 : 0xFF333333;
-            GuiComponent.fill(poseStack, x, y, x + w, y + 1, border);
-            GuiComponent.fill(poseStack, x, y + h - 1, x + w, y + h, border);
-            GuiComponent.fill(poseStack, x, y, x + 1, y + h, border);
-            GuiComponent.fill(poseStack, x + w - 1, y, x + w, y + h, border);
-        }
+        int border;
+        if (isBottom) border = 0xFF00FF00;
+        else border = hover ? 0xFF888888 : 0xFF333333;
+        CardBackground.draw(poseStack, x, y, w, h, bg, border);
 
         int iconSize = ICON_SIZE;
         int iconX = x + 3;
@@ -556,17 +573,13 @@ public class PanelRenderer {
         int nameColor = isBottom ? 0xFF00FF00 : 0xFFFFFF;
         font.draw(poseStack, truncatedName, textX, y + 4, nameColor);
 
-        if (isFavorite && !existsInSmeltery) {
+        if (!existsInSmeltery) {
             String locked = Component.translatable("gui.tinkerssearch.locked").getString();
             font.draw(poseStack, "§8" + locked, textX, y + 18, 0x888888);
         } else {
-            int amount = fluid.getAmount();
             String amtStr;
-            if (amount >= 1000) {
-                amtStr = String.format("%.1fB", amount / 1000.0);
-            } else {
-                amtStr = amount + "mB";
-            }
+            if (actualAmount >= 1000) amtStr = String.format("%.1fB", actualAmount / 1000.0);
+            else amtStr = actualAmount + "mB";
             font.draw(poseStack, "§8" + amtStr, textX, y + 18, 0x888888);
         }
 
@@ -579,30 +592,59 @@ public class PanelRenderer {
         font.draw(poseStack, star, starX, starY, starColor);
 
         if (hover && existsInSmeltery) {
-            font.draw(poseStack, "§7" + Component.translatable("gui.tinkerssearch.click_move"), x + 4, y + h - 10, 0x666666);
+            font.draw(poseStack, "§7" + Component.translatable("gui.tinkerssearch.click_move").getString(),
+                    x + 4, y + h - 10, 0x666666);
         }
     }
 
-    private void renderScrollBar(PoseStack poseStack, int px, int areaStartY, int areaHeight, int panelWidth,
-                                 int scrollOffset, int maxScrollOffset) {
-        if (maxScrollOffset <= 0) return;
+    // ==================== 滚动条 ====================
 
-        int barX = px + panelWidth - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING;
-        int barY = areaStartY;
-        int barH = areaHeight;
-
-        GuiComponent.fill(poseStack, barX, barY, barX + SCROLL_BAR_WIDTH, barY + barH, 0x33FFFFFF);
-
-        float ratio = (float) scrollOffset / (float) maxScrollOffset;
-        int thumbH = Math.max(16, (int) (barH * 0.3f));
-        int thumbY = barY + (int) (ratio * (barH - thumbH));
-        GuiComponent.fill(poseStack, barX, thumbY, barX + SCROLL_BAR_WIDTH, thumbY + thumbH, 0x99FFFFFF);
+    private void renderScrollBar(PoseStack ps, int px, int areaStartY, int areaHeight, int pw,
+                                 int offset, int maxOffset, ScrollBar bar,
+                                 int mouseX, int mouseY) {
+        bar.setBounds(px + pw - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING,
+                areaStartY, SCROLL_BAR_WIDTH, areaHeight);
+        bar.setRange(offset, maxOffset);
+        bar.render(ps, mouseX, mouseY);
     }
 
-    // ==================== 合金模式渲染 ====================
+    // ==================== 滚动条拖拽 API ====================
 
-    private void renderAlloyContent(PoseStack poseStack, int px, int py, int pw, int ph, int mouseX, int mouseY, Font font) {
-        int startY = py + CARDS_START_Y + 18;
+    public boolean beginScrollBarDrag(double mouseX, double mouseY) {
+        if (favScrollBar.tryBeginDrag(mouseX, mouseY)) return true;
+        if (smelteryScrollBar.tryBeginDrag(mouseX, mouseY)) return true;
+        if (allMaterialsScrollBar.tryBeginDrag(mouseX, mouseY)) return true;
+        if (alloyScrollBar.tryBeginDrag(mouseX, mouseY)) return true;
+        return false;
+    }
+
+    public boolean updateScrollBarDrag(double mouseY) {
+        if (favScrollBar.updateDrag(mouseY)) return true;
+        if (smelteryScrollBar.updateDrag(mouseY)) return true;
+        if (allMaterialsScrollBar.updateDrag(mouseY)) return true;
+        if (alloyScrollBar.updateDrag(mouseY)) return true;
+        return false;
+    }
+
+    public void endScrollBarDrag() {
+        favScrollBar.endDrag();
+        smelteryScrollBar.endDrag();
+        allMaterialsScrollBar.endDrag();
+        alloyScrollBar.endDrag();
+    }
+
+    public boolean isDraggingScrollBar() {
+        return favScrollBar.isDragging()
+                || smelteryScrollBar.isDragging()
+                || allMaterialsScrollBar.isDragging()
+                || alloyScrollBar.isDragging();
+    }
+
+    // ==================== 合金 Tab ====================
+
+    private void renderAlloyContent(PoseStack poseStack, int px, int py, int pw, int ph,
+                                    int mouseX, int mouseY, Font font) {
+        int startY = py + CARDS_START_Y;
         int endY = py + ph - 4;
 
         if (alloyHandler.getSelectedMaterial() == null) {
@@ -618,14 +660,17 @@ public class PanelRenderer {
 
         FluidStack selected = alloyHandler.getSelectedMaterial();
         String selectedName = selected.getDisplayName().getString().replace("Molten ", "");
-        font.draw(poseStack, "§b" + selectedName + " §7" + Component.translatable("gui.tinkerssearch.alloy_results").getString() + ":", px + 5, contentY, 0xFFFFFF);
+        font.draw(poseStack, "§b" + selectedName + " §7"
+                        + Component.translatable("gui.tinkerssearch.alloy_results").getString() + ":",
+                px + 5, contentY, 0xFFFFFF);
         contentY += 12;
 
         int currentTemp = panel.getCurrentSmelteryTemperature();
 
         List<AlloyResultCalculator.AlloyChainResult> results = alloyHandler.getCurrentResults();
         if (results.isEmpty()) {
-            font.draw(poseStack, "§7" + Component.translatable("gui.tinkerssearch.alloy_no_recipes").getString(), px + 5, contentY, 0x666666);
+            font.draw(poseStack, "§7" + Component.translatable("gui.tinkerssearch.alloy_no_recipes").getString(),
+                    px + 5, contentY, 0x666666);
             return;
         }
 
@@ -673,27 +718,26 @@ public class PanelRenderer {
         }
 
         if (maxOffset > 0) {
-            renderScrollBar(poseStack, px, cardStartY, cardAreaHeight, pw, alloyScrollOffset, maxOffset);
+            renderScrollBar(poseStack, px, cardStartY, cardAreaHeight, pw, alloyScrollOffset, maxOffset,
+                    alloyScrollBar, mouseX, mouseY);
         }
     }
 
-    private void renderAlloyMaterials(PoseStack poseStack, int px, int py, int pw, int mouseX, int mouseY, Font font, int startY, int endY) {
+    private void renderAlloyMaterials(PoseStack poseStack, int px, int py, int pw,
+                                      int mouseX, int mouseY, Font font, int startY, int endY) {
         List<FluidStack> materials = alloyHandler.getFilteredMaterials();
 
-        String title = Component.translatable("gui.tinkerssearch.alloy_materials").getString();
-        font.draw(poseStack, "§7" + title + " §8(" + materials.size() + ")", px + 5, startY, 0xCCCCCC);
-
-        int cardStartY = startY + 18;
+        int cardStartY = startY;
         int cardAreaHeight = endY - cardStartY;
+        int cardAreaW = pw - 10 - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING;
 
         if (materials.isEmpty()) {
-            font.draw(poseStack, "§7" + Component.translatable("gui.tinkerssearch.no_match"), px + 5, cardStartY + 10, 0x666666);
+            font.draw(poseStack, "§7" + Component.translatable("gui.tinkerssearch.no_match").getString(),
+                    px + 5, cardStartY + 10, 0x666666);
             return;
         }
 
-        int margin = 4;
-        int availableWidth = pw - 10 - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING - margin * 2;
-        int cardW = (availableWidth - CARD_SPACING * (ITEMS_PER_ROW - 1)) / ITEMS_PER_ROW;
+        int cardW = (pw - 10 - CARD_SPACING - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING) / ITEMS_PER_ROW;
         int cardH = CARD_HEIGHT;
 
         int totalRows = (materials.size() + ITEMS_PER_ROW - 1) / ITEMS_PER_ROW;
@@ -703,7 +747,7 @@ public class PanelRenderer {
         alloyScrollOffset = Math.max(0, Math.min(alloyScrollOffset, maxOffset));
         dataManager.setAlloyScrollOffset(alloyScrollOffset);
 
-        boolean scissorOk = ScissorHelper.enableScissor(px + 5 + margin, cardStartY, availableWidth, cardAreaHeight);
+        boolean scissorOk = ScissorHelper.enableScissor(px + 5, cardStartY, cardAreaW, cardAreaHeight);
         if (scissorOk) {
             try {
                 RenderSystem.disableDepthTest();
@@ -711,17 +755,15 @@ public class PanelRenderer {
                 for (int i = 0; i < materials.size(); i++) {
                     int row = i / ITEMS_PER_ROW;
                     int col = i % ITEMS_PER_ROW;
-                    int cardX = px + 5 + margin + col * (cardW + CARD_SPACING);
+                    int cardX = px + 5 + col * (cardW + CARD_SPACING);
                     int cardY = actualStartY + row * (cardH + CARD_SPACING);
 
                     if (cardY + cardH < cardStartY || cardY > endY) continue;
 
                     FluidStack fluid = materials.get(i);
                     boolean hover = isHovered(cardX, cardY, cardW, cardH, mouseX, mouseY);
-                    // ✅ 1.19.2：通过 ForgeRegistries 获取注册名
-                    ResourceLocation fluidRl = ForgeRegistries.FLUIDS.getKey(fluid.getFluid());
                     boolean selected = alloyHandler.getSelectedMaterial() != null &&
-                            ForgeRegistries.FLUIDS.getKey(alloyHandler.getSelectedMaterial().getFluid()).equals(fluidRl);
+                            isSameFluid(alloyHandler.getSelectedMaterial(), fluid);
 
                     drawAlloyMaterialCard(poseStack, cardX, cardY, cardW, cardH, fluid, hover, selected, font);
                 }
@@ -734,24 +776,32 @@ public class PanelRenderer {
             for (int i = 0; i < materials.size(); i++) {
                 int row = i / ITEMS_PER_ROW;
                 int col = i % ITEMS_PER_ROW;
-                int cardX = px + 5 + margin + col * (cardW + CARD_SPACING);
+                int cardX = px + 5 + col * (cardW + CARD_SPACING);
                 int cardY = actualStartY + row * (cardH + CARD_SPACING);
 
                 if (cardY + cardH < cardStartY || cardY > endY) continue;
 
                 FluidStack fluid = materials.get(i);
                 boolean hover = isHovered(cardX, cardY, cardW, cardH, mouseX, mouseY);
-                ResourceLocation fluidRl = ForgeRegistries.FLUIDS.getKey(fluid.getFluid());
                 boolean selected = alloyHandler.getSelectedMaterial() != null &&
-                        ForgeRegistries.FLUIDS.getKey(alloyHandler.getSelectedMaterial().getFluid()).equals(fluidRl);
+                        isSameFluid(alloyHandler.getSelectedMaterial(), fluid);
 
                 drawAlloyMaterialCard(poseStack, cardX, cardY, cardW, cardH, fluid, hover, selected, font);
             }
         }
 
         if (maxOffset > 0) {
-            renderScrollBar(poseStack, px, cardStartY, cardAreaHeight, pw, alloyScrollOffset, maxOffset);
+            renderScrollBar(poseStack, px, cardStartY, cardAreaHeight, pw, alloyScrollOffset, maxOffset,
+                    alloyScrollBar, mouseX, mouseY);
         }
+    }
+
+    /** 通过 ForgeRegistries 比较两个 FluidStack 是否同一流体（1.19.2 兼容）。 */
+    private boolean isSameFluid(FluidStack a, FluidStack b) {
+        ResourceLocation aRl = ForgeRegistries.FLUIDS.getKey(a.getFluid());
+        ResourceLocation bRl = ForgeRegistries.FLUIDS.getKey(b.getFluid());
+        if (aRl == null || bRl == null) return a.getFluid() == b.getFluid();
+        return aRl.equals(bRl);
     }
 
     private void drawAlloyMaterialCard(PoseStack poseStack, int x, int y, int w, int h,
@@ -759,13 +809,8 @@ public class PanelRenderer {
         String name = fluid.getDisplayName().getString().replace("Molten ", "");
 
         int bg = selected ? 0xFF1A3A6A : (hover ? 0xFF3A3A3A : 0xFF222222);
-        GuiComponent.fill(poseStack, x, y, x + w, y + h, bg);
-
         int border = selected ? 0xFF4488FF : (hover ? 0xFF888888 : 0xFF333333);
-        GuiComponent.fill(poseStack, x, y, x + w, y + 1, border);
-        GuiComponent.fill(poseStack, x, y + h - 1, x + w, y + h, border);
-        GuiComponent.fill(poseStack, x, y, x + 1, y + h, border);
-        GuiComponent.fill(poseStack, x + w - 1, y, x + w, y + h, border);
+        CardBackground.draw(poseStack, x, y, w, h, bg, border);
 
         int iconSize = ICON_SIZE;
         int iconX = x + 3;
@@ -777,8 +822,6 @@ public class PanelRenderer {
         String truncated = truncateTextWithEllipsis(font, name, maxTextW);
         font.draw(poseStack, truncated, textX, y + (h - font.lineHeight) / 2 + 1, 0xFFFFFF);
     }
-
-    // ==================== 合金卡片绘制 ====================
 
     private int drawAlloyRecipeCard(PoseStack poseStack, int px, int pw, int y,
                                     AlloyResultCalculator.AlloyChainResult result,
@@ -797,59 +840,42 @@ public class PanelRenderer {
         int w = pw - margin * 2;
 
         int maxW = pw - 10 - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING - 2;
-        if (w > maxW) {
-            w = maxW;
-        }
+        if (w > maxW) w = maxW;
 
         boolean feasible = result.isFullyFeasible();
         int bg = feasible ? 0xFF1A3A1A : 0xFF3A2A1A;
-        GuiComponent.fill(poseStack, x, y, x + w, y + cardH, bg);
-
         int border = feasible ? 0xFF44FF44 : 0xFFFF8800;
-        GuiComponent.fill(poseStack, x, y, x + w, y + 1, border);
-        GuiComponent.fill(poseStack, x, y + cardH - 1, x + w, y + cardH, border);
-        GuiComponent.fill(poseStack, x, y, x + 1, y + cardH, border);
-        GuiComponent.fill(poseStack, x + w - 1, y, x + w, y + cardH, border);
+        CardBackground.draw(poseStack, x, y, w, cardH, bg, border);
 
-        // 第1行：状态
         String status = feasible ?
                 "§a✔ " + Component.translatable("gui.tinkerssearch.alloy_feasible").getString() :
                 "§c✘ " + Component.translatable("gui.tinkerssearch.alloy_infeasible").getString();
         font.draw(poseStack, status, x + 6, y + 3, 0xFFFFFF);
 
-        // 第1行右侧：温度
         String tempStr = feasibility.isTemperatureOk() ?
                 "§a" + currentTemp + "°C" :
                 "§c" + currentTemp + "°C §7/§e" + feasibility.getRequiredTemp() + "°C";
         font.draw(poseStack, tempStr, x + w - font.width(tempStr) - 6, y + 3, 0xFFFFFF);
 
-        // 分割线
         int lineY = y + 16;
         GuiComponent.fill(poseStack, x + 4, lineY, x + w - 4, lineY + 1, 0x44FFFFFF);
         lineY += 6;
 
-        // 第2行：配方链
         String chainStr = result.formatChain();
-
         int eqIndex = chainStr.indexOf(" = ");
         if (eqIndex >= 0) {
             String resultName = chainStr.substring(eqIndex + 3).trim();
             int arrowIndex = resultName.indexOf(" → ");
-            if (arrowIndex >= 0) {
-                resultName = resultName.substring(0, arrowIndex).trim();
-            }
+            if (arrowIndex >= 0) resultName = resultName.substring(0, arrowIndex).trim();
 
             FluidStack resultFluid = result.getResultFluid();
             String registryName = "";
             if (resultFluid != null && !resultFluid.isEmpty()) {
+                // ✅ 1.19.2：通过 ForgeRegistries 获取注册名
                 ResourceLocation rl = ForgeRegistries.FLUIDS.getKey(resultFluid.getFluid());
-                if (rl != null) {
-                    registryName = rl.getPath();
-                }
+                if (rl != null) registryName = rl.getPath();
             }
-            if (registryName.isEmpty()) {
-                registryName = resultName;
-            }
+            if (registryName.isEmpty()) registryName = resultName;
 
             String beforeEq = chainStr.substring(0, eqIndex + 3);
             String beforePart = "§7" + beforeEq;
@@ -876,7 +902,6 @@ public class PanelRenderer {
                 font.draw(poseStack, "§7" + restPart, restX, lineY, 0xCCCCCC);
             }
 
-            // 查找是否已有这个位置的 ClickableArea
             ClickableArea existingArea = null;
             for (ClickableArea ca : clickableAreas) {
                 if (ca.x == resultX && ca.y == lineY && ca.w == font.width(resultName) && ca.h == font.lineHeight) {
@@ -898,7 +923,6 @@ public class PanelRenderer {
 
         lineY += 12;
 
-        // 第3行：缺失原料
         if (!missing.isEmpty()) {
             StringBuilder sb = new StringBuilder("§c");
             sb.append(Component.translatable("gui.tinkerssearch.alloy_missing_prefix").getString());
@@ -906,16 +930,13 @@ public class PanelRenderer {
             for (int i = 0; i < missing.size(); i++) {
                 if (i > 0) sb.append(", ");
                 AlloyRecipeData.AlloyFeasibility.MissingFluid mf = missing.get(i);
-                String name = mf.fluid.getDisplayName().getString()
-                        .replace("Molten ", "")
-                        .replace("熔融", "");
+                String name = mf.fluid.getDisplayName().getString().replace("Molten ", "").replace("熔融", "");
                 sb.append(name).append("§7(").append(mf.available).append("/").append(mf.needed).append("mB)§c");
             }
             font.draw(poseStack, sb.toString(), x + 6, lineY, 0xCCCCCC);
             lineY += 12;
         }
 
-        // 第4行：可执行次数
         if (result.getNext() == null) {
             int maxTimes = feasibility.getMaxTimes();
             if (maxTimes > 0) {
@@ -928,7 +949,6 @@ public class PanelRenderer {
             lineY += 12;
         }
 
-        // 第5行：原料详情
         if (lineY < y + cardH - 4) {
             StringBuilder ingredients = new StringBuilder();
             ingredients.append(Component.translatable("gui.tinkerssearch.alloy_ingredients").getString());
@@ -937,15 +957,14 @@ public class PanelRenderer {
                 if (i > 0) ingredients.append(" + ");
                 AlloyRecipeData.FluidIngredientData input = inputs.get(i);
                 FluidStack fs = input.getFluid();
-                String name = fs.getDisplayName().getString()
-                        .replace("Molten ", "")
-                        .replace("熔融", "");
+                String name = fs.getDisplayName().getString().replace("Molten ", "").replace("熔融", "");
                 int needed = input.getAmount();
                 int available = 0;
+                // ✅ 1.19.2：通过 ForgeRegistries 获取注册名
                 ResourceLocation fsRl = ForgeRegistries.FLUIDS.getKey(fs.getFluid());
                 for (FluidStack availableFs : dataManager.getAllFluids()) {
-                    ResourceLocation availableRl = ForgeRegistries.FLUIDS.getKey(availableFs.getFluid());
-                    if (availableRl != null && availableRl.equals(fsRl)) {
+                    ResourceLocation availRl = ForgeRegistries.FLUIDS.getKey(availableFs.getFluid());
+                    if (fsRl != null && fsRl.equals(availRl)) {
                         available = availableFs.getAmount();
                         break;
                     }
@@ -955,9 +974,8 @@ public class PanelRenderer {
                 ingredients.append(name).append("§7(").append(available).append("/").append(needed).append("mB)");
             }
 
-            String ingredientText = ingredients.toString();
             int maxWidth = w - 12;
-            List<String> wrappedLines = wrapText(font, ingredientText, maxWidth);
+            List<String> wrappedLines = wrapText(font, ingredients.toString(), maxWidth);
 
             for (String line : wrappedLines) {
                 if (lineY < y + cardH - 4) {
@@ -967,45 +985,32 @@ public class PanelRenderer {
             }
         }
 
-        // 第6行：后续合金链
         if (result.getNext() != null && lineY < y + cardH - 4) {
             List<AlloyResultCalculator.AlloyChainResult> nextResults = collectNextResults(result, 2);
             int totalNext = countNextResults(result);
 
             StringBuilder nextInfo = new StringBuilder();
             nextInfo.append("§b↳ ");
-
             for (int idx = 0; idx < nextResults.size(); idx++) {
                 if (idx > 0) nextInfo.append(" → ");
                 AlloyResultCalculator.AlloyChainResult nr = nextResults.get(idx);
-                AlloyRecipeData nrRecipe = nr.getRecipe();
-
-                String nextResultName = nrRecipe.getResult().getDisplayName().getString()
-                        .replace("Molten ", "")
-                        .replace("熔融", "");
+                String nextResultName = nr.getRecipe().getResult().getDisplayName().getString()
+                        .replace("Molten ", "").replace("熔融", "");
                 nextInfo.append(nextResultName);
             }
+            if (totalNext > 2) nextInfo.append(" … (").append(totalNext).append(")");
 
-            if (totalNext > 2) {
-                nextInfo.append(" … (").append(totalNext).append(")");
-            }
-
-            AlloyRecipeData firstNextRecipe = nextResults.get(0).getRecipe();
-            int nextRequiredTemp = firstNextRecipe.getRequiredTemperature();
+            int nextRequiredTemp = nextResults.get(0).getRecipe().getRequiredTemperature();
             nextInfo.append(" §7| ")
                     .append(Component.translatable("gui.tinkerssearch.alloy_temp_short").getString())
                     .append(": ");
-            if (currentTemp >= nextRequiredTemp) {
-                nextInfo.append("§a").append(currentTemp).append("✓");
-            } else {
-                nextInfo.append("§c").append(currentTemp).append("§7/§e").append(nextRequiredTemp);
-            }
+            if (currentTemp >= nextRequiredTemp) nextInfo.append("§a").append(currentTemp).append("✓");
+            else nextInfo.append("§c").append(currentTemp).append("§7/§e").append(nextRequiredTemp);
 
             font.draw(poseStack, nextInfo.toString(), x + 6, lineY, 0x888888);
             lineY += 12;
         }
 
-        // 第7行：后续合金缺失原料
         if (result.getNext() != null && lineY < y + cardH - 4) {
             List<AlloyResultCalculator.AlloyChainResult> nextResults = collectNextResults(result, 2);
             boolean hasMissing = false;
@@ -1018,9 +1023,9 @@ public class PanelRenderer {
 
             if (hasMissing) {
                 StringBuilder nextMissingInfo = new StringBuilder();
-                nextMissingInfo.append("§c  ");
-                nextMissingInfo.append(Component.translatable("gui.tinkerssearch.alloy_next_missing").getString());
-                nextMissingInfo.append(": ");
+                nextMissingInfo.append("§c  ")
+                        .append(Component.translatable("gui.tinkerssearch.alloy_next_missing").getString())
+                        .append(": ");
 
                 for (int idx = 0; idx < nextResults.size(); idx++) {
                     AlloyResultCalculator.AlloyChainResult nr = nextResults.get(idx);
@@ -1030,17 +1035,14 @@ public class PanelRenderer {
                     if (!nrFeasibility.getMissingFluids().isEmpty()) {
                         if (idx > 0) nextMissingInfo.append("; ");
                         String nrName = nrRecipe.getResult().getDisplayName().getString()
-                                .replace("Molten ", "")
-                                .replace("熔融", "");
+                                .replace("Molten ", "").replace("熔融", "");
                         nextMissingInfo.append(nrName).append(": ");
 
                         List<AlloyRecipeData.AlloyFeasibility.MissingFluid> nrMissing = nrFeasibility.getMissingFluids();
                         for (int j = 0; j < nrMissing.size(); j++) {
                             if (j > 0) nextMissingInfo.append(", ");
                             AlloyRecipeData.AlloyFeasibility.MissingFluid mf = nrMissing.get(j);
-                            String name = mf.fluid.getDisplayName().getString()
-                                    .replace("Molten ", "")
-                                    .replace("熔融", "");
+                            String name = mf.fluid.getDisplayName().getString().replace("Molten ", "").replace("熔融", "");
                             nextMissingInfo.append(name).append("§7(").append(mf.available).append("/").append(mf.needed).append("mB)§c");
                         }
                     }
@@ -1110,9 +1112,7 @@ public class PanelRenderer {
                     lines.add(remaining.substring(0, cutIndex) + "...");
                     remaining = remaining.substring(cutIndex);
                 }
-                if (!remaining.isEmpty()) {
-                    currentLine.append(remaining);
-                }
+                if (!remaining.isEmpty()) currentLine.append(remaining);
                 continue;
             }
 
@@ -1126,10 +1126,7 @@ public class PanelRenderer {
             }
         }
 
-        if (currentLine.length() > 0) {
-            lines.add(currentLine.toString());
-        }
-
+        if (currentLine.length() > 0) lines.add(currentLine.toString());
         return lines;
     }
 
@@ -1139,39 +1136,25 @@ public class PanelRenderer {
 
     private String truncateTextWithEllipsis(Font font, String text, int maxWidth) {
         if (maxWidth <= 0) return "";
-
         int textWidth = font.width(text);
-        if (textWidth <= maxWidth) {
-            return text;
-        }
+        if (textWidth <= maxWidth) return text;
 
         String ellipsis = "...";
         int ellipsisWidth = font.width(ellipsis);
-        if (ellipsisWidth >= maxWidth) {
-            return "";
-        }
+        if (ellipsisWidth >= maxWidth) return "";
 
-        int left = 0;
-        int right = text.length();
-        int bestLength = 0;
-
+        int left = 0, right = text.length(), bestLength = 0;
         while (left <= right) {
             int mid = (left + right) / 2;
             String testStr = text.substring(0, mid) + ellipsis;
-            int testWidth = font.width(testStr);
-
-            if (testWidth <= maxWidth) {
+            if (font.width(testStr) <= maxWidth) {
                 bestLength = mid;
                 left = mid + 1;
             } else {
                 right = mid - 1;
             }
         }
-
-        if (bestLength <= 0) {
-            return ellipsis;
-        }
-
+        if (bestLength <= 0) return ellipsis;
         return text.substring(0, bestLength) + ellipsis;
     }
 }

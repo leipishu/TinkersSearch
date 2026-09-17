@@ -14,12 +14,13 @@ import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.ModList;
 import net.minecraftforge.fml.common.Mod;
+import net.minecraftforge.fml.ModList;
 import net.minecraftforge.client.event.RenderTooltipEvent;
 import org.lwjgl.glfw.GLFW;
 import org.lwjgl.opengl.GL11;
 import top.leipishu.tinkerssearch.client.gui.FloatingSearchPanel;
+import top.leipishu.tinkerssearch.client.gui.FluidDetailScreen;
 import top.leipishu.tinkerssearch.client.gui.PanelInteractionHandler;
 import top.leipishu.tinkerssearch.jei.Jei;
 
@@ -61,14 +62,20 @@ public class TinkersSearch {
         return searchPanel;
     }
 
-    // ============================================================
-    // ===== 屏幕初始化 =====
-    // ============================================================
+    /** 详情窗口打开时，本 mod 的其他事件应让位。 */
+    private boolean isDetailScreenOpen() {
+        return Minecraft.getInstance().screen instanceof FluidDetailScreen;
+    }
 
     @SubscribeEvent(priority = EventPriority.LOWEST)
     public void onScreenInit(ScreenEvent.Init event) {
         Screen screen = event.getScreen();
         if (screen == null) return;
+
+        // 详情窗口打开时，不改动面板状态（面板留给父屏幕继续持有）
+        if (screen instanceof FluidDetailScreen) {
+            return;
+        }
 
         boolean isSmeltery = isSmelteryScreen(screen);
 
@@ -153,13 +160,11 @@ public class TinkersSearch {
         }
     }
 
-    // ============================================================
-    // ===== 客户端 Tick =====
-    // ============================================================
-
     @SubscribeEvent
     public void onClientTick(TickEvent.ClientTickEvent event) {
         if (event.phase != TickEvent.Phase.END) return;
+
+        if (isDetailScreenOpen()) return;
 
         Minecraft mc = Minecraft.getInstance();
         Screen screen = mc.screen;
@@ -186,12 +191,9 @@ public class TinkersSearch {
         }
     }
 
-    // ============================================================
-    // ===== 键盘事件 =====
-    // ============================================================
-
     @SubscribeEvent(priority = EventPriority.HIGHEST)
     public void onKeyboardKeyPressedPre(ScreenEvent.KeyPressed event) {
+        if (isDetailScreenOpen()) return;
         if (searchPanel == null) return;
         if (!searchPanel.isVisible()) return;
         if (!interactionHandler.isSearchBoxFocused()) return;
@@ -212,24 +214,6 @@ public class TinkersSearch {
 
         event.setCanceled(true);
     }
-
-    // ============================================================
-    // ===== 字符输入事件 =====
-    // ============================================================
-
-    @SubscribeEvent(priority = EventPriority.HIGHEST)
-    public void onCharTyped(ScreenEvent.CharacterTyped event) {
-        if (!isSmelteryScreen || searchPanel == null || !searchPanel.isVisible()) return;
-        if (!interactionHandler.isSearchBoxFocused()) return;
-
-        if (interactionHandler.handleCharTyped(event.getCodePoint(), event.getModifiers())) {
-            event.setCanceled(true);
-        }
-    }
-
-    // ============================================================
-    // ===== 切换面板 =====
-    // ============================================================
 
     private void togglePanel() {
         System.out.println("Tinker's Search: Toggling panel!");
@@ -255,12 +239,20 @@ public class TinkersSearch {
         }
     }
 
-    // ============================================================
-    // ===== 鼠标事件 =====
-    // ============================================================
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
+    public void onCharTyped(ScreenEvent.CharacterTyped event) {
+        if (isDetailScreenOpen()) return;
+        if (!isSmelteryScreen || searchPanel == null || !searchPanel.isVisible()) return;
+        if (!interactionHandler.isSearchBoxFocused()) return;
+
+        if (interactionHandler.handleCharTyped(event.getCodePoint(), event.getModifiers())) {
+            event.setCanceled(true);
+        }
+    }
 
     @SubscribeEvent(priority = EventPriority.HIGHEST)
     public void onMouseClickPre(ScreenEvent.MouseButtonPressed.Pre event) {
+        if (isDetailScreenOpen()) return;
         if (!isSmelteryScreen || searchPanel == null) return;
 
         double mouseX = event.getMouseX();
@@ -289,28 +281,9 @@ public class TinkersSearch {
         }
     }
 
-    // ============================================================
-    // ===== 鼠标滚轮事件 =====
-    // ============================================================
-
-    @SubscribeEvent(priority = EventPriority.HIGHEST)
-    public void onMouseScroll(ScreenEvent.MouseScrolled.Pre event) {
-        if (!isSmelteryScreen || searchPanel == null || !searchPanel.isVisible()) {
-            return;
-        }
-
-        if (searchPanel.isPointInsidePanel(event.getMouseX(), event.getMouseY())) {
-            searchPanel.mouseScrolled(event.getMouseX(), event.getMouseY(), event.getScrollDelta());
-            event.setCanceled(true);
-        }
-    }
-
-    // ============================================================
-    // ===== Tooltip 事件 =====
-    // ============================================================
-
     @SubscribeEvent(priority = EventPriority.HIGHEST)
     public void onRenderTooltipPre(RenderTooltipEvent.Pre event) {
+        if (isDetailScreenOpen()) return;
         if (!isSmelteryScreen || searchPanel == null) return;
 
         if (searchPanel.isVisible() || searchPanel.isAnimating()) {
@@ -324,12 +297,42 @@ public class TinkersSearch {
         }
     }
 
-    // ============================================================
-    // ===== 最终渲染层 =====
-    // ============================================================
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
+    public void onMouseScroll(ScreenEvent.MouseScrolled.Pre event) {
+        if (isDetailScreenOpen()) return;
+        if (!isSmelteryScreen || searchPanel == null || !searchPanel.isVisible()) {
+            return;
+        }
+
+        if (searchPanel.isPointInsidePanel(event.getMouseX(), event.getMouseY())) {
+            searchPanel.mouseScrolled(event.getMouseX(), event.getMouseY(), event.getScrollDelta());
+            event.setCanceled(true);
+        }
+    }
+
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
+    public void onMouseDragPre(ScreenEvent.MouseDragged.Pre event) {
+        if (isDetailScreenOpen()) return;
+        if (!isSmelteryScreen || searchPanel == null) return;
+        if (!searchPanel.isDraggingScrollBar()) return;
+
+        searchPanel.handleMouseDrag(event.getMouseX(), event.getMouseY());
+        event.setCanceled(true);
+    }
+
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
+    public void onMouseReleasedPre(ScreenEvent.MouseButtonReleased.Pre event) {
+        if (isDetailScreenOpen()) return;
+        if (!isSmelteryScreen || searchPanel == null) return;
+        if (!searchPanel.isDraggingScrollBar()) return;
+
+        searchPanel.handleMouseRelease();
+        event.setCanceled(true);
+    }
 
     @SubscribeEvent(priority = EventPriority.LOWEST)
     public void onScreenDrawPost(ScreenEvent.Render event) {
+        if (isDetailScreenOpen()) return;
         if (!isSmelteryScreen || searchPanel == null) return;
 
         PoseStack poseStack = event.getPoseStack();
@@ -396,10 +399,6 @@ public class TinkersSearch {
         }
     }
 
-    // ============================================================
-    // ===== Tab按钮绘制 =====
-    // ============================================================
-
     private void drawTabButton(PoseStack poseStack) {
         if (searchPanel == null) return;
 
@@ -452,4 +451,7 @@ public class TinkersSearch {
         int textColor = hover ? 0xFFFFFFFF : 0xCCCCCCCC;
         font.draw(poseStack, arrow, textX, textY, textColor);
     }
+
+    // Note: Forge removed the recipes-updated event in 1.19.2+, so the corresponding handler is omitted.
+    // CastingRecipeHelper.invalidateCache() can be triggered elsewhere (e.g. PlayerTickEvent check) if needed.
 }
