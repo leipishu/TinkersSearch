@@ -62,17 +62,6 @@ public class FluidPartDataCache {
     // ===== 入口 =================================================
     // ============================================================
 
-    /**
-     * 获取流体部件数据。
-     *
-     * 缓存策略（内存缓存，重启游戏清空）：
-     *   1. 每次调用都构建 fresh 数据
-     *   2. 和 CACHE 中的旧数据比较"总部件数"
-     *   3. 旧数据条目更多 → 返回旧数据，不覆盖缓存
-     *   4. 否则 → 更新缓存，返回新数据
-     *
-     * 这样第一次读到更多条目时会被保留，之后即使某次读到更少也不会丢。
-     */
     public static FluidPartData get(FluidStack fluidStack) {
         if (fluidStack == null || fluidStack.isEmpty()) {
             return new FluidPartData(null, new ArrayList<>(), buildGeneration);
@@ -82,12 +71,19 @@ public class FluidPartDataCache {
             return new FluidPartData(null, new ArrayList<>(), buildGeneration);
         }
 
-        // 1. 构建新数据
         FluidPartData fresh = build(fluidStack.getFluid(), fluidId);
 
-        // 2. 和缓存比较
         FluidPartData cached = CACHE.get(fluidId);
         if (cached != null && cached.buildTime == buildGeneration) {
+            boolean cachedHasBase = hasBaseEntry(cached);
+            boolean freshHasBase = hasBaseEntry(fresh);
+
+            if (cachedHasBase && !freshHasBase) {
+                System.out.println("[Tinker's Search] " + fluidId
+                        + ": keeping cached (has BASE entry, fresh lost it)");
+                return cached;
+            }
+
             int cachedTotal = countTotalParts(cached);
             int freshTotal = countTotalParts(fresh);
 
@@ -103,21 +99,25 @@ public class FluidPartDataCache {
                     + ", updating cache");
         }
 
-        // 3. 更新缓存
         CACHE.put(fluidId, fresh);
         return fresh;
     }
 
-    /** 统计 FluidPartData 中的总部件数（本体 + 所有复合页） */
     private static int countTotalParts(FluidPartData data) {
         if (data == null || data.entries == null) return 0;
         int total = 0;
         for (MaterialEntry entry : data.entries) {
-            if (entry != null && entry.parts != null) {
-                total += entry.parts.size();
-            }
+            if (entry != null && entry.parts != null) total += entry.parts.size();
         }
         return total;
+    }
+
+    private static boolean hasBaseEntry(FluidPartData data) {
+        if (data == null || data.entries == null) return false;
+        for (MaterialEntry entry : data.entries) {
+            if (entry != null && entry.kind == MaterialEntry.SourceKind.BASE) return true;
+        }
+        return false;
     }
 
     // ============================================================
@@ -131,18 +131,17 @@ public class FluidPartDataCache {
         MaterialId baseMat = resolveBaseMaterial(fluid);
         FluidStack fluidStack = new FluidStack(fluid, 1000);
 
-        // 1a. 主路径：MaterialCastingRecipe + stats 判定
-        List<PartInfo> mainParts = collectPartsFromCastingRecipes(fluidStack, baseMat);
+        // ★ 四路来源取并集，任意来源确认即收录。
+        List<PartInfo> mainParts = new ArrayList<>();
+        Set<ResourceLocation> seenPartIds = new HashSet<>();
 
-        // 1b. 宽松路径：任何"输入流体匹配 + 输出是 IMaterialItem"的配方
-        if (mainParts.isEmpty()) {
-            mainParts = collectPartsFromAnyRecipe(fluidStack, baseMat);
+        mergeParts(mainParts, seenPartIds, collectPartsFromCastingRecipes(fluidStack, baseMat));
+        mergeParts(mainParts, seenPartIds, collectPartsFromAnyRecipe(fluidStack, baseMat));
+        mergeParts(mainParts, seenPartIds, collectPartsFromDirectRecipe(fluidStack, baseMat));
+        if (baseMat != null) {
+            mergeParts(mainParts, seenPartIds, collectPartsFor(baseMat));
         }
-
-        // 1c. 兜底：遍历所有 IMaterialItem
-        if (mainParts.isEmpty() && baseMat != null) {
-            mainParts = collectPartsFor(baseMat);
-        }
+        mainParts.sort((a, b) -> a.displayName.compareToIgnoreCase(b.displayName));
 
         // 写入页面
         if (!mainParts.isEmpty()) {
@@ -176,6 +175,15 @@ public class FluidPartDataCache {
         return new FluidPartData(fluidId, new ArrayList<>(entries.values()), buildGeneration);
     }
 
+    /** 把 source 中未出现过的部件合并进 target。 */
+    private static void mergeParts(List<PartInfo> target, Set<ResourceLocation> seen, List<PartInfo> source) {
+        if (source == null || source.isEmpty()) return;
+        for (PartInfo p : source) {
+            if (p == null || p.itemId == null) continue;
+            if (seen.add(p.itemId)) target.add(p);
+        }
+    }
+
     // ============================================================
     // ===== 本体材料解析 =========================================
     // ============================================================
@@ -187,9 +195,7 @@ public class FluidPartDataCache {
 
         try {
             ResourceLocation matId = CastingRecipeHelper.getMaterialIdForFluid(fluid);
-            if (matId != null) {
-                return new MaterialId(matId);
-            }
+            if (matId != null) return new MaterialId(matId);
         } catch (Exception ignored) {}
 
         String path = fluidId.getPath();
@@ -234,7 +240,6 @@ public class FluidPartDataCache {
 
                 ResourceLocation itemId = item.getRegistryName();
                 if (itemId == null || !seenIds.add(itemId)) continue;
-
                 if (!isToolPartPath(itemId.getPath().toLowerCase())) continue;
 
                 String displayName = item.getDescription().getString();
@@ -244,12 +249,8 @@ public class FluidPartDataCache {
                 PartProperties properties = buildProperties(registry, materialId, statType);
 
                 int requiredAmount = info.requiredAmount;
-                if (requiredAmount <= 0) {
-                    requiredAmount = CastingRecipeHelper.getRequiredAmountForPart(itemId);
-                }
-                if (requiredAmount <= 0) {
-                    requiredAmount = 90;
-                }
+                if (requiredAmount <= 0) requiredAmount = CastingRecipeHelper.getRequiredAmountForPart(itemId);
+                if (requiredAmount <= 0) requiredAmount = 90;
 
                 ItemStack displayStack = new ItemStack(item);
                 if (materialId != null) {
@@ -265,13 +266,6 @@ public class FluidPartDataCache {
         return result;
     }
 
-    /**
-     * 独立路径：从 {@code MaterialCastingRecipe.getFluidRecipe().getInputs()}
-     * 反查本体材料能直接浇筑出的部件。
-     *
-     * <p>与 {@link #collectPartsFromCastingRecipes} 的唯一区别是入口：
-     * 后者走 stats 判定，本方法走流体 inputs 判定。
-     */
     private static List<PartInfo> collectPartsFromDirectRecipe(FluidStack fluidStack, MaterialId materialId) {
         List<PartInfo> result = new ArrayList<>();
         if (fluidStack == null || fluidStack.isEmpty()) return result;
@@ -306,12 +300,8 @@ public class FluidPartDataCache {
                 PartProperties properties = buildProperties(registry, materialId, statType);
 
                 int requiredAmount = info.requiredAmount;
-                if (requiredAmount <= 0) {
-                    requiredAmount = CastingRecipeHelper.getRequiredAmountForPart(itemId);
-                }
-                if (requiredAmount <= 0) {
-                    requiredAmount = 90;
-                }
+                if (requiredAmount <= 0) requiredAmount = CastingRecipeHelper.getRequiredAmountForPart(itemId);
+                if (requiredAmount <= 0) requiredAmount = 90;
 
                 ItemStack displayStack = new ItemStack(item);
                 if (materialId != null) {
@@ -327,19 +317,6 @@ public class FluidPartDataCache {
         return result;
     }
 
-    /**
-     * 最宽松的部件收集路径。
-     *
-     * <p>从 {@link CastingRecipeHelper#getAnyPartCastingRecipes} 拿到所有
-     * "输出是部件 + 输入流体匹配"的配方，构造部件列表。
-     *
-     * <p>关键点：
-     * <ul>
-     *   <li>不像主路径依赖 {@code canUseMaterial}</li>
-     *   <li>不像 direct 路径依赖 {@code getFluidRecipe()}</li>
-     *   <li>保留 output 自带的 NBT（用于着色）</li>
-     * </ul>
-     */
     private static List<PartInfo> collectPartsFromAnyRecipe(FluidStack fluidStack, MaterialId materialId) {
         List<PartInfo> result = new ArrayList<>();
         if (fluidStack == null || fluidStack.isEmpty()) return result;
@@ -374,14 +351,9 @@ public class FluidPartDataCache {
                 PartProperties properties = buildProperties(registry, materialId, statType);
 
                 int requiredAmount = info.requiredAmount;
-                if (requiredAmount <= 0) {
-                    requiredAmount = CastingRecipeHelper.getRequiredAmountForPart(itemId);
-                }
-                if (requiredAmount <= 0) {
-                    requiredAmount = 90;
-                }
+                if (requiredAmount <= 0) requiredAmount = CastingRecipeHelper.getRequiredAmountForPart(itemId);
+                if (requiredAmount <= 0) requiredAmount = 90;
 
-                // ★ 保留 output 自带的 NBT；若没有，才用 materialId 填
                 ItemStack displayStack = output.copy();
                 if (materialId != null && displayStack.getTag() == null) {
                     displayStack.getOrCreateTag().putString("Material", materialId.toString());
@@ -437,9 +409,7 @@ public class FluidPartDataCache {
 
         result.sort((a, b) -> a.displayName.compareToIgnoreCase(b.displayName));
 
-        if (!result.isEmpty()) {
-            PARTS_CACHE.put(materialId, result);
-        }
+        if (!result.isEmpty()) PARTS_CACHE.put(materialId, result);
         return result;
     }
 
@@ -1032,7 +1002,9 @@ public class FluidPartDataCache {
             Object v = m.invoke(material);
             if (v instanceof Component) {
                 String s = ((Component) v).getString();
-                if (s != null && !s.isEmpty()) return s;
+                if (s != null && !s.isEmpty()) {
+                    return s;
+                }
             }
         } catch (Throwable ignored) {}
         return defaultDisplayName(material.getIdentifier().getPath());
@@ -1040,7 +1012,15 @@ public class FluidPartDataCache {
 
     private static String defaultDisplayName(String path) {
         if (path == null || path.isEmpty()) return "";
-        return Character.toUpperCase(path.charAt(0)) + path.substring(1);
+        String[] words = path.split("_");
+        StringBuilder sb = new StringBuilder();
+        for (String w : words) {
+            if (w.isEmpty()) continue;
+            if (sb.length() > 0) sb.append(' ');
+            sb.append(Character.toUpperCase(w.charAt(0)));
+            if (w.length() > 1) sb.append(w.substring(1));
+        }
+        return sb.length() > 0 ? sb.toString() : path;
     }
 
     private static String stripPrefix(String path) {

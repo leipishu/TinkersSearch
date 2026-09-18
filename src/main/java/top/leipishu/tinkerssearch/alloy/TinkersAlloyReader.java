@@ -13,6 +13,8 @@ import net.minecraftforge.registries.ForgeRegistries;
 import slimeknights.tconstruct.library.recipe.alloying.AlloyRecipe;
 import slimeknights.mantle.recipe.ingredient.FluidIngredient;
 
+import top.leipishu.tinkerssearch.recipe.RecipeReflection;
+
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.*;
@@ -32,6 +34,7 @@ public class TinkersAlloyReader {
 
     private static List<AlloyRecipeData> cachedAlloyRecipes = null;
     private static List<FluidStack> cachedAllMaterials = null;
+    private static Set<ResourceLocation> cachedFluidsWithRecipes = null;
     private static long cacheTime = 0;
     private static final long CACHE_DURATION = 5000;
 
@@ -52,9 +55,6 @@ public class TinkersAlloyReader {
     // ===== 日志控制 =====
     private static boolean debugMode = false;
 
-    /**
-     * 启用调试模式（在 TinkersSearch 主类中可调用）
-     */
     public static void setDebugMode(boolean enabled) {
         debugMode = enabled;
     }
@@ -110,7 +110,6 @@ public class TinkersAlloyReader {
 
         log("Total alloy recipes loaded: " + recipes.size());
 
-        // ===== 如果没有找到任何配方，尝试从注册表生成材料列表（降级方案） =====
         if (recipes.isEmpty()) {
             log("WARNING: No alloy recipes found! Will use fluid registry as fallback.");
         }
@@ -119,6 +118,7 @@ public class TinkersAlloyReader {
         cacheTime = System.currentTimeMillis();
         // 清除旧的材料缓存
         cachedAllMaterials = null;
+        cachedFluidsWithRecipes = null;
 
         return cachedAlloyRecipes;
     }
@@ -138,7 +138,6 @@ public class TinkersAlloyReader {
 
             RecipeManager recipeManager = mc.getConnection().getRecipeManager();
 
-            // ===== 1.18.2 使用 getRecipes() =====
             Collection<Recipe<?>> allRecipes = recipeManager.getRecipes();
 
             log("Forge API: Total recipes = " + allRecipes.size());
@@ -175,17 +174,13 @@ public class TinkersAlloyReader {
             RecipeManager recipeManager = mc.getConnection().getRecipeManager();
             Level level = mc.level;
 
-            // 获取合金 RecipeType
             RecipeType<?> type = getAlloyRecipeType();
             if (type == null) {
                 log("Alloy RecipeType not found");
                 return result;
             }
 
-            // ===== 方法1：使用 getRecipesFor() 需要 Level 参数 =====
-            // 注意：在 1.18.2 中，getRecipesFor 需要 RecipeType 和 Level
             try {
-                // 尝试调用 getRecipesFor(RecipeType, Level)
                 Method getRecipesForMethod = RecipeManager.class.getMethod(
                         "getRecipesFor",
                         RecipeType.class,
@@ -216,7 +211,6 @@ public class TinkersAlloyReader {
                 logError("getRecipesFor() failed: " + e.getMessage());
             }
 
-            // ===== 方法2：使用 byType() =====
             if (result.isEmpty()) {
                 try {
                     Method byTypeMethod = RecipeManager.class.getMethod("byType", RecipeType.class);
@@ -244,12 +238,10 @@ public class TinkersAlloyReader {
                 }
             }
 
-            // ===== 方法3：遍历所有 RecipeType =====
             if (result.isEmpty()) {
                 log("Trying to find alloy recipes by scanning all RecipeTypes...");
                 for (RecipeType<?> rt : Registry.RECIPE_TYPE) {
                     try {
-                        // 尝试通过 getRecipesFor 获取
                         Method getRecipesForMethod = RecipeManager.class.getMethod(
                                 "getRecipesFor",
                                 RecipeType.class,
@@ -300,7 +292,6 @@ public class TinkersAlloyReader {
 
             RecipeManager recipeManager = mc.getConnection().getRecipeManager();
 
-            // 尝试多个可能的字段名
             String[] fieldNames = {"recipes", "recipesMap", "byName", "recipeMap"};
 
             for (String fieldName : fieldNames) {
@@ -312,7 +303,6 @@ public class TinkersAlloyReader {
                     if (recipesObj instanceof Map) {
                         Map<?, ?> recipesMap = (Map<?, ?>) recipesObj;
 
-                        // 结构1: Map<RecipeType, Map<ResourceLocation, Recipe>>
                         for (Map.Entry<?, ?> entry : recipesMap.entrySet()) {
                             Object value = entry.getValue();
                             if (value instanceof Map) {
@@ -331,7 +321,6 @@ public class TinkersAlloyReader {
                                     }
                                 }
                             }
-                            // 结构2: Map<ResourceLocation, Recipe> (直接存储)
                             else if (value instanceof AlloyRecipe) {
                                 ResourceLocation id = extractId(entry.getKey());
                                 if (id != null) {
@@ -350,7 +339,6 @@ public class TinkersAlloyReader {
                         }
                     }
                 } catch (NoSuchFieldException e) {
-                    // 字段不存在，继续尝试下一个
                 } catch (Exception e) {
                     logError("Reflection via '" + fieldName + "' failed: " + e.getMessage());
                 }
@@ -385,15 +373,12 @@ public class TinkersAlloyReader {
         }
 
         try {
-            // 尝试通过 KubeJS 的 RecipeManager 获取配方
             Class<?> kubeJSRecipeManagerClass = Class.forName("dev.latvian.mods.kubejs.recipe.RecipeManagerJS");
 
-            // 获取 KubeJS 的配方管理器实例
             Method getInstance = kubeJSRecipeManagerClass.getMethod("getInstance");
             Object kubeJSManager = getInstance.invoke(null);
 
             if (kubeJSManager != null) {
-                // 尝试获取所有配方
                 try {
                     Method getRecipes = kubeJSManager.getClass().getMethod("getRecipes");
                     Object recipesObj = getRecipes.invoke(kubeJSManager);
@@ -411,12 +396,10 @@ public class TinkersAlloyReader {
                         }
                     }
                 } catch (NoSuchMethodException e) {
-                    // 尝试其他方法名
                     try {
                         Method getAllRecipes = kubeJSManager.getClass().getMethod("getAllRecipes");
                         Object recipesObj = getAllRecipes.invoke(kubeJSManager);
                         if (recipesObj instanceof Map) {
-                            // 类似处理
                         }
                     } catch (Exception ignored) {}
                 }
@@ -431,20 +414,15 @@ public class TinkersAlloyReader {
         return result;
     }
 
-    /**
-     * 检查 KubeJS 的配方对象是否为合金配方
-     */
     private static boolean isKubeJSAlloyRecipe(Object recipeObj) {
         try {
             Class<?> clazz = recipeObj.getClass();
 
-            // 检查类名
             String className = clazz.getName().toLowerCase();
             if (className.contains("alloy") || className.contains("alloyrecipe")) {
                 return true;
             }
 
-            // 检查是否有 alloy 相关的类型标识
             try {
                 Method getType = clazz.getMethod("getType");
                 Object type = getType.invoke(recipeObj);
@@ -459,9 +437,6 @@ public class TinkersAlloyReader {
         }
     }
 
-    /**
-     * 解析 KubeJS 的配方对象
-     */
     private static AlloyRecipeData parseKubeJSRecipe(Object recipeObj, Object idObj) {
         try {
             ResourceLocation id = extractId(idObj);
@@ -471,7 +446,6 @@ public class TinkersAlloyReader {
 
             Class<?> clazz = recipeObj.getClass();
 
-            // 尝试获取输出
             FluidStack output = null;
             try {
                 Method getOutput = clazz.getMethod("getOutput");
@@ -482,7 +456,6 @@ public class TinkersAlloyReader {
             } catch (Exception ignored) {}
 
             if (output == null) {
-                // 尝试获取 result
                 try {
                     Field resultField = clazz.getDeclaredField("result");
                     resultField.setAccessible(true);
@@ -495,7 +468,6 @@ public class TinkersAlloyReader {
 
             if (output == null) return null;
 
-            // 尝试获取输入
             List<AlloyRecipeData.FluidIngredientData> inputs = new ArrayList<>();
             try {
                 Method getIngredients = clazz.getMethod("getIngredients");
@@ -559,16 +531,13 @@ public class TinkersAlloyReader {
         }
 
         try {
-            // CraftTweaker 的配方管理
             Class<?> craftTweakerAPIClass = Class.forName("com.blamejared.crafttweaker.api.CraftTweakerAPI");
 
-            // 尝试获取配方管理器
             try {
                 Method getRecipeManager = craftTweakerAPIClass.getMethod("getRecipeManager");
                 Object recipeManager = getRecipeManager.invoke(null);
 
                 if (recipeManager != null) {
-                    // 获取所有配方
                     try {
                         Method getAllRecipes = recipeManager.getClass().getMethod("getAllRecipes");
                         Object recipesObj = getAllRecipes.invoke(recipeManager);
@@ -587,13 +556,10 @@ public class TinkersAlloyReader {
                     } catch (Exception ignored) {}
                 }
             } catch (NoSuchMethodException e) {
-                // CraftTweaker 版本不同，尝试其他方式
                 try {
-                    // 一些版本的 CraftTweaker 使用静态方法
                     Method getRecipes = craftTweakerAPIClass.getMethod("getRecipes");
                     Object recipesObj = getRecipes.invoke(null);
                     if (recipesObj instanceof List) {
-                        // 类似处理
                     }
                 } catch (Exception ignored) {}
             }
@@ -607,9 +573,6 @@ public class TinkersAlloyReader {
         return result;
     }
 
-    /**
-     * 检查 CraftTweaker 的配方对象是否为合金配方
-     */
     private static boolean isCraftTweakerAlloyRecipe(Object recipeObj) {
         try {
             String className = recipeObj.getClass().getName().toLowerCase();
@@ -619,9 +582,6 @@ public class TinkersAlloyReader {
         }
     }
 
-    /**
-     * 解析 CraftTweaker 的配方对象
-     */
     private static AlloyRecipeData parseCraftTweakerRecipe(Object recipeObj) {
         try {
             Class<?> clazz = recipeObj.getClass();
@@ -682,15 +642,11 @@ public class TinkersAlloyReader {
     // ===== 工具方法 =============================================
     // ============================================================
 
-    /**
-     * 获取合金 RecipeType
-     */
     private static RecipeType<?> getAlloyRecipeType() {
         if (alloyRecipeType != null) {
             return alloyRecipeType;
         }
 
-        // 遍历注册表查找
         for (RecipeType<?> type : Registry.RECIPE_TYPE) {
             String name = type.toString();
             if (name.contains("alloy") || name.contains("Alloy")) {
@@ -700,11 +656,9 @@ public class TinkersAlloyReader {
             }
         }
 
-        // 尝试通过类名查找
         try {
             Class<?> alloyRecipeClass = Class.forName("slimeknights.tconstruct.library.recipe.alloying.AlloyRecipe");
             for (RecipeType<?> type : Registry.RECIPE_TYPE) {
-                // 检查这个 RecipeType 是否与 AlloyRecipe 关联
                 try {
                     Method getRecipeClass = type.getClass().getMethod("getRecipeClass");
                     Object recipeClass = getRecipeClass.invoke(type);
@@ -721,9 +675,6 @@ public class TinkersAlloyReader {
         return null;
     }
 
-    /**
-     * 提取 ResourceLocation ID
-     */
     private static ResourceLocation extractId(Object obj) {
         if (obj == null) return null;
         if (obj instanceof ResourceLocation) {
@@ -741,25 +692,19 @@ public class TinkersAlloyReader {
         return null;
     }
 
-    /**
-     * 解析匠魂合金配方
-     */
     @SuppressWarnings("unchecked")
     private static AlloyRecipeData parseAlloyRecipe(AlloyRecipe recipe, ResourceLocation id) {
         try {
             List<AlloyRecipeData.FluidIngredientData> inputData = new ArrayList<>();
 
-            // 尝试多种方式获取输入
             List<FluidIngredient> inputs = null;
 
-            // 方式1：通过 inputs 字段
             try {
                 Field inputField = AlloyRecipe.class.getDeclaredField("inputs");
                 inputField.setAccessible(true);
                 inputs = (List<FluidIngredient>) inputField.get(recipe);
             } catch (Exception ignored) {}
 
-            // 方式2：通过 getInputs 方法
             if (inputs == null) {
                 try {
                     Method getInputs = AlloyRecipe.class.getMethod("getInputs");
@@ -770,7 +715,6 @@ public class TinkersAlloyReader {
                 } catch (Exception ignored) {}
             }
 
-            // 方式3：通过 getIngredients
             if (inputs == null) {
                 try {
                     Method getIngredients = AlloyRecipe.class.getMethod("getIngredients");
@@ -825,11 +769,15 @@ public class TinkersAlloyReader {
     // ============================================================
 
     /**
-     * 获取所有可冶炼流体。
+     * 获取所有"有配方"的可冶炼流体。
      *
-     * <p>这两个 Tab（合金模式、全部材料）展示的是"游戏里能进冶炼炉的流体"，
-     * 与合金配方无关——一个流体完全可以只参与浇筑、不参与任何合金。
-     * 因此数据来源只能是流体注册表本身。
+     * <p>规则：
+     * <ul>
+     *   <li>扫描流体注册表，得到候选列表</li>
+     *   <li>保留那些出现在任意配方（合金 / 浇筑 / 其它）中的流体</li>
+     *   <li>完全识别不到任何配方的流体（合金也没有、浇筑也没有、
+     *       detail screen 也没内容）不会出现在列表中</li>
+     * </ul>
      */
     public static List<FluidStack> getAllSmelteryFluids() {
         long now = System.currentTimeMillis();
@@ -838,12 +786,15 @@ public class TinkersAlloyReader {
             return cachedAllMaterials;
         }
 
-        // ★ 直接扫描注册表，不再从合金配方里提取
         Set<ResourceLocation> fluidSet = new HashSet<>();
         scanFluidRegistry(fluidSet);
 
+        // ★ 过滤：只保留"参与过任何配方"的流体
+        Set<ResourceLocation> fluidsWithRecipes = getFluidsWithRecipes();
+
         List<FluidStack> built = new ArrayList<>();
         for (ResourceLocation rl : fluidSet) {
+            if (!fluidsWithRecipes.contains(rl)) continue;
             Fluid fluid = ForgeRegistries.FLUIDS.getValue(rl);
             if (fluid != null) {
                 built.add(new FluidStack(fluid, 1000));
@@ -858,13 +809,73 @@ public class TinkersAlloyReader {
 
         if (!built.isEmpty()) {
             cachedAllMaterials = built;
-            log("Total smeltery fluids: " + built.size());
+            log("Total alloy-relevant fluids: " + built.size());
         } else {
             cachedAllMaterials = null;
             log("WARN: getAllSmelteryFluids returned empty; will retry on next call");
         }
 
         return built;
+    }
+
+    /**
+     * 收集所有"出现在某个配方中"的流体 ID。
+     *
+     * <p>来源：
+     * <ol>
+     *   <li>合金配方的输入与输出</li>
+     *   <li>所有其它配方（浇筑等）的输入流体（通过 {@link RecipeReflection#extractFluids}）</li>
+     * </ol>
+     */
+    public static Set<ResourceLocation> getFluidsWithRecipes() {
+        long now = System.currentTimeMillis();
+        if (cachedFluidsWithRecipes != null && (now - cacheTime) < CACHE_DURATION) {
+            return cachedFluidsWithRecipes;
+        }
+
+        Set<ResourceLocation> set = new HashSet<>();
+
+        // 1. 合金配方（输入 + 输出）
+        try {
+            for (AlloyRecipeData recipe : getAlloyRecipes()) {
+                for (AlloyRecipeData.FluidIngredientData input : recipe.getInputs()) {
+                    FluidStack fs = input.getFluid();
+                    if (fs != null && !fs.isEmpty() && fs.getFluid().getRegistryName() != null) {
+                        set.add(fs.getFluid().getRegistryName());
+                    }
+                }
+                FluidStack result = recipe.getResult();
+                if (result != null && !result.isEmpty() && result.getFluid().getRegistryName() != null) {
+                    set.add(result.getFluid().getRegistryName());
+                }
+            }
+        } catch (Throwable t) {
+            logError("getFluidsWithRecipes: alloy scan failed: " + t.getMessage());
+        }
+
+        // 2. 所有其它配方
+        try {
+            Minecraft mc = Minecraft.getInstance();
+            if (mc.getConnection() != null) {
+                for (Recipe<?> recipe : mc.getConnection().getRecipeManager().getRecipes()) {
+                    try {
+                        List<FluidStack> fluids = RecipeReflection.extractFluids(recipe);
+                        if (fluids == null || fluids.isEmpty()) continue;
+                        for (FluidStack fs : fluids) {
+                            if (fs == null || fs.isEmpty()) continue;
+                            ResourceLocation rl = fs.getFluid().getRegistryName();
+                            if (rl != null) set.add(rl);
+                        }
+                    } catch (Throwable ignored) {}
+                }
+            }
+        } catch (Throwable t) {
+            logError("getFluidsWithRecipes: recipe scan failed: " + t.getMessage());
+        }
+
+        cachedFluidsWithRecipes = set;
+        log("Found " + set.size() + " fluids that participate in some recipe");
+        return set;
     }
 
     /**
@@ -876,13 +887,15 @@ public class TinkersAlloyReader {
         if (rl == null) return;
 
         String path = rl.getPath();
-        // 跳过流动流体
         if (path.contains("flowing") || path.contains("flow")) {
             return;
         }
         set.add(rl);
     }
 
+    /**
+     * 扫描流体注册表
+     */
     private static void scanFluidRegistry(Set<ResourceLocation> set) {
         int totalScanned = 0;
         int added = 0;
@@ -893,22 +906,14 @@ public class TinkersAlloyReader {
             totalScanned++;
 
             String path = rl.getPath();
-
-            // 跳过流动形态（部分模组会注册 flowing_xxx 条目）
-            if (path.startsWith("flowing_") || path.equals("flowing")) continue;
-
-            // 匠魂命名空间全收：这是冶炼炉流体的主要来源
-            if (rl.getNamespace().equals("tconstruct")) {
-                set.add(rl);
-                added++;
+            if (path.contains("flowing") || path.contains("flow")) {
                 continue;
             }
 
-            // 其他模组：只收熔融/液态类关键字命名的流体
-            if (path.contains("molten")
-                    || path.contains("liquid")
-                    || path.contains("metal")
-                    || path.contains("alloy")) {
+            if (rl.getNamespace().equals("tconstruct") ||
+                    path.contains("molten") ||
+                    path.contains("liquid") ||
+                    path.contains("metal")) {
                 set.add(rl);
                 added++;
             }
@@ -924,6 +929,7 @@ public class TinkersAlloyReader {
     public static void clearCache() {
         cachedAlloyRecipes = null;
         cachedAllMaterials = null;
+        cachedFluidsWithRecipes = null;
         recipeCache.clear();
         cacheTime = 0;
         log("Cache cleared");
@@ -952,7 +958,6 @@ public class TinkersAlloyReader {
     // ============================================================
 
     private static boolean shouldForceKubeJS() {
-        // 可以通过配置文件控制
         return false;
     }
 

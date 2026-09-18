@@ -1,5 +1,6 @@
 package top.leipishu.tinkerssearch.client.gui;
 
+import com.mojang.blaze3d.platform.GlStateManager;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.Minecraft;
@@ -14,7 +15,9 @@ import net.minecraft.network.chat.TranslatableComponent;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.fluids.FluidStack;
+import net.minecraftforge.registries.ForgeRegistries;
 import org.lwjgl.glfw.GLFW;
+import org.lwjgl.opengl.GL11;
 import slimeknights.tconstruct.smeltery.block.entity.controller.SmelteryBlockEntity;
 import slimeknights.tconstruct.smeltery.block.entity.tank.SmelteryTank;
 import slimeknights.tconstruct.library.tools.part.IMaterialItem;
@@ -45,11 +48,7 @@ public class FluidDetailScreen extends Screen {
     private final FluidStack fluidStack;
     private final SmelteryBlockEntity smeltery;
     private final int currentTemperature;
-
-    /** 该流体在冶炼炉中的真实储量；不在炉里则为 0。 */
     private final int displayAmount;
-
-    /** 打开前正在显示的父 Screen（冶炼炉），关闭时恢复。 */
     private final Screen savedScreen;
 
     private int windowWidth = 400;
@@ -89,7 +88,6 @@ public class FluidDetailScreen extends Screen {
     private static final int PAGE_BTN_W = 20;
     private static final int PAGE_BTN_H = 16;
 
-    /** 关闭按钮尺寸（与搜索框清空按钮同风格）。 */
     private static final int CLOSE_BTN_SIZE = 12;
 
     private boolean isLoading = true;
@@ -101,7 +99,6 @@ public class FluidDetailScreen extends Screen {
 
     private final SearchBox searchBox = new SearchBox(SearchBoxStyle.detail());
 
-    // ===== 布局字段（局部坐标，相对窗口左上角）=====
     private int headerStartY = 0;
     private int headerHeight = 0;
     private int iconX = 0;
@@ -115,7 +112,6 @@ public class FluidDetailScreen extends Screen {
     private int searchBoxX = 0;
     private int searchBoxW = 0;
 
-    /** 可滚动内容起始的局部 Y 坐标（固定头部下方）。 */
     private int scrollStartY = 0;
 
     private int castingTitleY = 0;
@@ -128,7 +124,6 @@ public class FluidDetailScreen extends Screen {
 
     private int bottomHintY = 0;
 
-    /** 上一次布局时使用的屏幕尺寸，用于检测窗口大小变化。 */
     private int lastScreenWidth = 0;
     private int lastScreenHeight = 0;
 
@@ -187,15 +182,11 @@ public class FluidDetailScreen extends Screen {
         }).start();
     }
 
-    /**
-     * 从冶炼炉 tank 里查该流体的真实储量。
-     * 不在炉里（例如只是收藏但从未装入）时返回 0。
-     */
     private static int resolveActualAmount(FluidStack target, SmelteryBlockEntity smeltery) {
         if (target == null || target.isEmpty()) return 0;
         if (smeltery == null) return 0;
 
-        ResourceLocation targetId = target.getFluid().getRegistryName();
+        ResourceLocation targetId = ForgeRegistries.FLUIDS.getKey(target.getFluid());
         if (targetId == null) return 0;
 
         SmelteryTank<?> tank = smeltery.getTank();
@@ -206,10 +197,8 @@ public class FluidDetailScreen extends Screen {
         for (int i = 0; i < count; i++) {
             FluidStack fs = tank.getFluidInTank(i);
             if (fs == null || fs.isEmpty()) continue;
-            ResourceLocation id = fs.getFluid().getRegistryName();
-            if (targetId.equals(id)) {
-                total += fs.getAmount();
-            }
+            ResourceLocation id = ForgeRegistries.FLUIDS.getKey(fs.getFluid());
+            if (targetId.equals(id)) total += fs.getAmount();
         }
         return total;
     }
@@ -326,7 +315,6 @@ public class FluidDetailScreen extends Screen {
         windowWidth = computeWindowWidth(screenWidth);
         windowHeight = computeWindowHeight(screenHeight);
 
-        // 屏幕太小时（windowWidth/Height 被压到很小）也保证不出现负的居中偏移
         centerX = Math.max(0, (screenWidth - windowWidth) / 2);
         centerY = Math.max(0, (screenHeight - windowHeight) / 2);
 
@@ -335,7 +323,6 @@ public class FluidDetailScreen extends Screen {
 
         infoLineHeight = font.lineHeight + 2;
 
-        // ===== 固定头部 =====
         int y = PADDING + 2;
 
         headerStartY = y;
@@ -352,42 +339,31 @@ public class FluidDetailScreen extends Screen {
 
         y = headerStartY + headerHeight + SECTION_SPACING;
 
-        // ===== 搜索框（固定） =====
         searchBoxY = y;
         searchBoxX = PADDING;
         searchBoxW = Math.max(20, windowWidth - PADDING * 2);
         y += SEARCH_BOX_HEIGHT;
 
-        // ===== 可滚动区域起点 =====
         scrollStartY = y + SECTION_SPACING;
 
-        // ===== 铸造部分 =====
         castingTitleY = scrollStartY;
         castingStartY = castingTitleY + 16;
         castingHeight = calculateCastingTotalHeight();
         y = castingStartY + castingHeight + SECTION_SPACING;
 
-        // ===== 部件部分 =====
         partTitleY = y;
         partStartY = partTitleY + 16;
         partHeight = calculatePartTotalHeight();
         y = partStartY + partHeight + SECTION_SPACING;
 
-        // ===== 页脚 =====
         bottomHintY = y;
         y += font.lineHeight + 4;
 
-        // ===== 滚动计算 =====
         int scrollContentHeight = y - scrollStartY + PADDING;
-        // 使用 Math.max(0, ...) 防止窗口过小时出现负高度
         int scrollAreaHeight = Math.max(0, windowHeight - PADDING - scrollStartY);
         maxTotalScrollOffset = Math.max(0, scrollContentHeight - scrollAreaHeight);
-        if (totalScrollOffset > maxTotalScrollOffset) {
-            totalScrollOffset = maxTotalScrollOffset;
-        }
-        if (totalScrollOffset < 0) {
-            totalScrollOffset = 0;
-        }
+        if (totalScrollOffset > maxTotalScrollOffset) totalScrollOffset = maxTotalScrollOffset;
+        if (totalScrollOffset < 0) totalScrollOffset = 0;
         needsLayoutRecalc = false;
     }
 
@@ -447,10 +423,41 @@ public class FluidDetailScreen extends Screen {
 
     @Override
     public void render(PoseStack poseStack, int mouseX, int mouseY, float partialTick) {
+        // ============================================================
+        // 1) 渲染背景容器屏幕
+        // ============================================================
         if (savedScreen != null) {
+            poseStack.pushPose();
             savedScreen.render(poseStack, -1, -1, partialTick);
+            poseStack.popPose();
         }
 
+        Minecraft mc = Minecraft.getInstance();
+
+        // ============================================================
+        // 2) 1.18.2 渲染层级修复：
+        //    把 savedScreen 的延迟物品 flush 掉，清空深度缓冲，
+        //    防止背景 GUI 物品遮挡我们后面的图标。
+        // ============================================================
+        RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
+        RenderSystem.enableBlend();
+        RenderSystem.defaultBlendFunc();
+        RenderSystem.enableDepthTest();
+        RenderSystem.depthMask(true);
+        RenderSystem.depthFunc(515); // GL_LEQUAL
+
+        try {
+            mc.renderBuffers().bufferSource().endBatch();
+        } catch (Throwable ignored) {}
+
+        // 清空深度缓冲
+        GlStateManager._clear(GL11.GL_DEPTH_BUFFER_BIT, Minecraft.ON_OSX);
+
+        RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
+
+        // ============================================================
+        // 3) 开始渲染详情界面
+        // ============================================================
         poseStack.pushPose();
         poseStack.translate(0, 0, 500);
         RenderSystem.disableDepthTest();
@@ -528,26 +535,20 @@ public class FluidDetailScreen extends Screen {
         RenderSystem.depthMask(true);
         RenderSystem.enableDepthTest();
         poseStack.popPose();
+
+        // ============================================================
+        // 4) 收尾：把详情界面自己的物品也 flush 掉
+        // ============================================================
+        try {
+            mc.renderBuffers().bufferSource().endBatch();
+        } catch (Throwable ignored) {}
     }
 
-    /**
-     * 计算窗口宽度：优先使用 440，但绝不能超出屏幕。
-     *
-     * <p>大 UI 缩放下 GUI 坐标的屏幕宽度可能远小于 440（例如 1080p 4x 只有 480），
-     * 此时必须按屏幕收缩，否则左右会跑出屏幕。
-     * 最极端情况下（屏幕 < 70 GUI 宽）也允许窗口缩到 50，且不再强制最小值，
-     * 保证 {@code centerX} 永远 >= 0。
-     */
     private static int computeWindowWidth(int screenWidth) {
         int maxAllowed = Math.max(50, screenWidth - 20);
         return Math.min(440, maxAllowed);
     }
 
-    /**
-     * 计算窗口高度：优先使用 540，但绝不能超出屏幕。
-     *
-     * <p>与 {@link #computeWindowWidth(int)} 同理，避免大 UI 缩放下窗口上下溢出。
-     */
     private static int computeWindowHeight(int screenHeight) {
         int maxAllowed = Math.max(50, screenHeight - 20);
         return Math.min(540, maxAllowed);
@@ -592,7 +593,6 @@ public class FluidDetailScreen extends Screen {
         int baseX = centerX;
         int baseY = centerY - totalScrollOffset;
 
-        // ===== 铸造标题 =====
         String castingTitle = "\u00a76" + new TranslatableComponent("gui.tinkerssearch.detail.casting").getString() +
                 " \u00a77(\u00a7e" + filteredCastingInfos.size() + "\u00a77/\u00a78" + allCastingInfos.size() + "\u00a77)";
         font.draw(poseStack, castingTitle, baseX + PADDING, baseY + castingTitleY, 0xFFFFFF);
@@ -604,7 +604,6 @@ public class FluidDetailScreen extends Screen {
             renderCastingCards(poseStack, baseX, baseY + castingStartY, mouseX, mouseY);
         }
 
-        // ===== 部件标题 =====
         int totalPages = data.entries.size();
         String pageInfo = totalPages > 1 ? " \u00a77[" + (currentPageIndex + 1) + "/" + totalPages + "]" : "";
         int currentPageTotal = (currentEntry() != null) ? currentEntry().parts.size() : 0;
@@ -613,7 +612,6 @@ public class FluidDetailScreen extends Screen {
                 + " \u00a77(\u00a7e" + filteredPartInfos.size() + "\u00a77/\u00a78" + currentPageTotal + "\u00a77)";
         font.draw(poseStack, partTitle, baseX + PADDING, baseY + partTitleY, 0xFFFFFF);
 
-        // ===== 翻页栏 =====
         if (totalPages > 1) {
             int barY = baseY + partTitleY - 4;
             int rightX = baseX + windowWidth - PADDING;
@@ -625,7 +623,6 @@ public class FluidDetailScreen extends Screen {
             drawPageButton(poseStack, nextX, barY, "\u25b6", mouseX, mouseY, 1);
         }
 
-        // ===== 部件网格 =====
         if (filteredPartInfos.isEmpty()) {
             font.draw(poseStack, new TranslatableComponent("gui.tinkerssearch.detail.no_parts").getString(),
                     baseX + PADDING + 5, baseY + partStartY + 10, 0x666666);
@@ -633,7 +630,6 @@ public class FluidDetailScreen extends Screen {
             renderPartCards(poseStack, baseX, baseY + partStartY, mouseX, mouseY);
         }
 
-        // ===== 页脚 =====
         String footer = "\u00a78[\u53f3\u952e/ESC " + new TranslatableComponent("gui.tinkerssearch.detail.close").getString() + "]";
         font.draw(poseStack, footer, baseX + PADDING, baseY + bottomHintY, 0x444444);
     }
@@ -1063,14 +1059,9 @@ public class FluidDetailScreen extends Screen {
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (searchBox.keyPressed(keyCode, scanCode, modifiers)) {
-            return true;
-        }
+        if (searchBox.keyPressed(keyCode, scanCode, modifiers)) return true;
 
-        if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
-            this.onClose();
-            return true;
-        }
+        if (keyCode == GLFW.GLFW_KEY_ESCAPE) { this.onClose(); return true; }
         if (keyCode == GLFW.GLFW_KEY_DOWN) {
             totalScrollOffset = Math.min(totalScrollOffset + SCROLL_SPEED, maxTotalScrollOffset);
             return true;
@@ -1079,30 +1070,20 @@ public class FluidDetailScreen extends Screen {
             totalScrollOffset = Math.max(totalScrollOffset - SCROLL_SPEED, 0);
             return true;
         }
-        if (keyCode == GLFW.GLFW_KEY_LEFT) {
-            switchPage(-1);
-            return true;
-        }
-        if (keyCode == GLFW.GLFW_KEY_RIGHT) {
-            switchPage(1);
-            return true;
-        }
+        if (keyCode == GLFW.GLFW_KEY_LEFT) { switchPage(-1); return true; }
+        if (keyCode == GLFW.GLFW_KEY_RIGHT) { switchPage(1); return true; }
 
         return super.keyPressed(keyCode, scanCode, modifiers);
     }
 
     @Override
     public boolean charTyped(char codePoint, int modifiers) {
-        if (searchBox.charTyped(codePoint, modifiers)) {
-            return true;
-        }
+        if (searchBox.charTyped(codePoint, modifiers)) return true;
         return super.charTyped(codePoint, modifiers);
     }
 
     @Override
-    public boolean isPauseScreen() {
-        return false;
-    }
+    public boolean isPauseScreen() { return false; }
 
     @Override
     public void onClose() {
