@@ -41,17 +41,14 @@ public class PanelLayoutCalculator {
 
     // ==================== 冶炼炉 Tab ====================
 
-    /** 收藏区标题行 Y。 */
     public int getFavoriteTitleY() {
         return CARDS_START_Y;
     }
 
-    /** 收藏区内容起始 Y。 */
     public int getFavoriteAreaStartY() {
         return getFavoriteTitleY() + SECTION_LABEL_HEIGHT;
     }
 
-    /** 收藏区内容高度。 */
     public int getFavoriteAreaHeight() {
         if (dataManager.getDisplayedFavoriteFluids().isEmpty()) return 0;
         int totalRows = (dataManager.getDisplayedFavoriteFluids().size() + ITEMS_PER_ROW - 1) / ITEMS_PER_ROW;
@@ -59,19 +56,16 @@ public class PanelLayoutCalculator {
         return Math.min(contentHeight, (int)(panel.getPanelHeight() * 0.35));
     }
 
-    /** 冶炼炉区标题行 Y。 */
     public int getSmelteryTitleY() {
         int y = getFavoriteAreaStartY() + getFavoriteAreaHeight();
         if (getFavoriteAreaHeight() > 0) y += SECTION_SPACING;
         return y;
     }
 
-    /** 冶炼炉区内容起始 Y。 */
     public int getSmelteryAreaStartY() {
         return getSmelteryTitleY() + SECTION_LABEL_HEIGHT;
     }
 
-    /** 冶炼炉区内容高度（吃满剩余空间）。 */
     public int getSmelteryAreaHeight() {
         int contentY = getSmelteryAreaStartY();
         int panelBottom = panel.getPanelHeight() - 4;
@@ -80,12 +74,10 @@ public class PanelLayoutCalculator {
 
     // ==================== 全部材料 Tab ====================
 
-    /** 全部材料区内容起始 Y。 */
     public int getAllMaterialsContentY() {
         return CARDS_START_Y;
     }
 
-    /** 全部材料区内容高度（吃满剩余空间）。 */
     public int getAllMaterialsAreaHeight() {
         int panelBottom = panel.getPanelHeight() - 4;
         return Math.max(0, panelBottom - CARDS_START_Y);
@@ -131,6 +123,17 @@ public class PanelLayoutCalculator {
 
     // ==================== 面板位置 ====================
 
+    /**
+     * 更新面板位置。
+     *
+     * <p>★ 不再重置滚动偏移。滚动位置的持久化由调用方显式决定：
+     * <ul>
+     *   <li>切 Tab → {@code FloatingSearchPanel.switchTab} 显式重置</li>
+     *   <li>面板 Hide → {@code PanelAnimationManager.startHideAnimation} 显式重置</li>
+     *   <li>打开/关闭 Detail → 保留当前位置（本方法不再干扰）</li>
+     *   <li>窗口尺寸变化 → {@code updateMaxScrollOffset} 会自动 clamp 越界</li>
+     * </ul>
+     */
     public void updatePanelPosition() {
         Minecraft mc = Minecraft.getInstance();
         int screenWidth = mc.getWindow().getGuiScaledWidth();
@@ -144,7 +147,8 @@ public class PanelLayoutCalculator {
         this.lastScreenWidth = screenWidth;
         this.lastScreenHeight = screenHeight;
 
-        dataManager.resetScrollOffsets();
+        // ★ 移除：dataManager.resetScrollOffsets();
+        //   仅更新 max，并对越界 offset 做 clamp（updateMaxScrollOffset 内部处理）
         dataManager.updateMaxScrollOffset();
     }
 

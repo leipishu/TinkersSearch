@@ -151,6 +151,12 @@ public class FloatingSearchPanel extends AbstractWidget {
     public void setAllMaterialsScrollOffset(int offset) { dataManager.setAllMaterialsScrollOffset(offset); }
     public void setAlloyScrollOffset(int offset) { dataManager.setAlloyScrollOffset(offset); }
 
+    // ==================== 滚动快照委托 ====================
+
+    public void saveScrollSnapshot() { dataManager.saveScrollSnapshot(); }
+    public void restoreScrollSnapshotIfPresent() { dataManager.restoreScrollSnapshot(); }
+    public void discardScrollSnapshot() { dataManager.discardScrollSnapshot(); }
+
     // ==================== 布局方法 ====================
 
     public void updatePanelPosition() { layoutCalculator.updatePanelPosition(); }
@@ -270,8 +276,11 @@ public class FloatingSearchPanel extends AbstractWidget {
     // ==================== 数据刷新 ====================
 
     public void setSmelteryBlockEntity(BlockEntity tileEntity) {
+        BlockEntity old = dataManager.getSmelteryTileEntity();
         dataManager.setSmelteryTileEntity(tileEntity);
-        if (tileEntity != null) refreshMoltenFluids();
+        if (tileEntity != null && tileEntity != old) {
+            refreshMoltenFluids();
+        }
     }
 
     public void refreshMoltenFluids() { dataManager.refreshMoltenFluids(); }
@@ -357,7 +366,6 @@ public class FloatingSearchPanel extends AbstractWidget {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        // ===== 1. Tab 按钮（最高优先级）=====
         if (isTabButtonClicked(mouseX, mouseY)) {
             if (isAnimating()) return true;
             toggleVisibility();
@@ -374,12 +382,10 @@ public class FloatingSearchPanel extends AbstractWidget {
             return false;
         }
 
-        // ===== 2. 滚动条拖拽优先（必须在任何 ClickableArea 检测之前）=====
         if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && renderer.beginScrollBarDrag(mouseX, mouseY)) {
             return true;
         }
 
-        // ===== 3. 合金结果名点击 =====
         if (dataManager.isAlloyMode() && renderer.isClickingResultName((int) mouseX, (int) mouseY)) {
             List<String> registryNames = renderer.getClickableResultRegistryNames((int) mouseX, (int) mouseY);
             List<String> displayNames = renderer.getClickableResultNames((int) mouseX, (int) mouseY);
@@ -399,6 +405,7 @@ public class FloatingSearchPanel extends AbstractWidget {
                 if (matchedMaterial != null) {
                     int currentTemp = getCurrentSmelteryTemperature();
                     alloyHandler.refreshTemperature(currentTemp);
+                    dataManager.resetAlloyResultsScrollOffset(); // ★ 切换材料时重置结果页
                     alloyHandler.selectMaterial(matchedMaterial, dataManager.getAllFluids(), currentTemp);
                     return true;
                 }
@@ -407,7 +414,6 @@ public class FloatingSearchPanel extends AbstractWidget {
             return true;
         }
 
-        // ===== 4. Tab 点击（面板内 Tab 栏）=====
         int tabIdx = getTabIndexAt(mouseX, mouseY, px, py);
         if (tabIdx >= 0) {
             Tab[] tabs = Tab.values();
@@ -419,19 +425,19 @@ public class FloatingSearchPanel extends AbstractWidget {
 
         Font font = Minecraft.getInstance().font;
 
-        // ===== 5. 合金返回 =====
         if (dataManager.isAlloyMode() && alloyHandler.getSelectedMaterial() != null) {
             String backText = new TranslatableComponent("gui.tinkerssearch.alloy_back").getString();
             int backX = px + 5;
             int backY = py + PanelConfig.CARDS_START_Y;
             if (mouseX >= backX && mouseX <= backX + font.width(backText) &&
                     mouseY >= backY && mouseY <= backY + 12) {
+                // ★ 直接回材料列表：selectedMaterial 变 null 后
+                //   getAlloyScrollOffset() 自动切回材料列表偏移
                 alloyHandler.backToMaterials();
                 return true;
             }
         }
 
-        // ===== 6. 刷新 =====
         if (mouseX >= px + PanelConfig.REFRESH_BTN_X && mouseX <= px + PanelConfig.REFRESH_BTN_X + PanelConfig.REFRESH_BTN_W &&
                 mouseY >= py + PanelConfig.REFRESH_BTN_Y && mouseY <= py + PanelConfig.REFRESH_BTN_Y + PanelConfig.REFRESH_BTN_H) {
             alloyHandler.invalidateTemperatureCache();
@@ -442,7 +448,6 @@ public class FloatingSearchPanel extends AbstractWidget {
             return true;
         }
 
-        // ===== 7. 搜索框 =====
         if (interactionHandler.handleSearchBoxClick(mouseX, mouseY)) {
             return true;
         }
@@ -472,17 +477,14 @@ public class FloatingSearchPanel extends AbstractWidget {
         return super.mouseReleased(mouseX, mouseY, button);
     }
 
-    /** 当前是否正在拖拽滚动条。 */
     public boolean isDraggingScrollBar() {
         return renderer.isDraggingScrollBar();
     }
 
-    /** 由外部事件转发：更新拖拽。 */
     public void handleMouseDrag(double mouseX, double mouseY) {
         renderer.updateScrollBarDrag(mouseY);
     }
 
-    /** 由外部事件转发：结束拖拽。 */
     public void handleMouseRelease() {
         renderer.endScrollBarDrag();
     }
@@ -697,6 +699,8 @@ public class FloatingSearchPanel extends AbstractWidget {
     }
 
     private void openFluidDetailScreen(FluidStack fluid) {
+        dataManager.saveScrollSnapshot();
+
         Minecraft mc = Minecraft.getInstance();
         SmelteryBlockEntity smeltery = null;
 
@@ -730,6 +734,8 @@ public class FloatingSearchPanel extends AbstractWidget {
             int backY = py + PanelConfig.CARDS_START_Y;
             if (mouseX >= backX && mouseX <= backX + font.width(backText) &&
                     mouseY >= backY && mouseY <= backY + 12) {
+                // ★ 返回材料列表：selectedMaterial 变 null 后，
+                //   getAlloyScrollOffset() 自动切回材料列表偏移
                 alloyHandler.backToMaterials();
                 return true;
             }
@@ -759,6 +765,10 @@ public class FloatingSearchPanel extends AbstractWidget {
                     if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
                         int currentTemp = getCurrentSmelteryTemperature();
                         alloyHandler.refreshTemperature(currentTemp);
+
+                        // ★ 选中新材料前重置结果页偏移，避免上次结果位置残留
+                        dataManager.resetAlloyResultsScrollOffset();
+
                         alloyHandler.selectMaterial(materials.get(i), dataManager.getAllFluids(), currentTemp);
                         return true;
                     }

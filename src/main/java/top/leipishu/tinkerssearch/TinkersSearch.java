@@ -64,7 +64,6 @@ public class TinkersSearch {
         return searchPanel;
     }
 
-    /** 详情窗口打开时，本 mod 的其他事件应让位。 */
     private boolean isDetailScreenOpen() {
         return Minecraft.getInstance().screen instanceof FluidDetailScreen;
     }
@@ -74,7 +73,6 @@ public class TinkersSearch {
         Screen screen = event.getScreen();
         if (screen == null) return;
 
-        // 详情窗口打开时，不改动面板状态（面板留给父屏幕继续持有）
         if (screen instanceof FluidDetailScreen) {
             return;
         }
@@ -84,6 +82,11 @@ public class TinkersSearch {
         if (isSmeltery) {
             handleSmelteryOpen(screen);
             addPanelToRenderables(screen);
+
+            // ★ Detail 关闭后恢复滚动位置
+            if (searchPanel != null) {
+                searchPanel.restoreScrollSnapshotIfPresent();
+            }
         } else {
             handleSmelteryClose();
             removePanelFromRenderables(screen);
@@ -107,6 +110,12 @@ public class TinkersSearch {
         return className.contains("SmelteryScreen") || className.contains("smeltery");
     }
 
+    /**
+     * 打开冶炼炉界面时的处理。
+     *
+     * <p>★ 只在首次或 BE 为空时查找 BE，避免从 Detail 关闭回来后重复刷新，
+     * 导致面板滚动位置被重置。
+     */
     private void handleSmelteryOpen(Screen screen) {
         if (!isSmelteryScreen) {
             isSmelteryScreen = true;
@@ -114,7 +123,10 @@ public class TinkersSearch {
             System.out.println("Tinker's Search: SmelteryScreen detected!");
         }
 
-        findSmelteryBlockEntity(screen);
+        // ★ 只在 BE 为空时查找
+        if (smelteryBlockEntity == null) {
+            findSmelteryBlockEntity(screen);
+        }
         searchPanel.updatePanelPosition();
 
         if (searchPanel.isVisible()) {

@@ -23,6 +23,7 @@ import slimeknights.tconstruct.smeltery.block.entity.tank.SmelteryTank;
 import slimeknights.tconstruct.library.tools.part.IMaterialItem;
 
 import top.leipishu.tinkerssearch.client.gui.components.CardBackground;
+import top.leipishu.tinkerssearch.client.gui.components.ScrollBar;
 import top.leipishu.tinkerssearch.client.gui.components.SearchBox;
 import top.leipishu.tinkerssearch.client.gui.components.SearchBoxStyle;
 import top.leipishu.tinkerssearch.data.FluidPartData;
@@ -89,6 +90,9 @@ public class FluidDetailScreen extends Screen {
     private static final int PAGE_BTN_H = 16;
 
     private static final int CLOSE_BTN_SIZE = 12;
+
+    /** 滚动条组件。 */
+    private final ScrollBar totalScrollBar = new ScrollBar();
 
     private boolean isLoading = true;
     private boolean dataLoaded = false;
@@ -158,6 +162,12 @@ public class FluidDetailScreen extends Screen {
 
         searchBox.setHintText(new TranslatableComponent("gui.tinkerssearch.detail.search_hint"));
         searchBox.setOnTextChanged(s -> applyFilter());
+
+        // ★ 滚动条：拖动写回偏移
+        totalScrollBar.setOnOffsetChanged(v -> this.totalScrollOffset = v);
+        totalScrollBar.setThumbRatio(0.3f);
+        totalScrollBar.setThumbMinHeight(16);
+        totalScrollBar.setHoverExpandX(6);
 
         new Thread(() -> {
             try {
@@ -423,9 +433,6 @@ public class FluidDetailScreen extends Screen {
 
     @Override
     public void render(PoseStack poseStack, int mouseX, int mouseY, float partialTick) {
-        // ============================================================
-        // 1) 渲染背景容器屏幕
-        // ============================================================
         if (savedScreen != null) {
             poseStack.pushPose();
             savedScreen.render(poseStack, -1, -1, partialTick);
@@ -434,11 +441,7 @@ public class FluidDetailScreen extends Screen {
 
         Minecraft mc = Minecraft.getInstance();
 
-        // ============================================================
-        // 2) 1.18.2 渲染层级修复：
-        //    把 savedScreen 的延迟物品 flush 掉，清空深度缓冲，
-        //    防止背景 GUI 物品遮挡我们后面的图标。
-        // ============================================================
+        // 1.18.2 层级修复
         RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
         RenderSystem.enableBlend();
         RenderSystem.defaultBlendFunc();
@@ -450,14 +453,10 @@ public class FluidDetailScreen extends Screen {
             mc.renderBuffers().bufferSource().endBatch();
         } catch (Throwable ignored) {}
 
-        // 清空深度缓冲
         GlStateManager._clear(GL11.GL_DEPTH_BUFFER_BIT, Minecraft.ON_OSX);
 
         RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
 
-        // ============================================================
-        // 3) 开始渲染详情界面
-        // ============================================================
         poseStack.pushPose();
         poseStack.translate(0, 0, 500);
         RenderSystem.disableDepthTest();
@@ -516,7 +515,8 @@ public class FluidDetailScreen extends Screen {
             }
         }
 
-        if (maxTotalScrollOffset > 0) renderScrollBar(poseStack);
+        // ★ 滚动条：由组件自己决定是否画
+        renderScrollBar(poseStack, mouseX, mouseY);
 
         if (isLoading) {
             String loadingText = "\u00a7e" + new TranslatableComponent("gui.tinkerssearch.detail.loading").getString();
@@ -536,9 +536,6 @@ public class FluidDetailScreen extends Screen {
         RenderSystem.enableDepthTest();
         poseStack.popPose();
 
-        // ============================================================
-        // 4) 收尾：把详情界面自己的物品也 flush 掉
-        // ============================================================
         try {
             mc.renderBuffers().bufferSource().endBatch();
         } catch (Throwable ignored) {}
@@ -979,17 +976,16 @@ public class FluidDetailScreen extends Screen {
         fill(poseStack, x + width - 1, y, x + width, y + height, color);
     }
 
-    private void renderScrollBar(PoseStack poseStack) {
+    // ★ 滚动条：改为 ScrollBar 组件
+    private void renderScrollBar(PoseStack poseStack, int mouseX, int mouseY) {
         int barX = centerX + windowWidth - 6;
         int barY = centerY + scrollStartY;
         int barH = (centerY + windowHeight - PADDING) - barY;
         if (barH <= 0) return;
 
-        fill(poseStack, barX, barY, barX + 3, barY + barH, 0x33FFFFFF);
-        float ratio = (float) totalScrollOffset / (float) maxTotalScrollOffset;
-        int thumbH = Math.max(16, (int) (barH * 0.3f));
-        int thumbY = barY + (int) (ratio * (barH - thumbH));
-        fill(poseStack, barX, thumbY, barX + 3, thumbY + thumbH, 0x99FFFFFF);
+        totalScrollBar.setBounds(barX, barY, 3, barH);
+        totalScrollBar.setRange(totalScrollOffset, maxTotalScrollOffset);
+        totalScrollBar.render(poseStack, mouseX, mouseY);
     }
 
     // ==================== 事件 ====================
@@ -1001,6 +997,12 @@ public class FluidDetailScreen extends Screen {
         if (mouseX >= closeX && mouseX <= closeX + CLOSE_BTN_SIZE
                 && mouseY >= closeY && mouseY <= closeY + CLOSE_BTN_SIZE) {
             this.onClose();
+            return true;
+        }
+
+        // ★ 滚动条拖拽优先（在窗口内边缘，不能误触关闭）
+        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT
+                && totalScrollBar.tryBeginDrag(mouseX, mouseY)) {
             return true;
         }
 
@@ -1044,6 +1046,24 @@ public class FluidDetailScreen extends Screen {
 
         searchBox.setFocused(false);
         return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    @Override
+    public boolean mouseDragged(double mouseX, double mouseY, int button, double dragX, double dragY) {
+        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && totalScrollBar.isDragging()) {
+            totalScrollBar.updateDrag(mouseY);
+            return true;
+        }
+        return super.mouseDragged(mouseX, mouseY, button, dragX, dragY);
+    }
+
+    @Override
+    public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && totalScrollBar.isDragging()) {
+            totalScrollBar.endDrag();
+            return true;
+        }
+        return super.mouseReleased(mouseX, mouseY, button);
     }
 
     @Override

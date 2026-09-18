@@ -50,6 +50,9 @@ public class ScrollBar {
     private int thumbMinHeight = 16;
     private float thumbRatio = 0.3f;
 
+    /** 鼠标命中容差（水平方向向外扩展的像素）。 */
+    private int hoverExpandX = 0;
+
     public ScrollBar() {}
 
     // ==================== 配置 ====================
@@ -78,6 +81,11 @@ public class ScrollBar {
         this.thumbMinHeight = Math.max(4, h);
     }
 
+    /** ★ 水平方向命中扩展：窄轨道也方便拖动。 */
+    public void setHoverExpandX(int px) {
+        this.hoverExpandX = Math.max(0, px);
+    }
+
     // ==================== 状态 ====================
 
     public boolean isActive() { return maxOffset > 0; }
@@ -86,7 +94,7 @@ public class ScrollBar {
 
     public boolean isHovered(double mouseX, double mouseY) {
         if (width <= 0 || height <= 0) return false;
-        return mouseX >= x && mouseX <= x + width
+        return mouseX >= x - hoverExpandX && mouseX <= x + width + hoverExpandX
                 && mouseY >= y && mouseY <= y + height;
     }
 
@@ -109,7 +117,7 @@ public class ScrollBar {
     // ==================== 拖拽 ====================
 
     /**
-     * 鼠标按下时调用。命中轨道返回 true，并进入拖拽状态。
+     * 鼠标按下时调用。命中返回 true，并进入拖拽状态。
      */
     public boolean tryBeginDrag(double mouseX, double mouseY) {
         if (!isActive() || !isHovered(mouseX, mouseY)) return false;
