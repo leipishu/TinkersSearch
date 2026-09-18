@@ -128,6 +128,10 @@ public class FluidDetailScreen extends Screen {
 
     private int bottomHintY = 0;
 
+    /** 上一次布局时使用的屏幕尺寸，用于检测窗口大小变化。 */
+    private int lastScreenWidth = 0;
+    private int lastScreenHeight = 0;
+
     private final Set<String> expandedKeys = new HashSet<>();
     private final Map<String, Long> animStartTimes = new HashMap<>();
     private List<PartLayout> partLayouts = new ArrayList<>();
@@ -318,10 +322,16 @@ public class FluidDetailScreen extends Screen {
 
         int screenWidth = this.width;
         int screenHeight = this.height;
-        windowWidth = Math.min(440, Math.max(340, screenWidth - 40));
-        windowHeight = Math.min(540, Math.max(300, screenHeight - 40));
-        centerX = (screenWidth - windowWidth) / 2;
-        centerY = (screenHeight - windowHeight) / 2;
+
+        windowWidth = computeWindowWidth(screenWidth);
+        windowHeight = computeWindowHeight(screenHeight);
+
+        // 屏幕太小时（windowWidth/Height 被压到很小）也保证不出现负的居中偏移
+        centerX = Math.max(0, (screenWidth - windowWidth) / 2);
+        centerY = Math.max(0, (screenHeight - windowHeight) / 2);
+
+        lastScreenWidth = screenWidth;
+        lastScreenHeight = screenHeight;
 
         infoLineHeight = font.lineHeight + 2;
 
@@ -345,7 +355,7 @@ public class FluidDetailScreen extends Screen {
         // ===== 搜索框（固定） =====
         searchBoxY = y;
         searchBoxX = PADDING;
-        searchBoxW = windowWidth - PADDING * 2;
+        searchBoxW = Math.max(20, windowWidth - PADDING * 2);
         y += SEARCH_BOX_HEIGHT;
 
         // ===== 可滚动区域起点 =====
@@ -369,10 +379,14 @@ public class FluidDetailScreen extends Screen {
 
         // ===== 滚动计算 =====
         int scrollContentHeight = y - scrollStartY + PADDING;
-        int scrollAreaHeight = windowHeight - PADDING - scrollStartY;
+        // 使用 Math.max(0, ...) 防止窗口过小时出现负高度
+        int scrollAreaHeight = Math.max(0, windowHeight - PADDING - scrollStartY);
         maxTotalScrollOffset = Math.max(0, scrollContentHeight - scrollAreaHeight);
         if (totalScrollOffset > maxTotalScrollOffset) {
             totalScrollOffset = maxTotalScrollOffset;
+        }
+        if (totalScrollOffset < 0) {
+            totalScrollOffset = 0;
         }
         needsLayoutRecalc = false;
     }
@@ -448,10 +462,12 @@ public class FluidDetailScreen extends Screen {
         if (font == null) font = Minecraft.getInstance().font;
         if (itemRenderer == null) itemRenderer = Minecraft.getInstance().getItemRenderer();
 
-        int newW = Math.min(440, Math.max(340, this.width - 40));
-        int newH = Math.min(540, Math.max(300, this.height - 40));
+        int newW = computeWindowWidth(this.width);
+        int newH = computeWindowHeight(this.height);
 
-        if (newW != windowWidth || newH != windowHeight || needsLayoutRecalc || anyAnimating()) {
+        if (newW != windowWidth || newH != windowHeight
+                || this.width != lastScreenWidth || this.height != lastScreenHeight
+                || needsLayoutRecalc || anyAnimating()) {
             recalculateLayout();
         }
 
@@ -512,6 +528,29 @@ public class FluidDetailScreen extends Screen {
         RenderSystem.depthMask(true);
         RenderSystem.enableDepthTest();
         poseStack.popPose();
+    }
+
+    /**
+     * 计算窗口宽度：优先使用 440，但绝不能超出屏幕。
+     *
+     * <p>大 UI 缩放下 GUI 坐标的屏幕宽度可能远小于 440（例如 1080p 4x 只有 480），
+     * 此时必须按屏幕收缩，否则左右会跑出屏幕。
+     * 最极端情况下（屏幕 < 70 GUI 宽）也允许窗口缩到 50，且不再强制最小值，
+     * 保证 {@code centerX} 永远 >= 0。
+     */
+    private static int computeWindowWidth(int screenWidth) {
+        int maxAllowed = Math.max(50, screenWidth - 20);
+        return Math.min(440, maxAllowed);
+    }
+
+    /**
+     * 计算窗口高度：优先使用 540，但绝不能超出屏幕。
+     *
+     * <p>与 {@link #computeWindowWidth(int)} 同理，避免大 UI 缩放下窗口上下溢出。
+     */
+    private static int computeWindowHeight(int screenHeight) {
+        int maxAllowed = Math.max(50, screenHeight - 20);
+        return Math.min(540, maxAllowed);
     }
 
     private void renderFixedContent(PoseStack poseStack, int mouseX, int mouseY) {
