@@ -2,6 +2,8 @@ package top.leipishu.tinkerssearch.client.gui;
 
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.platform.GlStateManager;
+import org.lwjgl.opengl.GL11;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.screens.Screen;
@@ -445,10 +447,50 @@ public class FluidDetailScreen extends Screen {
 
     @Override
     public void render(PoseStack poseStack, int mouseX, int mouseY, float partialTick) {
+        // ============================================================
+        // 1) 渲染背景容器屏幕（原样保留）
+        // ============================================================
         if (savedScreen != null) {
+            // 保护外层 pose 不被 savedScreen 意外破坏
+            poseStack.pushPose();
             savedScreen.render(poseStack, -1, -1, partialTick);
+            poseStack.popPose();
         }
 
+        // ============================================================
+        // 2) 1.19.2 关键修复：
+        //    在 push 额外 pose 之前，把 savedScreen 的所有延迟渲染 flush 掉，
+        //    并清空深度缓冲，防止背景 GUI 物品遮挡我们的图标。
+        // ============================================================
+        Minecraft mc = Minecraft.getInstance();
+
+        // 2.1 恢复到 vanilla 默认渲染状态（避免 savedScreen 残留脏状态）
+        RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
+        RenderSystem.enableBlend();
+        RenderSystem.defaultBlendFunc();
+        RenderSystem.enableDepthTest();
+        RenderSystem.depthMask(true);
+        RenderSystem.depthFunc(515); // GL_LEQUAL
+
+        // 2.2 ★ 在没有任何额外 pose 变换的情况下，把背景屏幕的 buffered 物品全部 flush 掉。
+        //     这样 flush 时 ModelViewMat 是 vanilla GUI 初始值，物品只会被画到它们
+        //     原本该在的位置（物品栏），不会跑到详情界面上方。
+        try {
+            mc.renderBuffers().bufferSource().endBatch();
+        } catch (Throwable ignored) {}
+
+        // 2.3 ★ 清空深度缓冲。
+        //     背景屏幕里 GUI 物品已经写入了深度值；如果不清，我们后面渲染图标时
+        //     因为 1.19.2 ItemRenderer 会主动 enableDepthTest，会导致深度测试失败，
+        //     出现「下方物品栏图标遮住上方图标」的现象。
+        GlStateManager._clear(GL11.GL_DEPTH_BUFFER_BIT, Minecraft.ON_OSX);
+
+        // 2.4 再次保证渲染状态干净
+        RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
+
+        // ============================================================
+        // 3) 开始渲染详情界面
+        // ============================================================
         poseStack.pushPose();
         poseStack.translate(0, 0, 500);
         RenderSystem.disableDepthTest();
@@ -526,6 +568,15 @@ public class FluidDetailScreen extends Screen {
         RenderSystem.depthMask(true);
         RenderSystem.enableDepthTest();
         poseStack.popPose();
+
+        // ============================================================
+        // 4) 1.19.2 收尾：把详情界面自己渲染的物品 flush 掉
+        //    避免它们再一次被延迟到下一帧/下一次 endBatch，
+        //    从而避免污染别的地方（比如返回 savedScreen 时）
+        // ============================================================
+        try {
+            mc.renderBuffers().bufferSource().endBatch();
+        } catch (Throwable ignored) {}
     }
 
     /**
