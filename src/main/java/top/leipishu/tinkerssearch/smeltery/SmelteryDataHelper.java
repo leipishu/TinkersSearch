@@ -10,7 +10,7 @@ import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.material.Fluid;
 import net.minecraftforge.client.extensions.common.IClientFluidTypeExtensions;
 import net.minecraftforge.fluids.FluidStack;
-import net.minecraftforge.fluids.capability.CapabilityFluidHandler;
+import net.minecraftforge.common.capabilities.ForgeCapabilities;
 import net.minecraftforge.fluids.capability.IFluidHandler;
 import slimeknights.tconstruct.smeltery.block.entity.controller.HeatingStructureBlockEntity;
 import slimeknights.tconstruct.smeltery.block.entity.tank.SmelteryTank;
@@ -90,7 +90,7 @@ public class SmelteryDataHelper {
 
         try {
             IFluidHandler fluidHandler = tileEntity.getCapability(
-                    CapabilityFluidHandler.FLUID_HANDLER_CAPABILITY
+                    ForgeCapabilities.FLUID_HANDLER
             ).orElse(null);
 
             if (fluidHandler == null) return null;
@@ -133,7 +133,7 @@ public class SmelteryDataHelper {
 
         try {
             IFluidHandler fluidHandler = tileEntity.getCapability(
-                    CapabilityFluidHandler.FLUID_HANDLER_CAPABILITY
+                    ForgeCapabilities.FLUID_HANDLER
             ).orElse(null);
 
             if (fluidHandler == null) return fluids;

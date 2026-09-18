@@ -8,7 +8,7 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.material.Fluid;
 import net.minecraftforge.fluids.FluidStack;
-import net.minecraftforge.fluids.capability.CapabilityFluidHandler;
+import net.minecraftforge.common.capabilities.ForgeCapabilities;
 import net.minecraftforge.fluids.capability.IFluidHandler;
 import net.minecraftforge.registries.ForgeRegistries;
 import slimeknights.tconstruct.smeltery.block.entity.controller.HeatingStructureBlockEntity;
@@ -124,7 +124,7 @@ public class SmelteryTemperatureReader {
                         for (BlockPos pos : tankPositions) {
                             BlockEntity te = level.getBlockEntity(pos);
                             if (te != null) {
-                                IFluidHandler fluidHandler = te.getCapability(CapabilityFluidHandler.FLUID_HANDLER_CAPABILITY)
+                                IFluidHandler fluidHandler = te.getCapability(ForgeCapabilities.FLUID_HANDLER)
                                         .orElse(null);
                                 if (fluidHandler != null && fluidHandler.getTanks() > 0) {
                                     FluidStack fluid = fluidHandler.getFluidInTank(0);
