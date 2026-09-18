@@ -825,7 +825,11 @@ public class TinkersAlloyReader {
     // ============================================================
 
     /**
-     * 获取所有与合金相关的流体
+     * 获取所有可冶炼流体。
+     *
+     * <p>这两个 Tab（合金模式、全部材料）展示的是"游戏里能进冶炼炉的流体"，
+     * 与合金配方无关——一个流体完全可以只参与浇筑、不参与任何合金。
+     * 因此数据来源只能是流体注册表本身。
      */
     public static List<FluidStack> getAllSmelteryFluids() {
         long now = System.currentTimeMillis();
@@ -834,28 +838,9 @@ public class TinkersAlloyReader {
             return cachedAllMaterials;
         }
 
+        // ★ 直接扫描注册表，不再从合金配方里提取
         Set<ResourceLocation> fluidSet = new HashSet<>();
-        List<AlloyRecipeData> recipes = getAlloyRecipes();
-
-        // 从配方中提取流体
-        for (AlloyRecipeData recipe : recipes) {
-            for (AlloyRecipeData.FluidIngredientData input : recipe.getInputs()) {
-                FluidStack fs = input.getFluid();
-                if (fs != null && !fs.isEmpty()) {
-                    addFluidToSet(fs, fluidSet);
-                }
-            }
-            FluidStack result = recipe.getResult();
-            if (result != null && !result.isEmpty()) {
-                addFluidToSet(result, fluidSet);
-            }
-        }
-
-        // 如果配方中没有找到流体，扫描注册表
-        if (fluidSet.isEmpty()) {
-            log("No fluids found from recipes, scanning fluid registry...");
-            scanFluidRegistry(fluidSet);
-        }
+        scanFluidRegistry(fluidSet);
 
         List<FluidStack> built = new ArrayList<>();
         for (ResourceLocation rl : fluidSet) {
@@ -871,10 +856,9 @@ public class TinkersAlloyReader {
             return nameA.compareToIgnoreCase(nameB);
         });
 
-        // ★ 只有当构建结果非空时才缓存；空结果下次重新构建，避免"临时失败"被冻结
         if (!built.isEmpty()) {
             cachedAllMaterials = built;
-            log("Total alloy-relevant fluids: " + built.size());
+            log("Total smeltery fluids: " + built.size());
         } else {
             cachedAllMaterials = null;
             log("WARN: getAllSmelteryFluids returned empty; will retry on next call");
@@ -899,9 +883,6 @@ public class TinkersAlloyReader {
         set.add(rl);
     }
 
-    /**
-     * 扫描流体注册表
-     */
     private static void scanFluidRegistry(Set<ResourceLocation> set) {
         int totalScanned = 0;
         int added = 0;
@@ -912,16 +893,22 @@ public class TinkersAlloyReader {
             totalScanned++;
 
             String path = rl.getPath();
-            // 跳过流动流体
-            if (path.contains("flowing") || path.contains("flow")) {
+
+            // 跳过流动形态（部分模组会注册 flowing_xxx 条目）
+            if (path.startsWith("flowing_") || path.equals("flowing")) continue;
+
+            // 匠魂命名空间全收：这是冶炼炉流体的主要来源
+            if (rl.getNamespace().equals("tconstruct")) {
+                set.add(rl);
+                added++;
                 continue;
             }
 
-            // 只保留匠魂或熔融流体
-            if (rl.getNamespace().equals("tconstruct") ||
-                    path.contains("molten") ||
-                    path.contains("liquid") ||
-                    path.contains("metal")) {
+            // 其他模组：只收熔融/液态类关键字命名的流体
+            if (path.contains("molten")
+                    || path.contains("liquid")
+                    || path.contains("metal")
+                    || path.contains("alloy")) {
                 set.add(rl);
                 added++;
             }

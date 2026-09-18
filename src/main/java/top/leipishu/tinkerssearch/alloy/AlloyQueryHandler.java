@@ -1,6 +1,7 @@
 package top.leipishu.tinkerssearch.alloy;
 
 import net.minecraftforge.fluids.FluidStack;
+import top.leipishu.tinkerssearch.utils.SearchHelper;   // ★ 新增
 
 import java.util.ArrayList;
 import java.util.List;
@@ -50,23 +51,6 @@ public class AlloyQueryHandler {
         System.out.println("[Tinker's Search] Temperature cache invalidated");
     }
 
-    public int getLastKnownTemperature() {
-        if (lastKnownTemperature <= 0) {
-            return 0;
-        }
-        long elapsed = System.currentTimeMillis() - lastTemperatureUpdate;
-        if (elapsed > TEMPERATURE_CACHE_DURATION) {
-            System.out.println("[Tinker's Search] Temperature cache expired (" + elapsed + "ms)");
-            return 0;
-        }
-        return lastKnownTemperature;
-    }
-
-    public boolean hasValidTemperature() {
-        long elapsed = System.currentTimeMillis() - lastTemperatureUpdate;
-        return elapsed <= TEMPERATURE_CACHE_DURATION && lastKnownTemperature > 0;
-    }
-
     public void performQuery(String searchTerm, List<FluidStack> availableFluids, int currentTemperature) {
         this.currentSearchTerm = searchTerm;
         this.isQueryMode = true;
@@ -84,33 +68,20 @@ public class AlloyQueryHandler {
         this.filteredMaterials = filterMaterials(this.allMaterials, searchTerm);
     }
 
+    /**
+     * 过滤材料列表。
+     *
+     * <p>直接复用 {@link SearchHelper#filterFluids}，它已实现：
+     * <ul>
+     *   <li>显示名匹配（自动剥离 "Molten " / "熔融" 前缀）</li>
+     *   <li>注册名 path 匹配</li>
+     *   <li>拼音全拼匹配（pinyin4j）</li>
+     *   <li>拼音首字母匹配（pinyin4j）</li>
+     *   <li>关键词为 null / 空白时返回全集</li>
+     * </ul>
+     */
     private List<FluidStack> filterMaterials(List<FluidStack> materials, String searchTerm) {
-        if (searchTerm == null || searchTerm.isEmpty()) {
-            return new ArrayList<>(materials);
-        }
-
-        List<FluidStack> result = new ArrayList<>();
-        String lowerSearch = searchTerm.toLowerCase();
-
-        for (FluidStack fs : materials) {
-            String displayName = fs.getDisplayName().getString()
-                    .toLowerCase()
-                    .replace("molten ", "")
-                    .replace("熔融", "");
-
-            String registryName = fs.getFluid().getRegistryName() != null
-                    ? fs.getFluid().getRegistryName().getPath().toLowerCase()
-                    : "";
-
-            if (displayName.contains(lowerSearch) || registryName.contains(lowerSearch)) {
-                result.add(fs);
-            }
-        }
-        return result;
-    }
-
-    public void selectMaterial(FluidStack material, List<FluidStack> availableFluids) {
-        selectMaterial(material, availableFluids, lastKnownTemperature);
+        return SearchHelper.filterFluids(materials, searchTerm);
     }
 
     public void selectMaterial(FluidStack material, List<FluidStack> availableFluids, int currentTemperature) {

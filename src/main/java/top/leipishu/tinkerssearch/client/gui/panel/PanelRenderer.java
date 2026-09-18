@@ -344,10 +344,6 @@ public class PanelRenderer {
 
         box.setBounds(boxX, boxY, boxW, boxH);
         box.render(poseStack, mouseX, mouseY, font);
-
-        int lineY = boxY + boxH + 4;
-        GuiComponent.fill(poseStack, px + 5, lineY,
-                px + pw - 5 - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING, lineY + 1, 0xFF333366);
     }
 
     // ==================== 冶炼炉 Tab ====================
