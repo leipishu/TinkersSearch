@@ -1,47 +1,38 @@
 package top.leipishu.tinkerssearch.recipe;
 
 import net.minecraft.resources.ResourceLocation;
+import net.minecraftforge.fluids.FluidStack;
 import net.minecraftforge.registries.ForgeRegistries;
 import slimeknights.tconstruct.library.materials.MaterialRegistry;
 import slimeknights.tconstruct.library.materials.definition.MaterialId;
 import slimeknights.tconstruct.library.materials.stats.MaterialStatsId;
+import slimeknights.tconstruct.library.recipe.casting.material.MaterialCastingRecipe;
 import slimeknights.tconstruct.library.tools.part.IMaterialItem;
 import slimeknights.tconstruct.tools.stats.HandleMaterialStats;
 import slimeknights.tconstruct.tools.stats.HeadMaterialStats;
 import slimeknights.tconstruct.tools.stats.LimbMaterialStats;
 
-import net.minecraftforge.fluids.FluidStack;
-import slimeknights.tconstruct.library.recipe.casting.material.MaterialCastingRecipe;
-import java.util.List;
-import java.util.Optional;
-
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.List;
+import java.util.Optional;
 
 /**
  * 部件与材料的兼容性判断。
  *
- * <p>两层判定：
- * <ol>
- *   <li>官方 {@link IMaterialItem#canUseMaterial}</li>
- *   <li>材料 stats 是否存在（覆盖 canUseMaterial 实现不完整的场景）</li>
- * </ol>
- *
- * <p>不做"材料存在就通过"的宽松兜底——那会让"已注册但无 stats"的材料
- * （如下界合金、黑曜石）显示出全部部件类型，包括该材料实际不能做的。
+ * <p><b>1.18.2 → 1.19.2 API 变动</b>：
+ * {@code MaterialCastingRecipe.getFluidRecipe()} 从无参方法变成
+ * {@code getFluidRecipe(ICastingContainer)}。本类同时兼容两种签名。
  */
 public class MaterialCompatibility {
 
-    /**
-     * 判断部件能否使用指定材料。
-     */
     public static boolean canUseMaterial(IMaterialItem mi, MaterialId targetMat) {
-        // 1. 官方判断
+        if (mi == null || targetMat == null) return false;
+
         try {
             if (mi.canUseMaterial(targetMat)) return true;
         } catch (Throwable ignored) {}
 
-        // 2. stats 检查
         MaterialStatsId statType = inferStatType(mi);
         if (statType != null) {
             try {
@@ -54,9 +45,6 @@ public class MaterialCompatibility {
         return false;
     }
 
-    /**
-     * 推断部件的 statType。
-     */
     public static MaterialStatsId inferStatType(IMaterialItem item) {
         if (item == null) return null;
 
@@ -98,14 +86,10 @@ public class MaterialCompatibility {
     }
 
     // ============================================================
-// ===== 通过 fluidRecipe 判定配方是否接受目标流体 ============
-// ============================================================
+    // ===== 通过 fluidRecipe 判定配方是否接受目标流体 ============
+    // ============================================================
 
     /**
-
-     * <p>这是与 JEI 相同的读取路径：只看 recipe 自己绑定的流体列表，
-     * 完全不依赖 {@link slimeknights.tconstruct.library.materials.MaterialRegistry}。
-     *
      * @return
      *   <ul>
      *     <li>{@code TRUE}  配方明确接受该流体</li>
@@ -117,8 +101,8 @@ public class MaterialCompatibility {
         if (recipe == null || targetFluid == null || targetFluid.isEmpty()) return Boolean.FALSE;
 
         Optional<?> fluidRecipeOpt = readFluidRecipe(recipe);
-        if (fluidRecipeOpt == null) return null;         // 拿不到 → 未知
-        if (!fluidRecipeOpt.isPresent()) return null;    // 缓存未构建 → 未知
+        if (fluidRecipeOpt == null) return null;
+        if (!fluidRecipeOpt.isPresent()) return null;
 
         Object fluidRecipe = fluidRecipeOpt.get();
         Object inputsObj = invokeNoArg(fluidRecipe, "getInputs");
@@ -133,46 +117,59 @@ public class MaterialCompatibility {
 
     /**
      * 读取 {@code MaterialCastingRecipe} 的 fluidRecipe。
-     * 优先调 {@code getFluidRecipe()}，失败则读字段 {@code cachedFluidRecipe}。
+     *
+     * <p><b>1.19.2 修复</b>：优先尝试有参 {@code getFluidRecipe(ICastingContainer)}
+     * （1.19.2 新签名），再尝试无参 {@code getFluidRecipe()}（1.18.2 兼容），
+     * 最后扫描字段。
      */
     private static Optional<?> readFluidRecipe(MaterialCastingRecipe recipe) {
-        // 1. 方法
+        if (recipe == null) return null;
+
+        // ===== 1. 有参 getFluidRecipe(ICastingContainer) —— 1.19.2 =====
+        try {
+            for (Method m : recipe.getClass().getMethods()) {
+                if (!m.getName().equals("getFluidRecipe")) continue;
+                if (m.getParameterCount() != 1) continue;
+
+                Class<?> pType = m.getParameterTypes()[0];
+                Object arg = pType.isInstance(recipe) ? recipe : null;
+
+                m.setAccessible(true);
+                try {
+                    Object v = m.invoke(recipe, arg);
+                    if (v instanceof Optional) return (Optional<?>) v;
+                    if (v != null) return Optional.of(v);
+                } catch (Throwable ignored) {}
+            }
+        } catch (Exception ignored) {}
+
+        // ===== 2. 无参 getFluidRecipe() —— 1.18.2 =====
         try {
             Method m = recipe.getClass().getMethod("getFluidRecipe");
             m.setAccessible(true);
             Object v = m.invoke(recipe);
             if (v instanceof Optional) return (Optional<?>) v;
+            if (v != null) return Optional.of(v);
         } catch (Exception ignored) {}
 
-        // 2. 字段（含父类）
+        // ===== 3. 字段扫描 =====
         try {
             Class<?> c = recipe.getClass();
             while (c != null && c != Object.class) {
-                try {
-                    java.lang.reflect.Field f = c.getDeclaredField("cachedFluidRecipe");
-                    f.setAccessible(true);
-                    Object v = f.get(recipe);
-                    if (v instanceof Optional) return (Optional<?>) v;
-                } catch (NoSuchFieldException ignored) {}
-                c = c.getSuperclass();
-            }
-        } catch (Exception ignored) {}
-
-        // 3. 兜底字段名
-        for (String fn : new String[]{"fluidRecipe", "materialFluidRecipe", "materialRecipe"}) {
-            try {
-                Class<?> c = recipe.getClass();
-                while (c != null && c != Object.class) {
+                for (String fn : new String[]{
+                        "cachedFluidRecipe", "cachedFluid", "fluidRecipe",
+                        "materialFluidRecipe", "materialRecipe"}) {
                     try {
-                        java.lang.reflect.Field f = c.getDeclaredField(fn);
+                        Field f = c.getDeclaredField(fn);
                         f.setAccessible(true);
                         Object v = f.get(recipe);
                         if (v instanceof Optional) return (Optional<?>) v;
+                        if (v != null) return Optional.of(v);
                     } catch (NoSuchFieldException ignored) {}
-                    c = c.getSuperclass();
                 }
-            } catch (Exception ignored) {}
-        }
+                c = c.getSuperclass();
+            }
+        } catch (Exception ignored) {}
 
         return null;
     }
@@ -187,9 +184,6 @@ public class MaterialCompatibility {
         return null;
     }
 
-    /**
-     * 判断单个 {@code FluidIngredient} 是否接受目标流体。
-     */
     private static boolean ingredientAcceptsFluid(Object input, FluidStack targetFluid) {
         if (input == null) return false;
 

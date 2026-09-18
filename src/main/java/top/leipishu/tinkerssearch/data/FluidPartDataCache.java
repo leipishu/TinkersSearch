@@ -40,6 +40,17 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * 流体的部件数据构建。
+ *
+ * <p><b>修复要点</b>：
+ * <ul>
+ *   <li>{@link #build(Fluid, ResourceLocation)} 三条路径全跑 + 按 itemId 合并，
+ *       不再 if-else 短路</li>
+ *   <li>合并时 main 路径优先级最高</li>
+ *   <li>增加对 AlloyRecipe 的专用流体提取</li>
+ * </ul>
+ */
 public class FluidPartDataCache {
 
     private static final Map<ResourceLocation, FluidPartData> CACHE = new ConcurrentHashMap<>();
@@ -61,17 +72,6 @@ public class FluidPartDataCache {
     // ===== 入口 =================================================
     // ============================================================
 
-    /**
-     * 获取流体部件数据。
-     *
-     * 缓存策略（内存缓存，重启游戏清空）：
-     *   1. 每次调用都构建 fresh 数据
-     *   2. 和 CACHE 中的旧数据比较"总部件数"
-     *   3. 旧数据条目更多 → 返回旧数据，不覆盖缓存
-     *   4. 否则 → 更新缓存，返回新数据
-     *
-     * 这样第一次读到更多条目时会被保留，之后即使某次读到更少也不会丢。
-     */
     public static FluidPartData get(FluidStack fluidStack) {
         if (fluidStack == null || fluidStack.isEmpty()) {
             return new FluidPartData(null, new ArrayList<>(), buildGeneration);
@@ -81,10 +81,8 @@ public class FluidPartDataCache {
             return new FluidPartData(null, new ArrayList<>(), buildGeneration);
         }
 
-        // 1. 构建新数据
         FluidPartData fresh = build(fluidStack.getFluid(), fluidId);
 
-        // 2. 和缓存比较
         FluidPartData cached = CACHE.get(fluidId);
         if (cached != null && cached.buildTime == buildGeneration) {
             int cachedTotal = countTotalParts(cached);
@@ -102,12 +100,10 @@ public class FluidPartDataCache {
                     + ", updating cache");
         }
 
-        // 3. 更新缓存
         CACHE.put(fluidId, fresh);
         return fresh;
     }
 
-    /** 统计 FluidPartData 中的总部件数（本体 + 所有复合页） */
     private static int countTotalParts(FluidPartData data) {
         if (data == null || data.entries == null) return 0;
         int total = 0;
@@ -130,21 +126,19 @@ public class FluidPartDataCache {
         MaterialId baseMat = resolveBaseMaterial(fluid);
         FluidStack fluidStack = new FluidStack(fluid, 1000);
 
-        // 1a. 主路径：MaterialCastingRecipe + stats 判定
+        // ★ 三条路径全跑 + 合并
         List<PartInfo> mainParts = collectPartsFromCastingRecipes(fluidStack, baseMat);
+        List<PartInfo> directParts = collectPartsFromDirectRecipe(fluidStack, baseMat);
+        List<PartInfo> anyParts = collectPartsFromAnyRecipe(fluidStack, baseMat);
 
-        // 1b. 宽松路径：任何"输入流体匹配 + 输出是 IMaterialItem"的配方
-        if (mainParts.isEmpty()) {
-            mainParts = collectPartsFromAnyRecipe(fluidStack, baseMat);
+        List<PartInfo> mergedParts = mergeParts(mainParts, directParts, anyParts);
+
+        // 三条全空才兜底
+        if (mergedParts.isEmpty() && baseMat != null) {
+            mergedParts = collectPartsFor(baseMat);
         }
 
-        // 1c. 兜底：遍历所有 IMaterialItem
-        if (mainParts.isEmpty() && baseMat != null) {
-            mainParts = collectPartsFor(baseMat);
-        }
-
-        // 写入页面
-        if (!mainParts.isEmpty()) {
+        if (!mergedParts.isEmpty()) {
             MaterialId entryKey = baseMat != null
                     ? baseMat
                     : new MaterialId(fluidId.getNamespace(), stripPrefix(fluidId.getPath()));
@@ -152,7 +146,7 @@ public class FluidPartDataCache {
                     ? getMaterialDisplayName(baseMat)
                     : defaultDisplayName(entryKey.getPath());
             entries.put(entryKey, new MaterialEntry(entryKey, title,
-                    MaterialEntry.SourceKind.BASE, null, null, mainParts));
+                    MaterialEntry.SourceKind.BASE, null, null, mergedParts));
         }
 
         // ===== 阶段 2：复合关系 =====
@@ -173,6 +167,19 @@ public class FluidPartDataCache {
         }
 
         return new FluidPartData(fluidId, new ArrayList<>(entries.values()), buildGeneration);
+    }
+
+    @SafeVarargs
+    private static List<PartInfo> mergeParts(List<PartInfo>... lists) {
+        Map<ResourceLocation, PartInfo> merged = new LinkedHashMap<>();
+        for (List<PartInfo> list : lists) {
+            if (list == null) continue;
+            for (PartInfo p : list) {
+                if (p == null || p.itemId == null) continue;
+                merged.putIfAbsent(p.itemId, p);
+            }
+        }
+        return new ArrayList<>(merged.values());
     }
 
     // ============================================================
@@ -264,13 +271,6 @@ public class FluidPartDataCache {
         return result;
     }
 
-    /**
-     * 独立路径：从 {@code MaterialCastingRecipe.getFluidRecipe().getInputs()}
-     * 反查本体材料能直接浇筑出的部件。
-     *
-     * <p>与 {@link #collectPartsFromCastingRecipes} 的唯一区别是入口：
-     * 后者走 stats 判定，本方法走流体 inputs 判定。
-     */
     private static List<PartInfo> collectPartsFromDirectRecipe(FluidStack fluidStack, MaterialId materialId) {
         List<PartInfo> result = new ArrayList<>();
         if (fluidStack == null || fluidStack.isEmpty()) return result;
@@ -326,19 +326,6 @@ public class FluidPartDataCache {
         return result;
     }
 
-    /**
-     * 最宽松的部件收集路径。
-     *
-     * <p>从 {@link CastingRecipeHelper#getAnyPartCastingRecipes} 拿到所有
-     * "输出是部件 + 输入流体匹配"的配方，构造部件列表。
-     *
-     * <p>关键点：
-     * <ul>
-     *   <li>不像主路径依赖 {@code canUseMaterial}</li>
-     *   <li>不像 direct 路径依赖 {@code getFluidRecipe()}</li>
-     *   <li>保留 output 自带的 NBT（用于着色）</li>
-     * </ul>
-     */
     private static List<PartInfo> collectPartsFromAnyRecipe(FluidStack fluidStack, MaterialId materialId) {
         List<PartInfo> result = new ArrayList<>();
         if (fluidStack == null || fluidStack.isEmpty()) return result;
@@ -380,7 +367,6 @@ public class FluidPartDataCache {
                     requiredAmount = 90;
                 }
 
-                // ★ 保留 output 自带的 NBT；若没有，才用 materialId 填
                 ItemStack displayStack = output.copy();
                 if (materialId != null && displayStack.getTag() == null) {
                     displayStack.getOrCreateTag().putString("Material", materialId.toString());
@@ -913,6 +899,13 @@ public class FluidPartDataCache {
     private static FluidStack extractRecipeFluid(Object recipe) {
         if (recipe == null) return null;
 
+        // 合金配方专用
+        String className = recipe.getClass().getName().toLowerCase();
+        if (className.contains("alloy")) {
+            FluidStack alloyFluid = extractAlloyRecipeFluid(recipe);
+            if (alloyFluid != null) return alloyFluid;
+        }
+
         FluidStack direct = tryExtractFluidDirect(recipe);
         if (direct != null) return direct;
 
@@ -930,6 +923,51 @@ public class FluidPartDataCache {
             FluidStack subFluid = tryExtractFluidDirect(sub);
             if (subFluid != null) return subFluid;
         }
+        return null;
+    }
+
+    private static FluidStack extractAlloyRecipeFluid(Object recipe) {
+        if (recipe == null) return null;
+
+        for (String mn : new String[]{"getInputs", "getFluidInputs", "getInputFluids"}) {
+            try {
+                Method m = recipe.getClass().getMethod(mn);
+                m.setAccessible(true);
+                Object v = m.invoke(recipe);
+                if (v instanceof List) {
+                    for (Object o : (List<?>) v) {
+                        FluidStack fs = fluidFromIngredient(o);
+                        if (fs != null && !fs.isEmpty()) return fs;
+                    }
+                }
+            } catch (Exception ignored) {}
+        }
+
+        for (String mn : new String[]{"getFluid", "getResultFluid", "getOutputFluid"}) {
+            try {
+                Method m = recipe.getClass().getMethod(mn);
+                m.setAccessible(true);
+                Object v = m.invoke(recipe);
+                if (v instanceof FluidStack) {
+                    FluidStack fs = (FluidStack) v;
+                    if (!fs.isEmpty()) return fs;
+                }
+            } catch (Exception ignored) {}
+        }
+
+        for (String fn : new String[]{"inputs", "fluidInputs", "inputFluids", "input", "fluid"}) {
+            Object v = findFieldValue(recipe, fn);
+            if (v instanceof List) {
+                for (Object o : (List<?>) v) {
+                    FluidStack fs = fluidFromIngredient(o);
+                    if (fs != null && !fs.isEmpty()) return fs;
+                }
+            }
+            if (v instanceof FluidStack && !((FluidStack) v).isEmpty()) {
+                return (FluidStack) v;
+            }
+        }
+
         return null;
     }
 

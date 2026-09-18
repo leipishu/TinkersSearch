@@ -24,21 +24,10 @@ import java.util.Set;
 /**
  * 浇筑配方读取的对外入口。
  *
- * <p>职责：
+ * <p><b>1.19.2 修复</b>：
  * <ul>
- *   <li>遍历 {@code RecipeManager}，按配方类型分发到三个处理方法</li>
- *   <li>对外暴露 {@link #getCastingRecipesForFluid}、{@link #hasCastingRecipes} 等 API</li>
- *   <li>聚合并转发缓存清空/预热请求给 {@link MaterialResolver}
- *       与 {@link PartRequirementsCache}</li>
- * </ul>
- *
- * <p>具体职责已拆到同包：
- * <ul>
- *   <li>{@link MaterialResolver} — 流体→材料 ID</li>
- *   <li>{@link MaterialCompatibility} — 部件与材料兼容性</li>
- *   <li>{@link MaterialCastingCost} — itemCost 与 mB 换算</li>
- *   <li>{@link PartRequirementsCache} — 部件需求量缓存</li>
- *   <li>{@link RecipeReflection} — 通用反射工具</li>
+ *   <li>{@link #processItemCastingRecipe} 检查配方的所有流体，而不是只看第一个</li>
+ *   <li>对外暴露的三条路径（主/direct/any）都保持可用</li>
  * </ul>
  */
 public class CastingRecipeHelper {
@@ -112,12 +101,10 @@ public class CastingRecipeHelper {
         return !getCastingRecipesForFluid(fluidStack).isEmpty();
     }
 
-    /** 转发给 {@link MaterialResolver}，保留旧签名。 */
     public static ResourceLocation getMaterialIdForFluid(Fluid fluid) {
         return MaterialResolver.resolveAsResourceLocation(fluid);
     }
 
-    /** 清空所有相关缓存。 */
     public static void invalidateCache() {
         PartRequirementsCache.clear();
         MaterialResolver.clear();
@@ -125,7 +112,6 @@ public class CastingRecipeHelper {
         System.out.println("[Tinker's Search] All caches invalidated");
     }
 
-    /** 预热部件需求量缓存。 */
     public static void prewarmPartRequirements() {
         MaterialResolver.prewarm();
         PartRequirementsCache.prewarm();
@@ -139,14 +125,25 @@ public class CastingRecipeHelper {
     // ===== 三种配方处理 =========================================
     // ============================================================
 
+    /**
+     * <p><b>1.19.2 修复</b>：{@code ItemCastingRecipe.getFluids()} 返回配方可接受的
+     * <b>所有</b>流体，不再假设目标流体一定在第一位。
+     */
     private static void processItemCastingRecipe(ItemCastingRecipe recipe, FluidStack targetFluid,
                                                  List<CastingInfo> result, Set<ResourceLocation> seenOutputIds) {
         try {
             List<FluidStack> recipeFluids = recipe.getFluids();
             if (recipeFluids == null || recipeFluids.isEmpty()) return;
 
-            FluidStack recipeFluid = recipeFluids.get(0);
-            if (!RecipeReflection.matchesFluid(recipeFluid, targetFluid)) return;
+            // 遍历所有流体，找到匹配的那个
+            int matchedAmount = -1;
+            for (FluidStack recipeFluid : recipeFluids) {
+                if (RecipeReflection.matchesFluid(recipeFluid, targetFluid)) {
+                    matchedAmount = recipeFluid.getAmount();
+                    break;
+                }
+            }
+            if (matchedAmount < 0) return;
 
             ItemStack output = recipe.getOutput();
             if (output == null || output.isEmpty()) return;
@@ -156,25 +153,12 @@ public class CastingRecipeHelper {
             if (!seenOutputIds.add(outputId)) return;
 
             boolean requiresCast = recipe.hasCast();
-            int amount = recipeFluid.getAmount();
+            int amount = matchedAmount;
             if (amount <= 0) amount = MaterialCastingCost.MB_PER_COST;
             result.add(new CastingInfo(output.copy(), requiresCast, amount));
         } catch (Exception ignored) {}
     }
 
-    /**
-     * 独立路径：读取"本体材料能直接浇筑出的部件"。
-     *
-     * <p>与 {@link #getCastingRecipesForFluid} 的区别：
-     * <ul>
-     *   <li>只处理 {@link MaterialCastingRecipe}</li>
-     *   <li>用 {@code recipe.getFluidRecipe().getInputs()} 判定流体是否匹配，
-     *       不调用 {@link MaterialCompatibility#canUseMaterial}</li>
-     *   <li>因此不受 {@code MaterialRegistry} 中材料 stats 缺失影响</li>
-     * </ul>
-     *
-     * <p>用于 stats 判定失败（如黑曜石、下界合金等）但实际存在浇筑配方的材料。
-     */
     public static List<CastingInfo> getDirectPartCastingRecipes(FluidStack fluidStack) {
         List<CastingInfo> result = new ArrayList<>();
         if (fluidStack == null || fluidStack.isEmpty()) return result;
@@ -217,16 +201,6 @@ public class CastingRecipeHelper {
         } catch (Exception ignored) {}
     }
 
-    /**
-     * 最宽松的路径：遍历所有配方，只要满足
-     * <ol>
-     *   <li>输出是 {@link IMaterialItem}</li>
-     *   <li>输入流体匹配目标流体</li>
-     * </ol>
-     * 就收集。不限定配方类型，不看 stats，不看 MaterialRegistry。
-     *
-     * <p>覆盖场景：KubeJS / 数据包显式注册的"某流体 → 某部件"配方。
-     */
     public static List<CastingInfo> getAnyPartCastingRecipes(FluidStack fluidStack) {
         List<CastingInfo> result = new ArrayList<>();
         if (fluidStack == null || fluidStack.isEmpty()) return result;
@@ -247,7 +221,6 @@ public class CastingRecipeHelper {
                     ResourceLocation outputId = ForgeRegistries.ITEMS.getKey(output.getItem());
                     if (outputId == null) continue;
 
-                    // 检查输入流体是否匹配
                     List<FluidStack> recipeFluids = RecipeReflection.extractFluids(recipe);
                     if (recipeFluids == null || recipeFluids.isEmpty()) continue;
 
@@ -262,7 +235,6 @@ public class CastingRecipeHelper {
 
                     if (!seenOutputIds.add(outputId)) continue;
 
-                    // 拿消耗量：优先取匹配的那个流体 stack 的 amount
                     int amount = MaterialCastingCost.MB_PER_COST;
                     for (FluidStack f : recipeFluids) {
                         if (RecipeReflection.matchesFluid(f, fluidStack) && f.getAmount() > 0) {
@@ -281,12 +253,6 @@ public class CastingRecipeHelper {
         return result;
     }
 
-    /**
-     * {@code MaterialCastingRecipe} 是"任意材料 → 该材料做的部件"的通用配方，
-     * 匹配逻辑：
-     *   1. 从 result 字段拿输出部件（{@link IMaterialItem}）
-     *   2. 用 {@link MaterialCompatibility#canUseMaterial} 判断该部件能否用目标材料
-     */
     private static void processMaterialCastingRecipe(MaterialCastingRecipe recipe, FluidStack targetFluid,
                                                      List<CastingInfo> result, Set<ResourceLocation> seenOutputIds) {
         try {
