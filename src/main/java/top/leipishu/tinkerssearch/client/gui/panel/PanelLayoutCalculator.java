@@ -14,8 +14,9 @@ import static top.leipishu.tinkerssearch.config.PanelConfig.*;
 /**
  * 面板布局计算器。
  *
- * <p>三个 Tab 共用同一套搜索框位置（{@code SEARCH_BOX_Y}），
- * 内容区起点都是 {@code CARDS_START_Y}。
+ * <p><b>1.20.1 修复</b>：{@link #updatePanelPosition()} 不再调用
+ * {@code resetScrollOffsets()}——滚动位置由 {@code switchTab} /
+ * {@code startHideAnimation} 显式管理，避免每次窗口变化都清零。
  */
 public class PanelLayoutCalculator {
 
@@ -41,37 +42,27 @@ public class PanelLayoutCalculator {
 
     // ==================== 冶炼炉 Tab ====================
 
-    /** 收藏区标题行 Y。 */
-    public int getFavoriteTitleY() {
-        return CARDS_START_Y;
-    }
+    public int getFavoriteTitleY() { return CARDS_START_Y; }
 
-    /** 收藏区内容起始 Y。 */
-    public int getFavoriteAreaStartY() {
-        return getFavoriteTitleY() + SECTION_LABEL_HEIGHT;
-    }
+    public int getFavoriteAreaStartY() { return getFavoriteTitleY() + SECTION_LABEL_HEIGHT; }
 
-    /** 收藏区内容高度。 */
     public int getFavoriteAreaHeight() {
         if (dataManager.getDisplayedFavoriteFluids().isEmpty()) return 0;
         int totalRows = (dataManager.getDisplayedFavoriteFluids().size() + ITEMS_PER_ROW - 1) / ITEMS_PER_ROW;
         int contentHeight = totalRows * (CARD_HEIGHT + CARD_SPACING) - CARD_SPACING;
-        return Math.min(contentHeight, (int)(panel.getPanelHeight() * 0.35));
+        return Math.min(contentHeight, (int) (panel.getPanelHeight() * 0.35));
     }
 
-    /** 冶炼炉区标题行 Y。 */
     public int getSmelteryTitleY() {
         int y = getFavoriteAreaStartY() + getFavoriteAreaHeight();
         if (getFavoriteAreaHeight() > 0) y += SECTION_SPACING;
         return y;
     }
 
-    /** 冶炼炉区内容起始 Y。 */
     public int getSmelteryAreaStartY() {
         return getSmelteryTitleY() + SECTION_LABEL_HEIGHT;
     }
 
-    /** 冶炼炉区内容高度（吃满剩余空间）。 */
     public int getSmelteryAreaHeight() {
         int contentY = getSmelteryAreaStartY();
         int panelBottom = panel.getPanelHeight() - 4;
@@ -80,12 +71,8 @@ public class PanelLayoutCalculator {
 
     // ==================== 全部材料 Tab ====================
 
-    /** 全部材料区内容起始 Y。 */
-    public int getAllMaterialsContentY() {
-        return CARDS_START_Y;
-    }
+    public int getAllMaterialsContentY() { return CARDS_START_Y; }
 
-    /** 全部材料区内容高度（吃满剩余空间）。 */
     public int getAllMaterialsAreaHeight() {
         int panelBottom = panel.getPanelHeight() - 4;
         return Math.max(0, panelBottom - CARDS_START_Y);
@@ -144,7 +131,7 @@ public class PanelLayoutCalculator {
         this.lastScreenWidth = screenWidth;
         this.lastScreenHeight = screenHeight;
 
-        dataManager.resetScrollOffsets();
+        // ★ 不再 resetScrollOffsets()：滚动位置由 switchTab / startHideAnimation 显式管理
         dataManager.updateMaxScrollOffset();
     }
 

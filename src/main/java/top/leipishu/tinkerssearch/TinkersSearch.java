@@ -7,7 +7,6 @@ import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.world.level.block.entity.BlockEntity;
-import net.minecraftforge.client.event.InputEvent;
 import net.minecraftforge.client.event.ScreenEvent;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.TickEvent;
@@ -54,14 +53,10 @@ public class TinkersSearch {
 
         jeiAvailable = ModList.get().isLoaded("jei");
         System.out.println("Tinker's Search: JEI available: " + jeiAvailable);
-        System.out.println("Tinker's Search: Panel created!");
     }
 
-    public static FloatingSearchPanel getSearchPanel() {
-        return searchPanel;
-    }
+    public static FloatingSearchPanel getSearchPanel() { return searchPanel; }
 
-    /** 详情窗口打开时，本 mod 的其他事件应让位。 */
     private boolean isDetailScreenOpen() {
         return Minecraft.getInstance().screen instanceof FluidDetailScreen;
     }
@@ -70,14 +65,9 @@ public class TinkersSearch {
     public void onScreenInit(ScreenEvent.Init event) {
         Screen screen = event.getScreen();
         if (screen == null) return;
-
-        // 详情窗口打开时，不改动面板状态（面板留给父屏幕继续持有）
-        if (screen instanceof FluidDetailScreen) {
-            return;
-        }
+        if (screen instanceof FluidDetailScreen) return;
 
         boolean isSmeltery = isSmelteryScreen(screen);
-
         if (isSmeltery) {
             handleSmelteryOpen(screen);
             addPanelToRenderables(screen);
@@ -91,7 +81,6 @@ public class TinkersSearch {
         if (searchPanel == null) return;
         screen.renderables.remove(searchPanel);
         screen.renderables.add(searchPanel);
-        System.out.println("Tinker's Search: Panel added to renderables list");
     }
 
     private void removePanelFromRenderables(Screen screen) {
@@ -108,9 +97,7 @@ public class TinkersSearch {
         if (!isSmelteryScreen) {
             isSmelteryScreen = true;
             hasInitialized = false;
-            System.out.println("Tinker's Search: SmelteryScreen detected!");
         }
-
         findSmelteryBlockEntity(screen);
         searchPanel.updatePanelPosition();
 
@@ -120,9 +107,7 @@ public class TinkersSearch {
                 searchPanel.refreshMoltenFluids();
                 hasInitialized = true;
             }
-            if (jeiAvailable) {
-                Jei.refreshExclusionAreas();
-            }
+            if (jeiAvailable) Jei.refreshExclusionAreas();
         }
     }
 
@@ -135,34 +120,23 @@ public class TinkersSearch {
                 if (obj instanceof BlockEntity) {
                     smelteryBlockEntity = (BlockEntity) obj;
                     searchPanel.setSmelteryBlockEntity(smelteryBlockEntity);
-                    System.out.println("Tinker's Search: Found via '" + name + "'");
                     return;
                 }
             } catch (Exception ignored) {}
         }
-        System.out.println("Tinker's Search: Could not find smeltery BlockEntity");
     }
 
     private void handleSmelteryClose() {
         if (isSmelteryScreen) {
             isSmelteryScreen = false;
-
-            if (searchPanel != null && searchPanel.isVisible()) {
-                searchPanel.setVisible(false);
-                System.out.println("Tinker's Search: Panel closed due to smeltery screen closing");
-            }
-
-            if (jeiAvailable) {
-                Jei.refreshExclusionAreas();
-            }
-            System.out.println("Tinker's Search: Smeltery closed");
+            if (searchPanel != null && searchPanel.isVisible()) searchPanel.setVisible(false);
+            if (jeiAvailable) Jei.refreshExclusionAreas();
         }
     }
 
     @SubscribeEvent
     public void onClientTick(TickEvent.ClientTickEvent event) {
         if (event.phase != TickEvent.Phase.END) return;
-
         if (isDetailScreenOpen()) return;
 
         Minecraft mc = Minecraft.getInstance();
@@ -171,12 +145,10 @@ public class TinkersSearch {
 
         if (KeyBindings.togglePanelKey.consumeClick()) {
             long currentTime = System.currentTimeMillis();
-            if (currentTime - lastToggleTime < TOGGLE_COOLDOWN) {
-                return;
-            }
+            if (currentTime - lastToggleTime < TOGGLE_COOLDOWN) return;
             lastToggleTime = currentTime;
 
-            if (screen != null && isSmelteryScreen(screen)) {
+            if (isSmelteryScreen(screen)) {
                 if (!isSmelteryScreen) {
                     isSmelteryScreen = true;
                     findSmelteryBlockEntity(screen);
@@ -184,8 +156,6 @@ public class TinkersSearch {
                     addPanelToRenderables(screen);
                 }
                 togglePanel();
-            } else {
-                System.out.println("Tinker's Search: KeyBinding pressed but not in smeltery screen");
             }
         }
     }
@@ -193,35 +163,29 @@ public class TinkersSearch {
     @SubscribeEvent(priority = EventPriority.HIGHEST)
     public void onKeyboardKeyPressedPre(ScreenEvent.KeyPressed event) {
         if (isDetailScreenOpen()) return;
-        if (searchPanel == null) return;
-        if (!searchPanel.isVisible()) return;
+        if (searchPanel == null || !searchPanel.isVisible()) return;
         if (!interactionHandler.isSearchBoxFocused()) return;
 
         int keyCode = event.getKeyCode();
-
         if (interactionHandler.handleKeyPressed(keyCode, event.getScanCode(), event.getModifiers())) {
             event.setCanceled(true);
             return;
         }
-
         if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER ||
                 keyCode == GLFW.GLFW_KEY_ESCAPE) {
             interactionHandler.setSearchBoxFocused(false);
             event.setCanceled(true);
             return;
         }
-
         event.setCanceled(true);
     }
 
     private void togglePanel() {
-        System.out.println("Tinker's Search: Toggling panel!");
         searchPanel.toggleVisibility();
 
         if (searchPanel.isVisible()) {
             searchPanel.forceUpdatePosition();
             searchPanel.refreshTemperature();
-
             Screen screen = Minecraft.getInstance().screen;
             if (screen != null && isSmelteryScreen(screen)) {
                 findSmelteryBlockEntity(screen);
@@ -232,10 +196,7 @@ public class TinkersSearch {
             }
             hasInitialized = true;
         }
-
-        if (jeiAvailable) {
-            Jei.refreshExclusionAreas();
-        }
+        if (jeiAvailable) Jei.refreshExclusionAreas();
     }
 
     @SubscribeEvent(priority = EventPriority.HIGHEST)
@@ -243,7 +204,6 @@ public class TinkersSearch {
         if (isDetailScreenOpen()) return;
         if (!isSmelteryScreen || searchPanel == null || !searchPanel.isVisible()) return;
         if (!interactionHandler.isSearchBoxFocused()) return;
-
         if (interactionHandler.handleCharTyped(event.getCodePoint(), event.getModifiers())) {
             event.setCanceled(true);
         }
@@ -258,10 +218,7 @@ public class TinkersSearch {
         double mouseY = event.getMouseY();
 
         if (searchPanel.isTabButtonClicked(mouseX, mouseY)) {
-            if (searchPanel.isAnimating()) {
-                event.setCanceled(true);
-                return;
-            }
+            if (searchPanel.isAnimating()) { event.setCanceled(true); return; }
             togglePanel();
             event.setCanceled(true);
             return;
@@ -269,10 +226,7 @@ public class TinkersSearch {
 
         if (searchPanel.isVisible() || searchPanel.isAnimating()) {
             if (searchPanel.isPointInsidePanel(mouseX, mouseY)) {
-                if (searchPanel.isAnimating()) {
-                    event.setCanceled(true);
-                    return;
-                }
+                if (searchPanel.isAnimating()) { event.setCanceled(true); return; }
                 searchPanel.mouseClicked(mouseX, mouseY, event.getButton());
                 event.setCanceled(true);
                 return;
@@ -289,20 +243,14 @@ public class TinkersSearch {
             Minecraft mc = Minecraft.getInstance();
             double mouseX = mc.mouseHandler.xpos() * mc.getWindow().getGuiScaledWidth() / mc.getWindow().getScreenWidth();
             double mouseY = mc.mouseHandler.ypos() * mc.getWindow().getGuiScaledHeight() / mc.getWindow().getScreenHeight();
-
-            if (searchPanel.isPointInsidePanel(mouseX, mouseY)) {
-                event.setCanceled(true);
-            }
+            if (searchPanel.isPointInsidePanel(mouseX, mouseY)) event.setCanceled(true);
         }
     }
 
     @SubscribeEvent(priority = EventPriority.HIGHEST)
     public void onMouseScroll(ScreenEvent.MouseScrolled.Pre event) {
         if (isDetailScreenOpen()) return;
-        if (!isSmelteryScreen || searchPanel == null || !searchPanel.isVisible()) {
-            return;
-        }
-
+        if (!isSmelteryScreen || searchPanel == null || !searchPanel.isVisible()) return;
         if (searchPanel.isPointInsidePanel(event.getMouseX(), event.getMouseY())) {
             searchPanel.mouseScrolled(event.getMouseX(), event.getMouseY(), event.getScrollDelta());
             event.setCanceled(true);
@@ -314,7 +262,6 @@ public class TinkersSearch {
         if (isDetailScreenOpen()) return;
         if (!isSmelteryScreen || searchPanel == null) return;
         if (!searchPanel.isDraggingScrollBar()) return;
-
         searchPanel.handleMouseDrag(event.getMouseX(), event.getMouseY());
         event.setCanceled(true);
     }
@@ -324,7 +271,6 @@ public class TinkersSearch {
         if (isDetailScreenOpen()) return;
         if (!isSmelteryScreen || searchPanel == null) return;
         if (!searchPanel.isDraggingScrollBar()) return;
-
         searchPanel.handleMouseRelease();
         event.setCanceled(true);
     }
@@ -339,55 +285,35 @@ public class TinkersSearch {
         graphics.pose().pushPose();
         graphics.pose().translate(0, 0, 500);
 
+        // ★ 1.20.1 正确清理：使用 GlStateManager._clear 而非 GL11.glClear
         try {
-            GL11.glClear(GL11.GL_DEPTH_BUFFER_BIT);
+            GlStateManager._clear(GL11.GL_DEPTH_BUFFER_BIT, Minecraft.ON_OSX);
         } catch (Exception ignored) {}
 
-        boolean depthTestWasEnabled = false;
-        boolean blendWasEnabled = false;
-        boolean scissorWasEnabled = false;
-
-        try {
-            depthTestWasEnabled = GL11.glIsEnabled(GL11.GL_DEPTH_TEST);
-            blendWasEnabled = GL11.glIsEnabled(GL11.GL_BLEND);
-            scissorWasEnabled = GL11.glIsEnabled(GL11.GL_SCISSOR_TEST);
-        } catch (Exception ignored) {}
+        boolean depthTestWasEnabled = GL11.glIsEnabled(GL11.GL_DEPTH_TEST);
+        boolean blendWasEnabled = GL11.glIsEnabled(GL11.GL_BLEND);
+        boolean scissorWasEnabled = GL11.glIsEnabled(GL11.GL_SCISSOR_TEST);
 
         RenderSystem.disableDepthTest();
         RenderSystem.depthMask(false);
         RenderSystem.enableBlend();
         RenderSystem.defaultBlendFunc();
-
-        try {
-            GlStateManager._disableScissorTest();
-        } catch (Exception ignored) {}
+        try { GlStateManager._disableScissorTest(); } catch (Exception ignored) {}
 
         try {
             if (searchPanel.isVisible() || searchPanel.isAnimating()) {
                 searchPanel.render(graphics, 0, 0, 0);
             }
-
             drawTabButton(graphics);
-
         } finally {
-            try {
-                if (depthTestWasEnabled) RenderSystem.enableDepthTest();
-                else RenderSystem.disableDepthTest();
+            if (depthTestWasEnabled) RenderSystem.enableDepthTest(); else RenderSystem.disableDepthTest();
+            if (blendWasEnabled) RenderSystem.enableBlend(); else RenderSystem.disableBlend();
 
-                if (blendWasEnabled) RenderSystem.enableBlend();
-                else RenderSystem.disableBlend();
-
-                if (scissorWasEnabled) {
-                    try {
-                        GlStateManager._enableScissorTest();
-                    } catch (Exception ignored) {}
-                } else {
-                    try {
-                        GlStateManager._disableScissorTest();
-                    } catch (Exception ignored) {}
-                }
-            } catch (Exception ignored) {}
-
+            if (scissorWasEnabled) {
+                try { GlStateManager._enableScissorTest(); } catch (Exception ignored) {}
+            } else {
+                try { GlStateManager._disableScissorTest(); } catch (Exception ignored) {}
+            }
             graphics.pose().popPose();
         }
     }
@@ -400,23 +326,13 @@ public class TinkersSearch {
         int panelWidth = searchPanel.getPanelWidth();
         int panelHeight = searchPanel.getPanelHeight();
 
-        int btnX, btnY;
-        if (isExpanded) {
-            btnX = animationOffset + panelWidth - 1;
-        } else {
-            btnX = 0;
-        }
-        btnY = (panelHeight - TAB_BUTTON_HEIGHT) / 2;
-
-        if (btnX < 0) {
-            btnX = 0;
-        }
+        int btnX = isExpanded ? animationOffset + panelWidth - 1 : 0;
+        int btnY = (panelHeight - TAB_BUTTON_HEIGHT) / 2;
+        if (btnX < 0) btnX = 0;
 
         Minecraft mc = Minecraft.getInstance();
         int screenWidth = mc.getWindow().getGuiScaledWidth();
-        if (btnX + TAB_BUTTON_WIDTH < 0 || btnX > screenWidth) {
-            return;
-        }
+        if (btnX + TAB_BUTTON_WIDTH < 0 || btnX > screenWidth) return;
 
         double mouseX = mc.mouseHandler.xpos() * mc.getWindow().getGuiScaledWidth() / mc.getWindow().getScreenWidth();
         double mouseY = mc.mouseHandler.ypos() * mc.getWindow().getGuiScaledHeight() / mc.getWindow().getScreenHeight();
@@ -429,7 +345,6 @@ public class TinkersSearch {
         int borderColor = 0x44FFFFFF;
         graphics.fill(btnX, btnY, btnX + TAB_BUTTON_WIDTH, btnY + 1, borderColor);
         graphics.fill(btnX, btnY + TAB_BUTTON_HEIGHT - 1, btnX + TAB_BUTTON_WIDTH, btnY + TAB_BUTTON_HEIGHT, borderColor);
-
         if (isExpanded) {
             graphics.fill(btnX + TAB_BUTTON_WIDTH - 1, btnY, btnX + TAB_BUTTON_WIDTH, btnY + TAB_BUTTON_HEIGHT, borderColor);
         } else {
@@ -444,7 +359,4 @@ public class TinkersSearch {
         int textColor = hover ? 0xFFFFFFFF : 0xCCCCCCCC;
         graphics.drawString(font, arrow, textX, textY, textColor);
     }
-
-    // Note: Forge removed the recipes-updated event in 1.19.2+, so the corresponding handler is omitted.
-    // CastingRecipeHelper.invalidateCache() can be triggered elsewhere (e.g. PlayerTickEvent check) if needed.
 }

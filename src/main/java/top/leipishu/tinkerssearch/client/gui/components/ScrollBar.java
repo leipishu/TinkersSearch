@@ -5,10 +5,16 @@ import net.minecraft.client.gui.GuiGraphics;
 import java.util.function.Consumer;
 
 /**
- * 通用滚动条组件。
+ * 通用滚动条组件（1.20.1）。
  *
- * <p>包含轨道、thumb 的绘制，以及鼠标拖拽逻辑。
- * 组件本身不感知数据源，通过 {@link #setOnOffsetChanged} 注册的回调写回偏移。
+ * <p>相比 1.19.2 版本：
+ * <ul>
+ *   <li>渲染入口 {@code PoseStack} → {@link GuiGraphics}</li>
+ *   <li>{@code GuiComponent.fill(ps, ...)} → {@code graphics.fill(...)}</li>
+ * </ul>
+ *
+ * <p>API 与 1.19.2 版本<b>完全一致</b>（含 {@link #setHoverExpandX(int)}），
+ * {@code PanelRenderer} / {@code FluidDetailScreen} 无需改动即可直接调用。
  *
  * <p>每帧调用顺序：
  * <ol>
@@ -49,6 +55,9 @@ public class ScrollBar {
     private int thumbMinHeight = 16;
     private float thumbRatio = 0.3f;
 
+    /** 鼠标命中容差（水平方向向外扩展的像素）。 */
+    private int hoverExpandX = 0;
+
     public ScrollBar() {}
 
     // ==================== 配置 ====================
@@ -77,6 +86,11 @@ public class ScrollBar {
         this.thumbMinHeight = Math.max(4, h);
     }
 
+    /** ★ 水平方向命中扩展：窄轨道也方便拖动。 */
+    public void setHoverExpandX(int px) {
+        this.hoverExpandX = Math.max(0, px);
+    }
+
     // ==================== 状态 ====================
 
     public boolean isActive() { return maxOffset > 0; }
@@ -85,7 +99,7 @@ public class ScrollBar {
 
     public boolean isHovered(double mouseX, double mouseY) {
         if (width <= 0 || height <= 0) return false;
-        return mouseX >= x && mouseX <= x + width
+        return mouseX >= x - hoverExpandX && mouseX <= x + width + hoverExpandX
                 && mouseY >= y && mouseY <= y + height;
     }
 

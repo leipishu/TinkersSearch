@@ -21,6 +21,10 @@ import java.util.Optional;
  *
  * <p>集中处理匠魂及各附属模组在字段/方法命名上的差异。所有方法都容忍
  * 反射失败，返回 null / {@code ItemStack.EMPTY} / 空列表而不抛异常。
+ *
+ * <p><b>1.20.1 移植说明</b>：保留 1.19.2 版本 {@link #extractFluids(Recipe)}
+ * 的"暴力字段扫描"兜底（第 4 步），因为匠魂 MaterialFluidRecipe 的结构
+ * 在多个版本间变化较大，前面 3 步经常拿不到流体。
  */
 public class RecipeReflection {
 
@@ -28,7 +32,6 @@ public class RecipeReflection {
     // ===== 字段查找 =============================================
     // ============================================================
 
-    /** 沿类层次查找第一个非 null 的具名字段值；找不到返回 null。 */
     public static Object findFieldValue(Object obj, String... names) {
         if (obj == null) return null;
         for (String name : names) {
@@ -52,7 +55,6 @@ public class RecipeReflection {
     // ===== ItemStack 输出 ======================================
     // ============================================================
 
-    /** 尝试从 recipe 读取 ItemStack 输出；失败返回 {@code ItemStack.EMPTY}。 */
     public static ItemStack tryGetOutput(Recipe<?> recipe) {
         if (recipe == null) return ItemStack.EMPTY;
 
@@ -84,7 +86,6 @@ public class RecipeReflection {
         return ItemStack.EMPTY;
     }
 
-    /** part_builder 配方的 result；失败返回 {@code ItemStack.EMPTY}。 */
     public static ItemStack tryGetPartBuilderResult(Recipe<?> recipe) {
         if (recipe == null) return ItemStack.EMPTY;
 
@@ -118,7 +119,6 @@ public class RecipeReflection {
     // ===== part_builder cost ===================================
     // ============================================================
 
-    /** part_builder 配方的 cost 字段；找不到返回 null。 */
     public static Integer tryGetPartBuilderCost(Recipe<?> recipe) {
         if (recipe == null) return null;
 
@@ -148,18 +148,15 @@ public class RecipeReflection {
     // ===== 输入流体 ============================================
     // ============================================================
 
-    /** 尝试从 recipe 读取第一个输入流体；失败返回 null。 */
     public static FluidStack getCastingFluid(Recipe<?> recipe) {
         if (recipe == null) return null;
 
-        // 1. 直接找 fluid 字段
         try {
             Object fluidIngredient = findFieldValue(recipe, "fluid", "fluidIngredient", "inputFluid");
             FluidStack got = fluidFromIngredient(fluidIngredient);
             if (got != null) return got;
         } catch (Exception ignored) {}
 
-        // 2. 从 materialFluidRecipe 里读
         try {
             Object mf = findFieldValue(recipe,
                     "materialFluid", "materialFluidRecipe", "materialRecipe", "fluidRecipe");
@@ -172,7 +169,6 @@ public class RecipeReflection {
             }
         } catch (Exception ignored) {}
 
-        // 3. getFluid() / getFluids()
         try {
             Method m = recipe.getClass().getMethod("getFluid");
             Object v = m.invoke(recipe);
@@ -191,7 +187,6 @@ public class RecipeReflection {
             }
         } catch (Exception ignored) {}
 
-        // 4. cachedFluidRecipe 里挖 inputs
         try {
             Object cached = findFieldValue(recipe,
                     "cachedFluidRecipe", "fluidRecipe", "materialFluidRecipe", "materialRecipe");
@@ -213,7 +208,6 @@ public class RecipeReflection {
         return null;
     }
 
-    /** 从 FluidIngredient / FluidStack / 包装对象中提取第一个 FluidStack。 */
     public static FluidStack fluidFromIngredient(Object fi) {
         if (fi == null) return null;
         if (fi instanceof FluidStack) {
@@ -251,13 +245,16 @@ public class RecipeReflection {
      * <ol>
      *   <li>方法 {@code getFluid} / {@code getFluidIngredient} / {@code getInputFluid}</li>
      *   <li>字段 {@code fluid} / {@code input} / {@code fluidInput} / {@code fluidIngredient}</li>
-     *   <li>字段 {@code cachedFluidRecipe} 里的 {@code getInputs()}（匠魂 MaterialCastingRecipe 用）</li>
+     *   <li>字段 {@code cachedFluidRecipe} 里的 {@code getInputs()}</li>
+     *   <li>★ 暴力扫描：遍历所有字段，寻找类型名含 {@code FluidIngredient} 或
+     *       {@code MaterialFluidRecipe} 的字段（含 {@code Optional} 包装）</li>
      * </ol>
      */
     public static List<FluidStack> extractFluids(Recipe<?> recipe) {
         List<FluidStack> result = new ArrayList<>();
         if (recipe == null) return result;
 
+        // ===== 1. 直接方法 =====
         for (String mn : new String[]{"getFluid", "getFluidIngredient", "getInputFluid"}) {
             try {
                 Method m = recipe.getClass().getMethod(mn);
@@ -268,6 +265,7 @@ public class RecipeReflection {
             } catch (Exception ignored) {}
         }
 
+        // ===== 2. 常见字段名 =====
         for (String fn : new String[]{"fluid", "input", "fluidInput", "fluidIngredient"}) {
             try {
                 Class<?> clazz = recipe.getClass();
@@ -284,7 +282,7 @@ public class RecipeReflection {
             } catch (Exception ignored) {}
         }
 
-        // ===== 最后兜底：从 cachedFluidRecipe 里挖 inputs =====
+        // ===== 3. cachedFluidRecipe 里挖 inputs =====
         Object cached = findFieldValue(recipe,
                 "cachedFluidRecipe", "fluidRecipe", "materialFluidRecipe", "materialRecipe");
         if (cached instanceof Optional) {
@@ -297,14 +295,57 @@ public class RecipeReflection {
                         List<FluidStack> got = toFluidList(input);
                         result.addAll(got);
                     }
+                    if (!result.isEmpty()) return result;
                 }
             }
         }
 
+        // ===== 4. 暴力扫描：找所有可能的 FluidIngredient / MaterialFluidRecipe 字段 =====
+        // ★ 1.20.1 移植时曾遗漏此段，现补回。
+        try {
+            Class<?> clazz = recipe.getClass();
+            while (clazz != null && clazz != Object.class) {
+                for (Field f : clazz.getDeclaredFields()) {
+                    try {
+                        f.setAccessible(true);
+                        Object v = f.get(recipe);
+                        if (v == null) continue;
+
+                        // 包装在 Optional 里
+                        if (v instanceof Optional) {
+                            Optional<?> opt = (Optional<?>) v;
+                            if (!opt.isPresent()) continue;
+                            v = opt.get();
+                        }
+
+                        String typeName = v.getClass().getName().toLowerCase();
+
+                        // 直接是 FluidIngredient
+                        if (typeName.contains("fluidingredient")) {
+                            List<FluidStack> got = toFluidList(v);
+                            if (!got.isEmpty()) return got;
+                        }
+
+                        // MaterialFluidRecipe：从 getInputs() 挖
+                        if (typeName.contains("materialfluid")) {
+                            Object inputsObj = invokeNoArg(v, "getInputs");
+                            if (inputsObj instanceof List) {
+                                for (Object input : (List<?>) inputsObj) {
+                                    List<FluidStack> got = toFluidList(input);
+                                    result.addAll(got);
+                                }
+                                if (!result.isEmpty()) return result;
+                            }
+                        }
+                    } catch (Throwable ignored) {}
+                }
+                clazz = clazz.getSuperclass();
+            }
+        } catch (Exception ignored) {}
+
         return result;
     }
 
-    /** 把任意对象转成 {@code List<FluidStack>}；失败返回空列表。 */
     public static List<FluidStack> toFluidList(Object v) {
         List<FluidStack> result = new ArrayList<>();
         if (v == null) return result;
@@ -346,7 +387,6 @@ public class RecipeReflection {
     // ===== MaterialId / ResourceLocation =======================
     // ============================================================
 
-    /** 尝试从 recipe 读取材料 ID 对应的 {@link ResourceLocation}；失败返回 null。 */
     public static ResourceLocation extractMaterialId(Recipe<?> recipe) {
         if (recipe == null) return null;
 
@@ -379,7 +419,6 @@ public class RecipeReflection {
         return null;
     }
 
-    /** 把任意对象转成 {@link ResourceLocation}；失败返回 null。 */
     public static ResourceLocation toResourceLocation(Object v) {
         if (v == null) return null;
         try {
@@ -489,7 +528,6 @@ public class RecipeReflection {
     // ===== 内部工具 =============================================
     // ============================================================
 
-    /** 调用无参方法；失败返回 null。 */
     private static Object invokeNoArg(Object obj, String name) {
         if (obj == null) return null;
         try {

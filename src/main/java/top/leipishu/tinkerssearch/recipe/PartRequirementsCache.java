@@ -12,69 +12,50 @@ import slimeknights.tconstruct.library.recipe.casting.ItemCastingRecipe;
 import slimeknights.tconstruct.library.recipe.casting.material.MaterialCastingRecipe;
 import slimeknights.tconstruct.library.tools.part.IMaterialItem;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
-/**
- * 部件 → 需求量（mB）缓存。
- *
- * <p>从多个来源推断每个部件浇筑一次需要多少流体：
- * <ol>
- *   <li>{@code part_builder} 配方的 cost 字段</li>
- *   <li>{@code MaterialCastingRecipe} 的 itemCost</li>
- *   <li>普通 {@code ItemCastingRecipe}，从 {@code _cast} 后缀反推</li>
- *   <li>配方 ID 反推兜底</li>
- * </ol>
- *
- * <p>结果只在内存中缓存，配方重载或重启游戏时清空。
- */
 public class PartRequirementsCache {
 
-    private static Map<ResourceLocation, Integer> cache = null;
+    private static volatile Map<ResourceLocation, Integer> cache = null;
+    private static final Map<ResourceLocation, Integer> EMPTY_MAP = Collections.emptyMap();
 
-    /** 清空缓存。 */
     public static void clear() {
         cache = null;
     }
 
-    /** 预热缓存。 */
     public static void prewarm() {
         getMap();
     }
 
-    /** 返回部件需求量（mB），无记录时返回 -1。 */
     public static int get(ResourceLocation partId) {
         if (partId == null) return -1;
         Integer v = getMap().get(partId);
         return v != null ? v : -1;
     }
 
-    // ============================================================
-    // ===== 内部实现 =============================================
-    // ============================================================
-
     private static Map<ResourceLocation, Integer> getMap() {
-        if (cache != null) return cache;
+        Map<ResourceLocation, Integer> local = cache;
+        if (local != null) return local;
 
-        Minecraft mc = Minecraft.getInstance();
-        if (mc.isSameThread()) {
-            build();
-        } else {
-            if (cache == null) cache = new HashMap<>();
-            mc.execute(PartRequirementsCache::build);
+        synchronized (PartRequirementsCache.class) {
+            if (cache != null) return cache;
+            try {
+                build();
+            } catch (Throwable t) {
+                System.err.println("Tinker's Search: PartRequirementsCache build failed: " + t);
+                t.printStackTrace();
+            }
         }
-        return cache;
+        return cache != null ? cache : EMPTY_MAP;
     }
 
     private static void build() {
-        Map<ResourceLocation, Integer> newMap = new HashMap<>();
-
         Minecraft mc = Minecraft.getInstance();
-        if (mc.getConnection() == null) {
-            cache = newMap;
-            return;
-        }
+        if (mc.getConnection() == null) return;
 
+        Map<ResourceLocation, Integer> newMap = new HashMap<>();
         RecipeManager recipeManager = mc.getConnection().getRecipeManager();
         int builderCount = 0;
         int materialCastingCount = 0;
@@ -82,7 +63,7 @@ public class PartRequirementsCache {
         int idFallbackCount = 0;
 
         try {
-            // ===== 阶段1：part_builder =====
+            // 阶段1：part_builder
             for (Recipe<?> recipe : recipeManager.getRecipes()) {
                 Integer cost = RecipeReflection.tryGetPartBuilderCost(recipe);
                 if (cost == null || cost <= 0) continue;
@@ -97,16 +78,12 @@ public class PartRequirementsCache {
                 if (partId == null) continue;
 
                 int amount = cost * MaterialCastingCost.MB_PER_COST;
-                if (newMap.putIfAbsent(partId, amount) == null) {
-                    builderCount++;
-                }
+                if (newMap.putIfAbsent(partId, amount) == null) builderCount++;
             }
 
-            // ===== 阶段2：MaterialCastingRecipe =====
-            int materialCastingTotal = 0;
+            // 阶段2：MaterialCastingRecipe
             for (Recipe<?> recipe : recipeManager.getRecipes()) {
                 if (!(recipe instanceof MaterialCastingRecipe)) continue;
-                materialCastingTotal++;
 
                 ItemStack output = RecipeReflection.tryGetOutput(recipe);
                 if (output == null || output.isEmpty()) continue;
@@ -131,12 +108,11 @@ public class PartRequirementsCache {
                         amount = MaterialCastingCost.MB_PER_COST;
                     }
                 }
-
                 newMap.put(partId, amount);
                 materialCastingCount++;
             }
 
-            // ===== 阶段3：普通 ItemCastingRecipe（_cast 后缀反推）=====
+            // 阶段3：ItemCastingRecipe（_cast 后缀反推）
             for (Recipe<?> recipe : recipeManager.getRecipes()) {
                 if (recipe instanceof MaterialCastingRecipe) continue;
                 if (!(recipe instanceof ItemCastingRecipe)) continue;
@@ -161,7 +137,7 @@ public class PartRequirementsCache {
                 newMap.put(partId, fluid.getAmount());
             }
 
-            // ===== 阶段4：配方 ID 反推兜底 =====
+            // 阶段4：配方 ID 反推兜底
             for (Recipe<?> recipe : recipeManager.getRecipes()) {
                 ResourceLocation recipeId = recipe.getId();
                 if (recipeId == null) continue;
@@ -183,6 +159,7 @@ public class PartRequirementsCache {
             }
         } catch (Exception e) {
             System.err.println("Tinker's Search: Error building part req cache: " + e.getMessage());
+            return;
         }
 
         cache = newMap;
@@ -204,10 +181,7 @@ public class PartRequirementsCache {
                 return last.substring(0, last.length() - suffix.length());
             }
         }
-
-        if (path.contains("parts/building/")) {
-            return last;
-        }
+        if (path.contains("parts/building/")) return last;
         return null;
     }
 }

@@ -48,7 +48,7 @@ public class FloatingSearchPanel extends AbstractWidget {
     private final PanelInteractionHandler interactionHandler;
     private final AlloyQueryHandler alloyHandler;
 
-    // ===== 存储位置（因为父类的 x/y/width/height 在 1.20.1 是 private） =====
+    // 1.20.1 中父类 x/y/width/height 是 private，因此这里自有字段
     private int panelX = 0;
     private int panelY = 0;
     private int panelWidth = PANEL_WIDTH;
@@ -65,10 +65,7 @@ public class FloatingSearchPanel extends AbstractWidget {
         this.alloyHandler = AlloyQueryHandler.getInstance();
 
         this.interactionHandler = new PanelInteractionHandler(
-                this,
-                this::refreshMoltenFluids,
-                this::onFluidClicked
-        );
+                this, this::refreshMoltenFluids, this::onFluidClicked);
 
         this.dataManager = new PanelDataManager(this, interactionHandler, alloyHandler);
         this.temperatureReader = new SmelteryTemperatureReader();
@@ -109,12 +106,9 @@ public class FloatingSearchPanel extends AbstractWidget {
         int panelWidth = getPanelWidth();
         int panelHeight = getPanelHeight();
 
-        int btnX, btnY;
-        if (expanded) btnX = panelX + panelWidth - 1;
-        else btnX = 0;
-        btnY = (panelHeight - TAB_BUTTON_HEIGHT) / 2;
-
+        int btnX = expanded ? panelX + panelWidth - 1 : 0;
         if (btnX < 0) btnX = 0;
+        int btnY = (panelHeight - TAB_BUTTON_HEIGHT) / 2;
         return new int[]{btnX, btnY};
     }
 
@@ -150,11 +144,17 @@ public class FloatingSearchPanel extends AbstractWidget {
         this.isVisible = visible;
         this.visible = visible;
     }
-    public void setActuallyVisible(boolean actuallyVisible) { this.isActuallyVisible = actuallyVisible; }
+    public void setActuallyVisible(boolean v) { this.isActuallyVisible = v; }
     public void setScrollOffset(int offset) { dataManager.setScrollOffset(offset); }
     public void setFavScrollOffset(int offset) { dataManager.setFavScrollOffset(offset); }
     public void setAllMaterialsScrollOffset(int offset) { dataManager.setAllMaterialsScrollOffset(offset); }
     public void setAlloyScrollOffset(int offset) { dataManager.setAlloyScrollOffset(offset); }
+
+    // ==================== 滚动快照委托 ====================
+
+    public void saveScrollSnapshot() { dataManager.saveScrollSnapshot(); }
+    public void restoreScrollSnapshotIfPresent() { dataManager.restoreScrollSnapshot(); }
+    public void discardScrollSnapshot() { dataManager.discardScrollSnapshot(); }
 
     // ==================== 布局方法 ====================
 
@@ -177,7 +177,6 @@ public class FloatingSearchPanel extends AbstractWidget {
         int px = getPanelX();
         int py = this.panelY;
         int pw = this.panelWidth;
-
         int cardW = (pw - 10 - PanelConfig.CARD_SPACING - PanelConfig.SCROLL_BAR_WIDTH - PanelConfig.SCROLL_BAR_PADDING) / PanelConfig.ITEMS_PER_ROW;
         int cardH = PanelConfig.CARD_HEIGHT;
 
@@ -198,7 +197,6 @@ public class FloatingSearchPanel extends AbstractWidget {
             return null;
         }
 
-        // SMELTERY
         int favStartY = py + layoutCalculator.getFavoriteAreaStartY();
         for (int i = 0; i < dataManager.getDisplayedFavoriteFluids().size(); i++) {
             int row = i / PanelConfig.ITEMS_PER_ROW;
@@ -275,8 +273,11 @@ public class FloatingSearchPanel extends AbstractWidget {
     // ==================== 数据刷新 ====================
 
     public void setSmelteryBlockEntity(BlockEntity tileEntity) {
+        BlockEntity old = dataManager.getSmelteryTileEntity();
         dataManager.setSmelteryTileEntity(tileEntity);
-        if (tileEntity != null) refreshMoltenFluids();
+        if (tileEntity != null && tileEntity != old) {
+            refreshMoltenFluids();
+        }
     }
 
     public void refreshMoltenFluids() { dataManager.refreshMoltenFluids(); }
@@ -312,9 +313,7 @@ public class FloatingSearchPanel extends AbstractWidget {
 
         int actualX = getPanelX();
         if (mouseX < actualX || mouseX > actualX + this.panelWidth ||
-                mouseY < this.panelY || mouseY > this.panelY + this.panelHeight) {
-            return false;
-        }
+                mouseY < this.panelY || mouseY > this.panelY + this.panelHeight) return false;
 
         Tab tab = dataManager.getCurrentTab();
 
@@ -338,7 +337,6 @@ public class FloatingSearchPanel extends AbstractWidget {
             return false;
         }
 
-        // SMELTERY
         int favStartY = this.panelY + layoutCalculator.getFavoriteAreaStartY();
         int favEndY = favStartY + layoutCalculator.getFavoriteAreaHeight();
         if (layoutCalculator.getFavoriteAreaHeight() > 0 && mouseY >= favStartY && mouseY <= favEndY) {
@@ -362,7 +360,6 @@ public class FloatingSearchPanel extends AbstractWidget {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        // ===== 1. Tab 按钮（最高优先级）=====
         if (isTabButtonClicked(mouseX, mouseY)) {
             if (isAnimating()) return true;
             toggleVisibility();
@@ -375,16 +372,10 @@ public class FloatingSearchPanel extends AbstractWidget {
         int py = this.panelY;
         int pw = this.panelWidth;
 
-        if (!(mouseX >= px && mouseX <= px + pw && mouseY >= py && mouseY <= py + this.panelHeight)) {
-            return false;
-        }
+        if (!(mouseX >= px && mouseX <= px + pw && mouseY >= py && mouseY <= py + this.panelHeight)) return false;
 
-        // ===== 2. 滚动条拖拽优先（必须在任何 ClickableArea 检测之前）=====
-        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && renderer.beginScrollBarDrag(mouseX, mouseY)) {
-            return true;
-        }
+        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && renderer.beginScrollBarDrag(mouseX, mouseY)) return true;
 
-        // ===== 3. 合金结果名点击 =====
         if (dataManager.isAlloyMode() && renderer.isClickingResultName((int) mouseX, (int) mouseY)) {
             List<String> registryNames = renderer.getClickableResultRegistryNames((int) mouseX, (int) mouseY);
             List<String> displayNames = renderer.getClickableResultNames((int) mouseX, (int) mouseY);
@@ -404,6 +395,7 @@ public class FloatingSearchPanel extends AbstractWidget {
                 if (matchedMaterial != null) {
                     int currentTemp = getCurrentSmelteryTemperature();
                     alloyHandler.refreshTemperature(currentTemp);
+                    dataManager.resetAlloyResultsScrollOffset();  // ★ 切换材料时清结果滚动
                     alloyHandler.selectMaterial(matchedMaterial, dataManager.getAllFluids(), currentTemp);
                     return true;
                 }
@@ -412,7 +404,6 @@ public class FloatingSearchPanel extends AbstractWidget {
             return true;
         }
 
-        // ===== 4. Tab 点击（面板内 Tab 栏）=====
         int tabIdx = getTabIndexAt(mouseX, mouseY, px, py);
         if (tabIdx >= 0) {
             Tab[] tabs = Tab.values();
@@ -424,7 +415,6 @@ public class FloatingSearchPanel extends AbstractWidget {
 
         Font font = Minecraft.getInstance().font;
 
-        // ===== 5. 合金返回 =====
         if (dataManager.isAlloyMode() && alloyHandler.getSelectedMaterial() != null) {
             String backText = Component.translatable("gui.tinkerssearch.alloy_back").getString();
             int backX = px + 5;
@@ -436,7 +426,6 @@ public class FloatingSearchPanel extends AbstractWidget {
             }
         }
 
-        // ===== 6. 刷新 =====
         if (mouseX >= px + PanelConfig.REFRESH_BTN_X && mouseX <= px + PanelConfig.REFRESH_BTN_X + PanelConfig.REFRESH_BTN_W &&
                 mouseY >= py + PanelConfig.REFRESH_BTN_Y && mouseY <= py + PanelConfig.REFRESH_BTN_Y + PanelConfig.REFRESH_BTN_H) {
             alloyHandler.invalidateTemperatureCache();
@@ -447,10 +436,7 @@ public class FloatingSearchPanel extends AbstractWidget {
             return true;
         }
 
-        // ===== 7. 搜索框 =====
-        if (interactionHandler.handleSearchBoxClick(mouseX, mouseY)) {
-            return true;
-        }
+        if (interactionHandler.handleSearchBoxClick(mouseX, mouseY)) return true;
 
         if (interactionHandler.isSearchBoxFocused()) {
             interactionHandler.setSearchBoxFocused(false);
@@ -477,20 +463,9 @@ public class FloatingSearchPanel extends AbstractWidget {
         return super.mouseReleased(mouseX, mouseY, button);
     }
 
-    /** 当前是否正在拖拽滚动条。 */
-    public boolean isDraggingScrollBar() {
-        return renderer.isDraggingScrollBar();
-    }
-
-    /** 由外部事件转发：更新拖拽。 */
-    public void handleMouseDrag(double mouseX, double mouseY) {
-        renderer.updateScrollBarDrag(mouseY);
-    }
-
-    /** 由外部事件转发：结束拖拽。 */
-    public void handleMouseRelease() {
-        renderer.endScrollBarDrag();
-    }
+    public boolean isDraggingScrollBar() { return renderer.isDraggingScrollBar(); }
+    public void handleMouseDrag(double mouseX, double mouseY) { renderer.updateScrollBarDrag(mouseY); }
+    public void handleMouseRelease() { renderer.endScrollBarDrag(); }
 
     private int getTabIndexAt(double mouseX, double mouseY, int px, int py) {
         int relX = (int) mouseX - px;
@@ -512,7 +487,6 @@ public class FloatingSearchPanel extends AbstractWidget {
 
         if (!registryName.isEmpty()) {
             for (FluidStack fs : materials) {
-                // ✅ 1.20.1：通过 ForgeRegistries 获取注册名
                 ResourceLocation rl = ForgeRegistries.FLUIDS.getKey(fs.getFluid());
                 if (rl != null && rl.getPath().equalsIgnoreCase(registryName)) return fs;
             }
@@ -533,7 +507,6 @@ public class FloatingSearchPanel extends AbstractWidget {
         if (!registryName.isEmpty()) {
             String lowerRegistry = registryName.toLowerCase();
             for (FluidStack fs : materials) {
-                // ✅ 1.20.1：通过 ForgeRegistries 获取注册名
                 ResourceLocation rl = ForgeRegistries.FLUIDS.getKey(fs.getFluid());
                 if (rl != null) {
                     String path = rl.getPath().toLowerCase();
@@ -550,7 +523,6 @@ public class FloatingSearchPanel extends AbstractWidget {
 
         if (interactionHandler.isSearchBoxFocused()) {
             if (interactionHandler.handleKeyPressed(keyCode, scanCode, modifiers)) return true;
-
             if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER ||
                     keyCode == GLFW.GLFW_KEY_ESCAPE) {
                 interactionHandler.setSearchBoxFocused(false);
@@ -590,7 +562,6 @@ public class FloatingSearchPanel extends AbstractWidget {
         int px = getPanelX();
         int py = this.panelY;
         int pw = this.panelWidth;
-
         int cardW = (pw - 10 - PanelConfig.CARD_SPACING - PanelConfig.SCROLL_BAR_WIDTH - PanelConfig.SCROLL_BAR_PADDING) / PanelConfig.ITEMS_PER_ROW;
         int cardH = PanelConfig.CARD_HEIGHT;
 
@@ -654,7 +625,6 @@ public class FloatingSearchPanel extends AbstractWidget {
                 boolean existsInSmeltery = true;
                 if (areaKind != AreaKind.SMELTERY) {
                     existsInSmeltery = false;
-                    // ✅ 1.20.1：通过 ForgeRegistries 获取注册名
                     ResourceLocation fluidRl = ForgeRegistries.FLUIDS.getKey(fluid.getFluid());
                     for (FluidStack fs : dataManager.getAllFluids()) {
                         ResourceLocation fsRl = ForgeRegistries.FLUIDS.getKey(fs.getFluid());
@@ -692,9 +662,7 @@ public class FloatingSearchPanel extends AbstractWidget {
                     return interactionHandler.handleJeiIconClick(fluid, button);
                 }
 
-                if (areaKind != AreaKind.SMELTERY && !existsInSmeltery) {
-                    return true;
-                }
+                if (areaKind != AreaKind.SMELTERY && !existsInSmeltery) return true;
 
                 if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && !onIcon) {
                     return moveFluidToBottom(fluid);
@@ -707,6 +675,9 @@ public class FloatingSearchPanel extends AbstractWidget {
     }
 
     private void openFluidDetailScreen(FluidStack fluid) {
+        // ★ 打开前保存滚动快照（关闭详情后由外部恢复）
+        dataManager.saveScrollSnapshot();
+
         Minecraft mc = Minecraft.getInstance();
         SmelteryBlockEntity smeltery = null;
 
@@ -731,7 +702,6 @@ public class FloatingSearchPanel extends AbstractWidget {
         int px = getPanelX();
         int py = this.panelY;
         int pw = this.panelWidth;
-
         Font font = Minecraft.getInstance().font;
 
         if (alloyHandler.getSelectedMaterial() != null) {
@@ -769,6 +739,7 @@ public class FloatingSearchPanel extends AbstractWidget {
                     if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
                         int currentTemp = getCurrentSmelteryTemperature();
                         alloyHandler.refreshTemperature(currentTemp);
+                        dataManager.resetAlloyResultsScrollOffset();   // ★ 选中新材料时清结果滚动
                         alloyHandler.selectMaterial(materials.get(i), dataManager.getAllFluids(), currentTemp);
                         return true;
                     }

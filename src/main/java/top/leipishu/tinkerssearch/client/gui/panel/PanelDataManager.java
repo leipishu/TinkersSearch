@@ -19,23 +19,25 @@ import static top.leipishu.tinkerssearch.config.PanelConfig.*;
 
 /**
  * 面板数据管理器 - 管理 Tab 状态、流体列表、收藏、滚动偏移。
+ *
+ * <p><b>1.20.1 修复</b>：
+ * <ul>
+ *   <li>滚动快照（save/restore/discard/hasSnapshot）——打开详情窗口返回后恢复位置</li>
+ *   <li>合金页拆两个独立滚动偏移（材料列表 / 结果页）</li>
+ *   <li>{@code refreshAllMaterials} 不再强制清零 {@code allMaterialsScrollOffset}</li>
+ * </ul>
  */
 public class PanelDataManager {
 
-    /** Tab 页。 */
     public enum Tab { SMELTERY, MATERIALS, ALLOY }
-
-    /** 卡片所在区域类型，影响显示与交互逻辑。 */
     public enum AreaKind { SMELTERY, FAVORITE, ALL_MATERIALS }
 
     private final FloatingSearchPanel panel;
     private final PanelInteractionHandler interactionHandler;
     private final AlloyQueryHandler alloyHandler;
 
-    // ===== 当前 Tab =====
     private Tab currentTab = Tab.SMELTERY;
 
-    // ===== 数据 =====
     private List<FluidStack> allFluids = new ArrayList<>();
     private List<FluidStack> displayedFluids = new ArrayList<>();
 
@@ -50,7 +52,6 @@ public class PanelDataManager {
 
     private String bottomFluidName = null;
 
-    // ===== 滚动 =====
     private int scrollOffset = 0;
     private int maxScrollOffset = 0;
 
@@ -60,13 +61,23 @@ public class PanelDataManager {
     private int allMaterialsScrollOffset = 0;
     private int maxAllMaterialsScrollOffset = 0;
 
-    private int alloyScrollOffset = 0;
+    // ★ 合金页拆两个滚动偏移：材料列表 & 结果页，避免互相覆盖
+    private int alloyMaterialsScrollOffset = 0;
+    private int alloyResultsScrollOffset = 0;
 
-    // ===== 移动后刷新标记 =====
+    // ★ 打开 Detail 时的滚动快照
+    private int snapshotScrollOffset = -1;
+    private int snapshotFavScrollOffset = -1;
+    private int snapshotAllMaterialsScrollOffset = -1;
+    private int snapshotAlloyMaterialsScrollOffset = -1;
+    private int snapshotAlloyResultsScrollOffset = -1;
+    private boolean hasSnapshot = false;
+
     private boolean pendingHighlightUpdate = false;
     private long pendingHighlightTime = 0;
 
-    public PanelDataManager(FloatingSearchPanel panel, PanelInteractionHandler interactionHandler, AlloyQueryHandler alloyHandler) {
+    public PanelDataManager(FloatingSearchPanel panel, PanelInteractionHandler interactionHandler,
+                            AlloyQueryHandler alloyHandler) {
         this.panel = panel;
         this.interactionHandler = interactionHandler;
         this.alloyHandler = alloyHandler;
@@ -75,12 +86,7 @@ public class PanelDataManager {
     // ==================== Tab ====================
 
     public Tab getCurrentTab() { return currentTab; }
-
-    public void setCurrentTab(Tab tab) {
-        if (tab == null) return;
-        this.currentTab = tab;
-    }
-
+    public void setCurrentTab(Tab tab) { if (tab != null) this.currentTab = tab; }
     public boolean isAlloyMode() { return currentTab == Tab.ALLOY; }
 
     // ==================== Getters ====================
@@ -103,38 +109,75 @@ public class PanelDataManager {
     public int getMaxFavScrollOffset() { return maxFavScrollOffset; }
     public int getAllMaterialsScrollOffset() { return allMaterialsScrollOffset; }
     public int getMaxAllMaterialsScrollOffset() { return maxAllMaterialsScrollOffset; }
-    public int getAlloyScrollOffset() { return alloyScrollOffset; }
+
+    /** ★ 结果页存在时返回结果偏移，否则返回材料列表偏移。 */
+    public int getAlloyScrollOffset() {
+        if (alloyHandler.getSelectedMaterial() != null) return alloyResultsScrollOffset;
+        return alloyMaterialsScrollOffset;
+    }
+
+    public int getAlloyMaterialsScrollOffset() { return alloyMaterialsScrollOffset; }
+    public int getAlloyResultsScrollOffset() { return alloyResultsScrollOffset; }
 
     public boolean hasPendingHighlightUpdate() { return pendingHighlightUpdate; }
     public long getPendingHighlightTime() { return pendingHighlightTime; }
 
     // ==================== Setters ====================
 
-    public void setAlloyScrollOffset(int offset) { this.alloyScrollOffset = offset; }
+    /** ★ 结果页存在时写入结果偏移，否则写入材料列表偏移。 */
+    public void setAlloyScrollOffset(int offset) {
+        if (alloyHandler.getSelectedMaterial() != null) {
+            alloyResultsScrollOffset = Math.max(0, offset);
+        } else {
+            alloyMaterialsScrollOffset = Math.max(0, offset);
+        }
+    }
+
+    public void resetAlloyResultsScrollOffset() { alloyResultsScrollOffset = 0; }
+    public void resetAlloyMaterialsScrollOffset() { alloyMaterialsScrollOffset = 0; }
 
     public void setSmelteryTileEntity(BlockEntity tileEntity) {
         this.smelteryTileEntity = tileEntity;
         this.cachedTileEntity = tileEntity;
     }
 
-    public void setScrollOffset(int offset) {
-        scrollOffset = Math.max(0, Math.min(offset, maxScrollOffset));
-    }
-
-    public void setFavScrollOffset(int offset) {
-        favScrollOffset = Math.max(0, Math.min(offset, maxFavScrollOffset));
-    }
-
-    public void setAllMaterialsScrollOffset(int offset) {
-        allMaterialsScrollOffset = Math.max(0, Math.min(offset, maxAllMaterialsScrollOffset));
-    }
+    public void setScrollOffset(int offset) { scrollOffset = Math.max(0, Math.min(offset, maxScrollOffset)); }
+    public void setFavScrollOffset(int offset) { favScrollOffset = Math.max(0, Math.min(offset, maxFavScrollOffset)); }
+    public void setAllMaterialsScrollOffset(int offset) { allMaterialsScrollOffset = Math.max(0, Math.min(offset, maxAllMaterialsScrollOffset)); }
 
     public void resetScrollOffsets() {
         scrollOffset = 0;
         favScrollOffset = 0;
         allMaterialsScrollOffset = 0;
-        alloyScrollOffset = 0;
+        alloyMaterialsScrollOffset = 0;
+        alloyResultsScrollOffset = 0;
     }
+
+    // ==================== 滚动快照 ====================
+
+    public void saveScrollSnapshot() {
+        snapshotScrollOffset = scrollOffset;
+        snapshotFavScrollOffset = favScrollOffset;
+        snapshotAllMaterialsScrollOffset = allMaterialsScrollOffset;
+        snapshotAlloyMaterialsScrollOffset = alloyMaterialsScrollOffset;
+        snapshotAlloyResultsScrollOffset = alloyResultsScrollOffset;
+        hasSnapshot = true;
+    }
+
+    public void restoreScrollSnapshot() {
+        if (!hasSnapshot) return;
+        scrollOffset = Math.max(0, Math.min(snapshotScrollOffset, maxScrollOffset));
+        favScrollOffset = Math.max(0, Math.min(snapshotFavScrollOffset, maxFavScrollOffset));
+        allMaterialsScrollOffset = Math.max(0, Math.min(snapshotAllMaterialsScrollOffset, maxAllMaterialsScrollOffset));
+        alloyMaterialsScrollOffset = snapshotAlloyMaterialsScrollOffset;
+        alloyResultsScrollOffset = snapshotAlloyResultsScrollOffset;
+        hasSnapshot = false;
+    }
+
+    public boolean hasScrollSnapshot() { return hasSnapshot; }
+    public void discardScrollSnapshot() { hasSnapshot = false; }
+
+    // ==================== 高亮 ====================
 
     public void scheduleHighlightUpdate() {
         pendingHighlightUpdate = true;
@@ -143,7 +186,6 @@ public class PanelDataManager {
 
     public void checkPendingHighlightUpdate() {
         if (!pendingHighlightUpdate) return;
-
         long elapsed = System.currentTimeMillis() - pendingHighlightTime;
         if (elapsed >= 500) {
             pendingHighlightUpdate = false;
@@ -154,13 +196,8 @@ public class PanelDataManager {
     public void updateBottomFluidHighlight() {
         BlockEntity target = smelteryTileEntity != null ? smelteryTileEntity : cachedTileEntity;
         if (target == null) return;
-
         FluidStack bottomFluid = SmelteryDataHelper.getBottomFluid(target);
-        if (bottomFluid != null) {
-            bottomFluidName = bottomFluid.getDisplayName().getString();
-        } else {
-            bottomFluidName = null;
-        }
+        bottomFluidName = (bottomFluid != null) ? bottomFluid.getDisplayName().getString() : null;
     }
 
     public void clearAllData() {
@@ -175,23 +212,12 @@ public class PanelDataManager {
 
     // ==================== 数据刷新 ====================
 
-    /**
-     * 统一刷新所有数据。
-     *
-     * <p>根据当前 Tab 应用不同的过滤/查询：
-     * <ul>
-     *   <li>{@link Tab#SMELTERY} — 过滤炉内 + 收藏</li>
-     *   <li>{@link Tab#MATERIALS} — 过滤全部材料</li>
-     *   <li>{@link Tab#ALLOY} — 用关键字执行合金查询</li>
-     * </ul>
-     */
     public void refreshMoltenFluids() {
         String keyword = interactionHandler.getSearchKeyword();
         String trimmed = (keyword == null) ? "" : keyword.trim();
 
         BlockEntity target = smelteryTileEntity != null ? smelteryTileEntity : cachedTileEntity;
 
-        // ===== 炉内流体（总是刷新）=====
         if (target != null) {
             allFluids = SmelteryDataHelper.getMoltenFluids(target);
             FluidStack bottomFluid = SmelteryDataHelper.getBottomFluid(target);
@@ -201,30 +227,20 @@ public class PanelDataManager {
             bottomFluidName = null;
         }
 
-        // ===== 收藏（总是刷新）=====
         allFavoriteFluids.clear();
         List<FluidStack> favList = FavoritesManager.getFavorites();
         for (FluidStack favFluid : favList) {
             if (favFluid == null || favFluid.isEmpty()) continue;
-            // ✅ 1.20.1：通过 ForgeRegistries 获取注册名
             ResourceLocation rl = ForgeRegistries.FLUIDS.getKey(favFluid.getFluid());
             if (rl == null) continue;
             FluidStack matched = null;
             for (FluidStack fs : allFluids) {
                 ResourceLocation fsRl = ForgeRegistries.FLUIDS.getKey(fs.getFluid());
-                if (fsRl != null && fsRl.equals(rl)) {
-                    matched = fs;
-                    break;
-                }
+                if (fsRl != null && fsRl.equals(rl)) { matched = fs; break; }
             }
-            if (matched != null) {
-                allFavoriteFluids.add(matched.copy());
-            } else {
-                allFavoriteFluids.add(favFluid.copy());
-            }
+            allFavoriteFluids.add(matched != null ? matched.copy() : favFluid.copy());
         }
 
-        // ===== 应用过滤（冶炼炉 + 收藏）=====
         if (trimmed.isEmpty()) {
             displayedFluids = new ArrayList<>(allFluids);
             displayedFavoriteFluids = new ArrayList<>(allFavoriteFluids);
@@ -233,10 +249,8 @@ public class PanelDataManager {
             displayedFavoriteFluids = SearchHelper.filterFluids(allFavoriteFluids, trimmed);
         }
 
-        // ===== 全部材料（总是刷新）=====
         refreshAllMaterials(trimmed);
 
-        // ===== 合金 Tab：执行查询 =====
         if (currentTab == Tab.ALLOY) {
             int currentTemp = panel.getCurrentSmelteryTemperature();
             alloyHandler.refreshTemperature(currentTemp);
@@ -249,21 +263,16 @@ public class PanelDataManager {
 
     /**
      * 刷新全部材料列表。
+     *
+     * <p>★ 不再重置 {@code allMaterialsScrollOffset}——滚动位置由
+     * {@code switchTab} / {@code startHideAnimation} 统一处理。
      */
     public void refreshAllMaterials(String keyword) {
         List<FluidStack> source = null;
-        try {
-            source = TinkersAlloyReader.getAllSmelteryFluids();
-        } catch (Throwable t) {
-            source = null;
-        }
+        try { source = TinkersAlloyReader.getAllSmelteryFluids(); } catch (Throwable ignored) {}
         if (source == null || source.isEmpty()) {
             TinkersAlloyReader.forceReload();
-            try {
-                source = TinkersAlloyReader.getAllSmelteryFluids();
-            } catch (Throwable t) {
-                source = null;
-            }
+            try { source = TinkersAlloyReader.getAllSmelteryFluids(); } catch (Throwable ignored) {}
         }
         allMaterials = (source != null) ? source : new ArrayList<>();
 
@@ -272,24 +281,19 @@ public class PanelDataManager {
         } else {
             displayedAllMaterials = SearchHelper.filterFluids(allMaterials, keyword);
         }
-        allMaterialsScrollOffset = 0;
     }
 
     public void updateMaxScrollOffset() {
-        int panelWidth = panel.getPanelWidth();
-        int panelHeight = panel.getPanelHeight();
         int panelY = panel.getPanelY();
+        if (panelY < Integer.MIN_VALUE) return; // 屏蔽未使用变量警告
 
         // 收藏
         if (displayedFavoriteFluids.isEmpty()) {
             maxFavScrollOffset = 0;
         } else {
-            int favStartY = panelY + panel.getFavoriteAreaStartY();
             int favHeight = panel.getFavoriteAreaHeight();
-
             int totalRows = (displayedFavoriteFluids.size() + ITEMS_PER_ROW - 1) / ITEMS_PER_ROW;
             int totalContentHeight = totalRows * (CARD_HEIGHT + CARD_SPACING) - CARD_SPACING;
-
             maxFavScrollOffset = Math.max(0, totalContentHeight - favHeight);
             if (favScrollOffset > maxFavScrollOffset) favScrollOffset = maxFavScrollOffset;
         }
@@ -298,12 +302,9 @@ public class PanelDataManager {
         if (displayedFluids.isEmpty()) {
             maxScrollOffset = 0;
         } else {
-            int startY = panelY + panel.getSmelteryAreaStartY();
             int height = panel.getSmelteryAreaHeight();
-
             int totalRows = (displayedFluids.size() + ITEMS_PER_ROW - 1) / ITEMS_PER_ROW;
             int totalContentHeight = totalRows * (CARD_HEIGHT + CARD_SPACING) - CARD_SPACING;
-
             maxScrollOffset = Math.max(0, totalContentHeight - height);
             if (scrollOffset > maxScrollOffset) scrollOffset = maxScrollOffset;
         }
@@ -312,12 +313,9 @@ public class PanelDataManager {
         if (displayedAllMaterials.isEmpty()) {
             maxAllMaterialsScrollOffset = 0;
         } else {
-            int startY = panelY + panel.getAllMaterialsContentY();
             int height = panel.getAllMaterialsAreaHeight();
-
             int totalRows = (displayedAllMaterials.size() + ITEMS_PER_ROW - 1) / ITEMS_PER_ROW;
             int totalContentHeight = totalRows * (CARD_HEIGHT + CARD_SPACING) - CARD_SPACING;
-
             maxAllMaterialsScrollOffset = Math.max(0, totalContentHeight - height);
             if (allMaterialsScrollOffset > maxAllMaterialsScrollOffset) {
                 allMaterialsScrollOffset = maxAllMaterialsScrollOffset;

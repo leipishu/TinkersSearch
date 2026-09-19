@@ -328,11 +328,6 @@ public class PanelRenderer {
         int countRight = px + pw - 23;
         graphics.drawString(font, countStr, countRight - font.width(countStr), boxY + 4, 0x888888);
 
-        if (tab != Tab.SMELTERY) {
-            int lineY = boxY + boxH + 4;
-            graphics.fill(px + 5, lineY,
-                    px + pw - 5 - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING, lineY + 1, 0xFF333333);
-        }
     }
 
     private void renderAlloySearchBox(GuiGraphics graphics, int px, int py, int pw,
@@ -347,10 +342,6 @@ public class PanelRenderer {
 
         box.setBounds(boxX, boxY, boxW, boxH);
         box.render(graphics, mouseX, mouseY, font);
-
-        int lineY = boxY + boxH + 4;
-        graphics.fill(px + 5, lineY,
-                px + pw - 5 - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING, lineY + 1, 0xFF333366);
     }
 
     // ==================== 冶炼炉 Tab ====================
