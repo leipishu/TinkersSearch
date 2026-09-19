@@ -24,11 +24,12 @@ import top.leipishu.tinkerssearch.data.FluidPartData.MaterialEntry;
 import top.leipishu.tinkerssearch.data.FluidPartData.ModifierInfo;
 import top.leipishu.tinkerssearch.data.FluidPartData.PartInfo;
 import top.leipishu.tinkerssearch.data.FluidPartData.PartProperties;
+import top.leipishu.tinkerssearch.recipe.CastingRecipeHelper;
+import top.leipishu.tinkerssearch.recipe.CastingRecipeHelper.PartTypeRef;
 import top.leipishu.tinkerssearch.recipe.MaterialCompatibility;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
-import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -47,16 +48,18 @@ public class FluidPartDataCache {
     private static volatile GlobalIndex INDEX = null;
     private static final Object INDEX_LOCK = new Object();
 
+    /**
+     * 非部件物品（模具、图案）——这些不应作为部件展示。
+     * 修补件已从此列表中移除：它是合法部件，即使一页里只有它也应该显示。
+     */
     private static final String[] NON_PART_KEYWORDS = {
             "pattern", "sand_cast", "red_sand_cast", "gold_cast", "plate_cast"
     };
-    private static final String[] GENERIC_PART_KEYWORDS = {
-            "repair_kit", "repairkit"
-    };
+
     private static final String[] FLUID_PREFIXES = {"molten_", "liquid_", "fluid_"};
     private static final String[] ALT_NAMESPACES = {"tconstruct", "forge"};
 
-    /** ★ 缓存 {@code IMaterialItem} 类的 {@code withMaterial} 方法 */
+    /** 缓存 {@code IMaterialItem} 类的 {@code withMaterial} 方法 */
     private static final Map<Class<?>, Method> WITH_MATERIAL_CACHE = new ConcurrentHashMap<>();
 
     public static void invalidate() {
@@ -83,19 +86,9 @@ public class FluidPartDataCache {
         CompositeEntry(MaterialId o, MaterialId i) { output = o; input = i; }
     }
 
-    private static final class PartTypeRef {
-        final ResourceLocation itemId;
-        final IMaterialItem item;
-        final int amount;
-        PartTypeRef(ResourceLocation id, IMaterialItem i, int a) {
-            itemId = id; item = i; amount = a;
-        }
-    }
-
     private static GlobalIndex getIndex() {
         GlobalIndex cached = INDEX;
         if (cached != null) return cached;
-
         synchronized (INDEX_LOCK) {
             if (INDEX != null) return INDEX;
             INDEX = buildIndex();
@@ -103,16 +96,6 @@ public class FluidPartDataCache {
         }
     }
 
-    /**
-     * 构建索引：< 500ms。
-     *
-     * <p>优化：
-     * <ol>
-     *   <li>部件类型直接从 {@code ForgeRegistries.ITEMS} 读</li>
-     *   <li>配方只处理类名含 {@code materialfluid} 的 MFR</li>
-     *   <li>反射方法缓存</li>
-     * </ol>
-     */
     private static GlobalIndex buildIndex() {
         GlobalIndex idx = new GlobalIndex();
         long t0 = System.currentTimeMillis();
@@ -123,7 +106,6 @@ public class FluidPartDataCache {
             if (!(item instanceof IMaterialItem)) continue;
             ResourceLocation rl = ForgeRegistries.ITEMS.getKey(item);
             if (rl == null || isNonPartItem(rl.getPath())) continue;
-
             idx.castableParts.add(new PartTypeRef(rl, (IMaterialItem) item, 90));
             partCount++;
         }
@@ -147,7 +129,6 @@ public class FluidPartDataCache {
                     List<MaterialId> ins = extractMaterialList(recipe);
 
                     if (ins.isEmpty()) {
-                        // 熔化：优先保留名字匹配流体剥离名的那条
                         MaterialId existing = idx.meltMap.get(fluid.getFluid());
                         if (existing == null || isBetterMeltCandidate(out, fluid, existing)) {
                             idx.meltMap.put(fluid.getFluid(), out);
@@ -355,8 +336,6 @@ public class FluidPartDataCache {
                     System.out.println("[Tinker's Search]   [BASE] "
                             + getMaterialDisplayName(meltMat) + " → " + parts.size() + " 部件");
                 }
-            } else if (!parts.isEmpty()) {
-                System.out.println("[Tinker's Search]   [SKIP BASE] 只有通用物品");
             } else {
                 System.out.println("[Tinker's Search]   [SKIP BASE] 无有效部件");
             }
@@ -469,7 +448,6 @@ public class FluidPartDataCache {
             } catch (Throwable ignored) {}
         }
 
-        // 兜底：手工构造
         ItemStack s = new ItemStack(mi.asItem());
         try {
             CompoundTag tag = s.getOrCreateTag();
@@ -543,6 +521,7 @@ public class FluidPartDataCache {
     // ===== 判定 =================================================
     // ============================================================
 
+    /** ★ 只过滤真正的"非部件"（模具、图案）；修补件不再过滤。 */
     private static boolean isNonPartItem(String path) {
         if (path == null) return true;
         String p = path.toLowerCase();
@@ -551,19 +530,14 @@ public class FluidPartDataCache {
         return false;
     }
 
-    private static boolean isGenericPart(PartInfo p) {
-        if (p == null || p.itemId == null) return true;
-        String path = p.itemId.getPath().toLowerCase();
-        for (String kw : GENERIC_PART_KEYWORDS) if (path.contains(kw)) return true;
-        return false;
-    }
-
+    /**
+     * ★ 只要部件列表非空就认为是有意义的页面。
+     *
+     * <p>之前会剔除"只有修补件"的页面，导致玻璃等只能做修补件的材料
+     * 在整个详情界面里什么都不显示。现在修补件是合法部件，正常显示。
+     */
     private static boolean isPageMeaningful(List<PartInfo> parts) {
-        if (parts == null || parts.isEmpty()) return false;
-        for (PartInfo p : parts) {
-            if (!isGenericPart(p)) return true;
-        }
-        return false;
+        return parts != null && !parts.isEmpty();
     }
 
     // ============================================================
@@ -639,6 +613,7 @@ public class FluidPartDataCache {
                 } catch (Exception ignored) {}
             }
             if (displayName == null) {
+                // ★ 1.18.2：使用 new TextComponent(...)
                 displayName = new TextComponent(id.isEmpty()
                         ? modifier.getClass().getSimpleName() : id);
             }
