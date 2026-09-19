@@ -72,16 +72,18 @@ public class TinkersSearch {
         Screen screen = event.getScreen();
         if (screen == null) return;
 
-        // 详情窗口打开时，不改动面板状态（面板留给父屏幕继续持有）
-        if (screen instanceof FluidDetailScreen) {
-            return;
-        }
+        if (screen instanceof FluidDetailScreen) return;
 
         boolean isSmeltery = isSmelteryScreen(screen);
 
         if (isSmeltery) {
             handleSmelteryOpen(screen);
             addPanelToRenderables(screen);
+
+            // ★ Detail 关闭后恢复滚动位置
+            if (searchPanel != null) {
+                searchPanel.restoreScrollSnapshotIfPresent();
+            }
         } else {
             handleSmelteryClose();
             removePanelFromRenderables(screen);
@@ -112,7 +114,10 @@ public class TinkersSearch {
             System.out.println("Tinker's Search: SmelteryScreen detected!");
         }
 
-        findSmelteryBlockEntity(screen);
+        // ★ 只在 BE 为空时查找，避免从 Detail 关闭回来后重复刷新
+        if (smelteryBlockEntity == null) {
+            findSmelteryBlockEntity(screen);
+        }
         searchPanel.updatePanelPosition();
 
         if (searchPanel.isVisible()) {

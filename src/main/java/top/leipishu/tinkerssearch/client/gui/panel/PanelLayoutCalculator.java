@@ -144,7 +144,7 @@ public class PanelLayoutCalculator {
         this.lastScreenWidth = screenWidth;
         this.lastScreenHeight = screenHeight;
 
-        dataManager.resetScrollOffsets();
+        // ★ 不再 resetScrollOffsets()：滚动位置由 switchTab / startHideAnimation 显式管理
         dataManager.updateMaxScrollOffset();
     }
 

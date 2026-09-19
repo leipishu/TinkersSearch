@@ -60,7 +60,18 @@ public class PanelDataManager {
     private int allMaterialsScrollOffset = 0;
     private int maxAllMaterialsScrollOffset = 0;
 
-    private int alloyScrollOffset = 0;
+    // ★ 合金页拆成两个独立的滚动偏移：
+    //   材料列表页 & 结果页，避免切换时相互覆盖。
+    private int alloyMaterialsScrollOffset = 0;
+    private int alloyResultsScrollOffset = 0;
+
+    // ===== 打开 Detail 时的滚动快照 =====
+    private int snapshotScrollOffset = -1;
+    private int snapshotFavScrollOffset = -1;
+    private int snapshotAllMaterialsScrollOffset = -1;
+    private int snapshotAlloyMaterialsScrollOffset = -1;
+    private int snapshotAlloyResultsScrollOffset = -1;
+    private boolean hasSnapshot = false;
 
     // ===== 移动后刷新标记 =====
     private boolean pendingHighlightUpdate = false;
@@ -103,14 +114,47 @@ public class PanelDataManager {
     public int getMaxFavScrollOffset() { return maxFavScrollOffset; }
     public int getAllMaterialsScrollOffset() { return allMaterialsScrollOffset; }
     public int getMaxAllMaterialsScrollOffset() { return maxAllMaterialsScrollOffset; }
-    public int getAlloyScrollOffset() { return alloyScrollOffset; }
+
+    /**
+     * 获取当前活动的合金滚动偏移。
+     * ★ 结果页存在时返回结果偏移，否则返回材料列表偏移。
+     */
+    public int getAlloyScrollOffset() {
+        if (alloyHandler.getSelectedMaterial() != null) {
+            return alloyResultsScrollOffset;
+        }
+        return alloyMaterialsScrollOffset;
+    }
+
+    public int getAlloyMaterialsScrollOffset() { return alloyMaterialsScrollOffset; }
+    public int getAlloyResultsScrollOffset() { return alloyResultsScrollOffset; }
 
     public boolean hasPendingHighlightUpdate() { return pendingHighlightUpdate; }
     public long getPendingHighlightTime() { return pendingHighlightTime; }
 
     // ==================== Setters ====================
 
-    public void setAlloyScrollOffset(int offset) { this.alloyScrollOffset = offset; }
+    /**
+     * 写入当前活动的合金滚动偏移。
+     * ★ 结果页存在时写入结果偏移，否则写入材料列表偏移。
+     */
+    public void setAlloyScrollOffset(int offset) {
+        if (alloyHandler.getSelectedMaterial() != null) {
+            alloyResultsScrollOffset = Math.max(0, offset);
+        } else {
+            alloyMaterialsScrollOffset = Math.max(0, offset);
+        }
+    }
+
+    /** 重置结果页滚动偏移（选中新材料时调用）。 */
+    public void resetAlloyResultsScrollOffset() {
+        alloyResultsScrollOffset = 0;
+    }
+
+    /** 重置材料列表滚动偏移。 */
+    public void resetAlloyMaterialsScrollOffset() {
+        alloyMaterialsScrollOffset = 0;
+    }
 
     public void setSmelteryTileEntity(BlockEntity tileEntity) {
         this.smelteryTileEntity = tileEntity;
@@ -133,8 +177,48 @@ public class PanelDataManager {
         scrollOffset = 0;
         favScrollOffset = 0;
         allMaterialsScrollOffset = 0;
-        alloyScrollOffset = 0;
+        alloyMaterialsScrollOffset = 0;
+        alloyResultsScrollOffset = 0;
     }
+
+    // ==================== 滚动快照 ====================
+
+    /**
+     * 保存当前所有滚动位置。
+     * 打开详情界面时调用，关闭后恢复。
+     */
+    public void saveScrollSnapshot() {
+        snapshotScrollOffset = scrollOffset;
+        snapshotFavScrollOffset = favScrollOffset;
+        snapshotAllMaterialsScrollOffset = allMaterialsScrollOffset;
+        snapshotAlloyMaterialsScrollOffset = alloyMaterialsScrollOffset;
+        snapshotAlloyResultsScrollOffset = alloyResultsScrollOffset;
+        hasSnapshot = true;
+    }
+
+    /**
+     * 恢复之前保存的滚动位置。
+     * 越界值会被 clamp 到 max。
+     */
+    public void restoreScrollSnapshot() {
+        if (!hasSnapshot) return;
+        scrollOffset = Math.max(0, Math.min(snapshotScrollOffset, maxScrollOffset));
+        favScrollOffset = Math.max(0, Math.min(snapshotFavScrollOffset, maxFavScrollOffset));
+        allMaterialsScrollOffset = Math.max(0, Math.min(snapshotAllMaterialsScrollOffset, maxAllMaterialsScrollOffset));
+        alloyMaterialsScrollOffset = snapshotAlloyMaterialsScrollOffset;
+        alloyResultsScrollOffset = snapshotAlloyResultsScrollOffset;
+        hasSnapshot = false;
+    }
+
+    public boolean hasScrollSnapshot() {
+        return hasSnapshot;
+    }
+
+    public void discardScrollSnapshot() {
+        hasSnapshot = false;
+    }
+
+    // ==================== 高亮 ====================
 
     public void scheduleHighlightUpdate() {
         pendingHighlightUpdate = true;
@@ -206,11 +290,12 @@ public class PanelDataManager {
         List<FluidStack> favList = FavoritesManager.getFavorites();
         for (FluidStack favFluid : favList) {
             if (favFluid == null || favFluid.isEmpty()) continue;
-            // ✅ 1.19.2：通过 ForgeRegistries 获取注册名
+            // ★ 1.19.2：通过 ForgeRegistries 获取注册名
             ResourceLocation rl = ForgeRegistries.FLUIDS.getKey(favFluid.getFluid());
             if (rl == null) continue;
             FluidStack matched = null;
             for (FluidStack fs : allFluids) {
+                // ★ 1.19.2：通过 ForgeRegistries 获取注册名
                 ResourceLocation fsRl = ForgeRegistries.FLUIDS.getKey(fs.getFluid());
                 if (fsRl != null && fsRl.equals(rl)) {
                     matched = fs;
@@ -249,6 +334,9 @@ public class PanelDataManager {
 
     /**
      * 刷新全部材料列表。
+     *
+     * <p>★ 不再重置 {@code allMaterialsScrollOffset}。
+     * 滚动重置由 {@code switchTab} / {@code startHideAnimation} 统一处理。
      */
     public void refreshAllMaterials(String keyword) {
         List<FluidStack> source = null;
@@ -272,7 +360,6 @@ public class PanelDataManager {
         } else {
             displayedAllMaterials = SearchHelper.filterFluids(allMaterials, keyword);
         }
-        allMaterialsScrollOffset = 0;
     }
 
     public void updateMaxScrollOffset() {

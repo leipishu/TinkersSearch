@@ -3,6 +3,7 @@ package top.leipishu.tinkerssearch.alloy;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraftforge.fluids.FluidStack;
 import net.minecraftforge.registries.ForgeRegistries;
+import top.leipishu.tinkerssearch.utils.SearchHelper;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -34,18 +35,12 @@ public class AlloyQueryHandler {
         System.out.println("[Tinker's Search] Temperature updated: " + currentTemperature + "°C");
     }
 
-    /**
-     * 强制刷新温度（打开面板时使用）
-     */
     public void forceRefreshTemperature(int currentTemperature) {
         this.lastKnownTemperature = currentTemperature;
         this.lastTemperatureUpdate = System.currentTimeMillis();
         System.out.println("[Tinker's Search] Temperature FORCE updated: " + currentTemperature + "°C");
     }
 
-    /**
-     * 清除温度缓存（更换燃料或刷新时调用）
-     */
     public void invalidateTemperatureCache() {
         this.lastKnownTemperature = 0;
         this.lastTemperatureUpdate = 0;
@@ -53,9 +48,7 @@ public class AlloyQueryHandler {
     }
 
     public int getLastKnownTemperature() {
-        if (lastKnownTemperature <= 0) {
-            return 0;
-        }
+        if (lastKnownTemperature <= 0) return 0;
         long elapsed = System.currentTimeMillis() - lastTemperatureUpdate;
         if (elapsed > TEMPERATURE_CACHE_DURATION) {
             System.out.println("[Tinker's Search] Temperature cache expired (" + elapsed + "ms)");
@@ -78,7 +71,6 @@ public class AlloyQueryHandler {
 
         List<FluidStack> source = TinkersAlloyReader.getAllSmelteryFluids();
         if (source == null || source.isEmpty()) {
-            // 兜底：强制重载一次
             TinkersAlloyReader.forceReload();
             source = TinkersAlloyReader.getAllSmelteryFluids();
         }
@@ -86,29 +78,20 @@ public class AlloyQueryHandler {
         this.filteredMaterials = filterMaterials(this.allMaterials, searchTerm);
     }
 
+    /**
+     * 过滤材料列表。
+     *
+     * <p>直接复用 {@link SearchHelper#filterFluids}，它已实现：
+     * <ul>
+     *   <li>显示名匹配（自动剥离 "Molten " / "熔融" 前缀）</li>
+     *   <li>注册名 path 匹配</li>
+     *   <li>拼音全拼匹配（pinyin4j）</li>
+     *   <li>拼音首字母匹配（pinyin4j）</li>
+     *   <li>关键词为 null / 空白时返回全集</li>
+     * </ul>
+     */
     private List<FluidStack> filterMaterials(List<FluidStack> materials, String searchTerm) {
-        if (searchTerm == null || searchTerm.isEmpty()) {
-            return new ArrayList<>(materials);
-        }
-
-        List<FluidStack> result = new ArrayList<>();
-        String lowerSearch = searchTerm.toLowerCase();
-
-        for (FluidStack fs : materials) {
-            String displayName = fs.getDisplayName().getString()
-                    .toLowerCase()
-                    .replace("molten ", "")
-                    .replace("熔融", "");
-
-            // ✅ 1.19.2：通过 ForgeRegistries 获取注册名
-            ResourceLocation rl = ForgeRegistries.FLUIDS.getKey(fs.getFluid());
-            String registryName = rl != null ? rl.getPath().toLowerCase() : "";
-
-            if (displayName.contains(lowerSearch) || registryName.contains(lowerSearch)) {
-                result.add(fs);
-            }
-        }
-        return result;
+        return SearchHelper.filterFluids(materials, searchTerm);
     }
 
     public void selectMaterial(FluidStack material, List<FluidStack> availableFluids) {
@@ -126,9 +109,9 @@ public class AlloyQueryHandler {
             simulatedFluids.add(copy);
         }
 
-        boolean found = false;
-        // ✅ 1.19.2：通过 ForgeRegistries 获取注册名
+        // ★ 1.19.2：通过 ForgeRegistries 获取注册名
         ResourceLocation targetRl = ForgeRegistries.FLUIDS.getKey(material.getFluid());
+        boolean found = false;
         for (FluidStack fs : simulatedFluids) {
             ResourceLocation fsRl = ForgeRegistries.FLUIDS.getKey(fs.getFluid());
             if (fsRl != null && fsRl.equals(targetRl)) {

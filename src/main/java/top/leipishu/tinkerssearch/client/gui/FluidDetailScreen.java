@@ -21,6 +21,7 @@ import slimeknights.tconstruct.smeltery.block.entity.tank.SmelteryTank;
 import slimeknights.tconstruct.library.tools.part.IMaterialItem;
 
 import top.leipishu.tinkerssearch.client.gui.components.CardBackground;
+import top.leipishu.tinkerssearch.client.gui.components.ScrollBar;
 import top.leipishu.tinkerssearch.client.gui.components.SearchBox;
 import top.leipishu.tinkerssearch.client.gui.components.SearchBoxStyle;
 import top.leipishu.tinkerssearch.data.FluidPartData;
@@ -93,6 +94,9 @@ public class FluidDetailScreen extends Screen {
     /** 关闭按钮尺寸（与搜索框清空按钮同风格）。 */
     private static final int CLOSE_BTN_SIZE = 12;
 
+    /** 滚动条组件。 */
+    private final ScrollBar totalScrollBar = new ScrollBar();
+
     private boolean isLoading = true;
     private boolean dataLoaded = false;
     private boolean needsLayoutRecalc = true;
@@ -164,6 +168,12 @@ public class FluidDetailScreen extends Screen {
 
         searchBox.setHintText(Component.translatable("gui.tinkerssearch.detail.search_hint"));
         searchBox.setOnTextChanged(s -> applyFilter());
+
+        // ★ 滚动条：拖动写回偏移
+        totalScrollBar.setOnOffsetChanged(v -> this.totalScrollOffset = v);
+        totalScrollBar.setThumbRatio(0.3f);
+        totalScrollBar.setThumbMinHeight(16);
+        totalScrollBar.setHoverExpandX(6);
 
         new Thread(() -> {
             try {
@@ -473,16 +483,11 @@ public class FluidDetailScreen extends Screen {
         RenderSystem.depthFunc(515); // GL_LEQUAL
 
         // 2.2 ★ 在没有任何额外 pose 变换的情况下，把背景屏幕的 buffered 物品全部 flush 掉。
-        //     这样 flush 时 ModelViewMat 是 vanilla GUI 初始值，物品只会被画到它们
-        //     原本该在的位置（物品栏），不会跑到详情界面上方。
         try {
             mc.renderBuffers().bufferSource().endBatch();
         } catch (Throwable ignored) {}
 
         // 2.3 ★ 清空深度缓冲。
-        //     背景屏幕里 GUI 物品已经写入了深度值；如果不清，我们后面渲染图标时
-        //     因为 1.19.2 ItemRenderer 会主动 enableDepthTest，会导致深度测试失败，
-        //     出现「下方物品栏图标遮住上方图标」的现象。
         GlStateManager._clear(GL11.GL_DEPTH_BUFFER_BIT, Minecraft.ON_OSX);
 
         // 2.4 再次保证渲染状态干净
@@ -549,7 +554,8 @@ public class FluidDetailScreen extends Screen {
             }
         }
 
-        if (maxTotalScrollOffset > 0) renderScrollBar(poseStack);
+        // ★ 滚动条：由组件自己决定是否画
+        renderScrollBar(poseStack, mouseX, mouseY);
 
         if (isLoading) {
             String loadingText = "\u00a7e" + Component.translatable("gui.tinkerssearch.detail.loading").getString();
@@ -571,8 +577,6 @@ public class FluidDetailScreen extends Screen {
 
         // ============================================================
         // 4) 1.19.2 收尾：把详情界面自己渲染的物品 flush 掉
-        //    避免它们再一次被延迟到下一帧/下一次 endBatch，
-        //    从而避免污染别的地方（比如返回 savedScreen 时）
         // ============================================================
         try {
             mc.renderBuffers().bufferSource().endBatch();
@@ -581,10 +585,6 @@ public class FluidDetailScreen extends Screen {
 
     /**
      * 计算窗口宽度：优先使用 440，但绝不能超出屏幕。
-     *
-     * <p>大 UI 缩放下 GUI 坐标的屏幕宽度可能远小于 440（例如 1080p 4x 只有 480），
-     * 此时必须按屏幕收缩，否则左右会跑出屏幕。
-     * 最极端情况下（屏幕 &lt; 70 GUI 宽）也允许窗口缩到 50，保证 {@code centerX} 永远 &gt;= 0。
      */
     private static int computeWindowWidth(int screenWidth) {
         int maxAllowed = Math.max(50, screenWidth - 20);
@@ -593,8 +593,6 @@ public class FluidDetailScreen extends Screen {
 
     /**
      * 计算窗口高度：优先使用 540，但绝不能超出屏幕。
-     *
-     * <p>与 {@link #computeWindowWidth(int)} 同理，避免大 UI 缩放下窗口上下溢出。
      */
     private static int computeWindowHeight(int screenHeight) {
         int maxAllowed = Math.max(50, screenHeight - 20);
@@ -1031,17 +1029,16 @@ public class FluidDetailScreen extends Screen {
         fill(poseStack, x + width - 1, y, x + width, y + height, color);
     }
 
-    private void renderScrollBar(PoseStack poseStack) {
+    // ★ 滚动条：改为 ScrollBar 组件
+    private void renderScrollBar(PoseStack poseStack, int mouseX, int mouseY) {
         int barX = centerX + windowWidth - 6;
         int barY = centerY + scrollStartY;
         int barH = (centerY + windowHeight - PADDING) - barY;
         if (barH <= 0) return;
 
-        fill(poseStack, barX, barY, barX + 3, barY + barH, 0x33FFFFFF);
-        float ratio = (float) totalScrollOffset / (float) maxTotalScrollOffset;
-        int thumbH = Math.max(16, (int) (barH * 0.3f));
-        int thumbY = barY + (int) (ratio * (barH - thumbH));
-        fill(poseStack, barX, thumbY, barX + 3, thumbY + thumbH, 0x99FFFFFF);
+        totalScrollBar.setBounds(barX, barY, 3, barH);
+        totalScrollBar.setRange(totalScrollOffset, maxTotalScrollOffset);
+        totalScrollBar.render(poseStack, mouseX, mouseY);
     }
 
     // ==================== 事件 ====================
@@ -1053,6 +1050,12 @@ public class FluidDetailScreen extends Screen {
         if (mouseX >= closeX && mouseX <= closeX + CLOSE_BTN_SIZE
                 && mouseY >= closeY && mouseY <= closeY + CLOSE_BTN_SIZE) {
             this.onClose();
+            return true;
+        }
+
+        // ★ 滚动条拖拽优先（在窗口内边缘，不能误触关闭）
+        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT
+                && totalScrollBar.tryBeginDrag(mouseX, mouseY)) {
             return true;
         }
 
@@ -1096,6 +1099,24 @@ public class FluidDetailScreen extends Screen {
 
         searchBox.setFocused(false);
         return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    @Override
+    public boolean mouseDragged(double mouseX, double mouseY, int button, double dragX, double dragY) {
+        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && totalScrollBar.isDragging()) {
+            totalScrollBar.updateDrag(mouseY);
+            return true;
+        }
+        return super.mouseDragged(mouseX, mouseY, button, dragX, dragY);
+    }
+
+    @Override
+    public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && totalScrollBar.isDragging()) {
+            totalScrollBar.endDrag();
+            return true;
+        }
+        return super.mouseReleased(mouseX, mouseY, button);
     }
 
     @Override

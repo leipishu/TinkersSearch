@@ -150,6 +150,12 @@ public class FloatingSearchPanel extends AbstractWidget {
     public void setAllMaterialsScrollOffset(int offset) { dataManager.setAllMaterialsScrollOffset(offset); }
     public void setAlloyScrollOffset(int offset) { dataManager.setAlloyScrollOffset(offset); }
 
+    // ==================== 滚动快照委托 ====================
+
+    public void saveScrollSnapshot() { dataManager.saveScrollSnapshot(); }
+    public void restoreScrollSnapshotIfPresent() { dataManager.restoreScrollSnapshot(); }
+    public void discardScrollSnapshot() { dataManager.discardScrollSnapshot(); }
+
     // ==================== 布局方法 ====================
 
     public void updatePanelPosition() { layoutCalculator.updatePanelPosition(); }
@@ -269,8 +275,11 @@ public class FloatingSearchPanel extends AbstractWidget {
     // ==================== 数据刷新 ====================
 
     public void setSmelteryBlockEntity(BlockEntity tileEntity) {
+        BlockEntity old = dataManager.getSmelteryTileEntity();
         dataManager.setSmelteryTileEntity(tileEntity);
-        if (tileEntity != null) refreshMoltenFluids();
+        if (tileEntity != null && tileEntity != old) {
+            refreshMoltenFluids();
+        }
     }
 
     public void refreshMoltenFluids() { dataManager.refreshMoltenFluids(); }
@@ -398,6 +407,7 @@ public class FloatingSearchPanel extends AbstractWidget {
                 if (matchedMaterial != null) {
                     int currentTemp = getCurrentSmelteryTemperature();
                     alloyHandler.refreshTemperature(currentTemp);
+                    dataManager.resetAlloyResultsScrollOffset();  // ★ 新增
                     alloyHandler.selectMaterial(matchedMaterial, dataManager.getAllFluids(), currentTemp);
                     return true;
                 }
@@ -701,6 +711,9 @@ public class FloatingSearchPanel extends AbstractWidget {
     }
 
     private void openFluidDetailScreen(FluidStack fluid) {
+        // ★ 打开前保存滚动快照
+        dataManager.saveScrollSnapshot();
+
         Minecraft mc = Minecraft.getInstance();
         SmelteryBlockEntity smeltery = null;
 
@@ -711,7 +724,6 @@ public class FloatingSearchPanel extends AbstractWidget {
             BlockEntity be = SmelteryClickHandler.getSmelteryFromScreen((AbstractContainerScreen<?>) mc.screen);
             if (be instanceof SmelteryBlockEntity) smeltery = (SmelteryBlockEntity) be;
         }
-
         if (smeltery == null) {
             BlockEntity be = dataManager.getCachedTileEntity();
             if (be instanceof SmelteryBlockEntity) smeltery = (SmelteryBlockEntity) be;
@@ -763,6 +775,7 @@ public class FloatingSearchPanel extends AbstractWidget {
                     if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
                         int currentTemp = getCurrentSmelteryTemperature();
                         alloyHandler.refreshTemperature(currentTemp);
+                        dataManager.resetAlloyResultsScrollOffset();  // ★ 新增
                         alloyHandler.selectMaterial(materials.get(i), dataManager.getAllFluids(), currentTemp);
                         return true;
                     }
