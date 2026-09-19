@@ -19,6 +19,9 @@ import slimeknights.tconstruct.library.materials.stats.IMaterialStats;
 import slimeknights.tconstruct.library.materials.stats.MaterialStatsId;
 import slimeknights.tconstruct.library.modifiers.ModifierEntry;
 import slimeknights.tconstruct.library.tools.part.IMaterialItem;
+import slimeknights.tconstruct.tools.stats.HandleMaterialStats;
+import slimeknights.tconstruct.tools.stats.HeadMaterialStats;
+import slimeknights.tconstruct.tools.stats.LimbMaterialStats;
 
 import top.leipishu.tinkerssearch.data.FluidPartData.MaterialEntry;
 import top.leipishu.tinkerssearch.data.FluidPartData.ModifierInfo;
@@ -31,6 +34,7 @@ import top.leipishu.tinkerssearch.recipe.MaterialCompatibility;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -48,10 +52,6 @@ public class FluidPartDataCache {
     private static volatile GlobalIndex INDEX = null;
     private static final Object INDEX_LOCK = new Object();
 
-    /**
-     * 非部件物品（模具、图案）——这些不应作为部件展示。
-     * 修补件已从此列表中移除：它是合法部件，即使一页里只有它也应该显示。
-     */
     private static final String[] NON_PART_KEYWORDS = {
             "pattern", "sand_cast", "red_sand_cast", "gold_cast", "plate_cast"
     };
@@ -59,7 +59,23 @@ public class FluidPartDataCache {
     private static final String[] FLUID_PREFIXES = {"molten_", "liquid_", "fluid_"};
     private static final String[] ALT_NAMESPACES = {"tconstruct", "forge"};
 
-    /** 缓存 {@code IMaterialItem} 类的 {@code withMaterial} 方法 */
+    private static final String VARIANT_SEP = "__";
+
+    /** 黑名单：即使 isCraftable() 返回 true 也不显示修补件。 */
+    private static final Set<String> HIDDEN_MATERIALS = new HashSet<>(Arrays.asList(
+            "tconstruct:clay",
+            "tconstruct:lava",
+            "tconstruct:honey",
+            "tconstruct:water"
+    ));
+
+    /** "工具部件" stats：修补件只在材料有其中至少一个时才显示（用于复合页判定）。 */
+    private static final MaterialStatsId[] TOOL_PART_STATS = new MaterialStatsId[] {
+            HeadMaterialStats.ID,
+            HandleMaterialStats.ID,
+            LimbMaterialStats.ID
+    };
+
     private static final Map<Class<?>, Method> WITH_MATERIAL_CACHE = new ConcurrentHashMap<>();
 
     public static void invalidate() {
@@ -100,7 +116,6 @@ public class FluidPartDataCache {
         GlobalIndex idx = new GlobalIndex();
         long t0 = System.currentTimeMillis();
 
-        // ===== 1. 部件类型（注册表）=====
         int partCount = 0;
         for (Item item : ForgeRegistries.ITEMS) {
             if (!(item instanceof IMaterialItem)) continue;
@@ -110,7 +125,6 @@ public class FluidPartDataCache {
             partCount++;
         }
 
-        // ===== 2. MFR 扫描 =====
         int mfrCount = 0, meltCount = 0, compCount = 0;
         Minecraft mc = Minecraft.getInstance();
         if (mc.getConnection() != null) {
@@ -129,6 +143,21 @@ public class FluidPartDataCache {
                     List<MaterialId> ins = extractMaterialList(recipe);
 
                     if (ins.isEmpty()) {
+                        ResourceLocation fluidId = ForgeRegistries.FLUIDS.getKey(fluid.getFluid());
+                        String stripped = stripPrefix(fluidId != null ? fluidId.getPath() : null);
+                        boolean nameMatches = stripped != null && out.getPath().equals(stripped);
+
+                        if (!nameMatches) {
+                            MaterialId base = getBaseMaterial(out);
+                            if (base != null && !base.equals(out)) {
+                                List<CompositeEntry> list = idx.compositeMap.computeIfAbsent(
+                                        fluid.getFluid(), k -> new ArrayList<>());
+                                list.add(new CompositeEntry(out, base));
+                                compCount++;
+                                continue;
+                            }
+                        }
+
                         MaterialId existing = idx.meltMap.get(fluid.getFluid());
                         if (existing == null || isBetterMeltCandidate(out, fluid, existing)) {
                             idx.meltMap.put(fluid.getFluid(), out);
@@ -152,6 +181,17 @@ public class FluidPartDataCache {
                 + " in " + (System.currentTimeMillis() - t0) + "ms");
 
         return idx;
+    }
+
+    private static String stripPrefix(String path) {
+        if (path == null) return null;
+        for (String prefix : FLUID_PREFIXES) {
+            if (path.startsWith(prefix)) {
+                String s = path.substring(prefix.length());
+                if (!s.isEmpty()) return s;
+            }
+        }
+        return path;
     }
 
     private static boolean isBetterMeltCandidate(MaterialId candidate, FluidStack fluid,
@@ -238,6 +278,11 @@ public class FluidPartDataCache {
 
     private static void collectMaterials(Object v, List<MaterialId> out) {
         if (v == null) return;
+        if (v instanceof Optional) {
+            Optional<?> o = (Optional<?>) v;
+            if (o.isPresent()) collectMaterials(o.get(), out);
+            return;
+        }
         MaterialId id = toMaterialIdStrict(v);
         if (id != null) { out.add(id); return; }
         if (v instanceof Iterable) {
@@ -254,19 +299,303 @@ public class FluidPartDataCache {
         }
     }
 
+    // ============================================================
+    // ===== 变体支持 =============================================
+    // ============================================================
+
+    private static boolean isMaterialVariant(Object v) {
+        if (v == null) return false;
+        String cn = v.getClass().getName();
+        return cn.contains("MaterialVariant");
+    }
+
+    private static MaterialId parseMaterialId(String str) {
+        if (str == null || str.isEmpty()) return null;
+
+        if (str.startsWith("MaterialVariant{") && str.endsWith("}")) {
+            str = str.substring("MaterialVariant{".length(), str.length() - 1);
+        }
+
+        int hash = str.indexOf('#');
+        try {
+            if (hash > 0 && hash < str.length() - 1) {
+                String base = str.substring(0, hash);
+                String variant = str.substring(hash + 1);
+                ResourceLocation baseRl = new ResourceLocation(base);
+                try {
+                    return new MaterialId(baseRl.getNamespace(),
+                            baseRl.getPath() + VARIANT_SEP + variant);
+                } catch (Throwable ignored) {
+                    return new MaterialId(baseRl);
+                }
+            }
+            return new MaterialId(new ResourceLocation(str));
+        } catch (Throwable ignored) {}
+        return null;
+    }
+
     private static MaterialId toMaterialIdStrict(Object v) {
         if (v == null) return null;
-        if (v instanceof MaterialId) return (MaterialId) v;
-        if (v instanceof IMaterial) return ((IMaterial) v).getIdentifier();
-        for (String mn : new String[]{"getIdentifier", "getId", "getMaterialId"}) {
+
+        if (v instanceof MaterialId) {
+            String s = v.toString();
+            if (s != null && (s.contains("#") || s.contains(VARIANT_SEP))) {
+                MaterialId parsed = parseMaterialId(s);
+                if (parsed != null) return parsed;
+            }
+            return (MaterialId) v;
+        }
+
+        if (isMaterialVariant(v)) {
+            MaterialId result = tryExtractFromMaterialVariant(v);
+            if (result != null) return result;
+        }
+
+        for (String mn : new String[]{"getIdentifier", "getId", "getMaterialId", "getLocation"}) {
             Object id = invokeMethod(v, mn);
-            if (id instanceof MaterialId) return (MaterialId) id;
+            if (id instanceof MaterialId) {
+                String variant = extractVariantFromObject(v);
+                if (variant != null && !variant.isEmpty()) {
+                    MaterialId base = (MaterialId) id;
+                    try {
+                        return new MaterialId(base.getNamespace(),
+                                base.getPath() + VARIANT_SEP + variant);
+                    } catch (Throwable ignored) {}
+                }
+                return (MaterialId) id;
+            }
             if (id != null) {
-                try { return new MaterialId(new ResourceLocation(id.toString())); }
-                catch (Exception ignored) {}
+                MaterialId parsed = parseMaterialId(id.toString());
+                if (parsed != null) return parsed;
             }
         }
+
+        if (v instanceof IMaterial) {
+            try {
+                MaterialId id = ((IMaterial) v).getIdentifier();
+                if (id != null) return id;
+            } catch (Throwable ignored) {}
+        }
+
+        try {
+            String s = v.toString();
+            if (s != null && !s.isEmpty()) {
+                MaterialId parsed = parseMaterialId(s);
+                if (parsed != null) return parsed;
+            }
+        } catch (Throwable ignored) {}
+
         return null;
+    }
+
+    private static MaterialId tryExtractFromMaterialVariant(Object v) {
+        if (v == null) return null;
+        try {
+            MaterialId base = null;
+            for (String mn : new String[]{"getId", "getLocation", "getIdentifier"}) {
+                Object id = invokeMethod(v, mn);
+                if (id instanceof MaterialId) { base = (MaterialId) id; break; }
+            }
+
+            String variant = extractVariantFromObject(v);
+
+            if (base != null) {
+                if (variant != null && !variant.isEmpty()) {
+                    try {
+                        return new MaterialId(base.getNamespace(),
+                                base.getPath() + VARIANT_SEP + variant);
+                    } catch (Throwable ignored) {}
+                }
+                return base;
+            }
+
+            String s = v.toString();
+            int open = s.indexOf('{');
+            int close = s.lastIndexOf('}');
+            if (open >= 0 && close > open) {
+                return parseMaterialId(s.substring(open + 1, close));
+            }
+        } catch (Throwable ignored) {}
+        return null;
+    }
+
+    private static String extractVariantFromObject(Object v) {
+        if (v == null) return null;
+        try {
+            Object var = invokeMethod(v, "getVariant");
+            if (var instanceof String) {
+                String s = (String) var;
+                if (!s.isEmpty()) return s;
+            }
+        } catch (Throwable ignored) {}
+
+        try {
+            String s = v.toString();
+            int open = s.indexOf('{');
+            int close = s.lastIndexOf('}');
+            if (open >= 0 && close > open) {
+                String inner = s.substring(open + 1, close);
+                int hash = inner.indexOf('#');
+                if (hash > 0 && hash < inner.length() - 1) {
+                    return inner.substring(hash + 1);
+                }
+            }
+        } catch (Throwable ignored) {}
+
+        return null;
+    }
+
+    private static String getVariantName(MaterialId mat) {
+        if (mat == null) return null;
+        try {
+            Method m = mat.getClass().getMethod("getVariant");
+            m.setAccessible(true);
+            Object v = m.invoke(mat);
+            if (v instanceof String) {
+                String s = (String) v;
+                if (!s.isEmpty()) return s;
+            }
+        } catch (Throwable ignored) {}
+
+        String s = mat.toString();
+        int hash = s.indexOf('#');
+        if (hash > 0 && hash < s.length() - 1) return s.substring(hash + 1);
+
+        int sep = s.indexOf(VARIANT_SEP);
+        if (sep > 0 && sep < s.length() - VARIANT_SEP.length()) {
+            return s.substring(sep + VARIANT_SEP.length());
+        }
+        return null;
+    }
+
+    private static MaterialId getBaseMaterial(MaterialId mat) {
+        if (mat == null) return null;
+        if (getVariantName(mat) == null) return mat;
+
+        String path = mat.getPath();
+        int sep = path.indexOf(VARIANT_SEP);
+        if (sep > 0) path = path.substring(0, sep);
+
+        try {
+            return new MaterialId(mat.getNamespace(), path);
+        } catch (Throwable ignored) {}
+        return mat;
+    }
+
+    private static MaterialId resolveMaterialWithStats(IMaterialRegistry registry,
+                                                       MaterialId mat,
+                                                       MaterialStatsId statType) {
+        if (mat == null || registry == null) return null;
+
+        if (statType == null) {
+            try {
+                IMaterial m = registry.getMaterial(mat);
+                if (m != null && m != IMaterial.UNKNOWN) return mat;
+            } catch (Throwable ignored) {}
+        } else {
+            try {
+                if (registry.getMaterialStats(mat, statType).isPresent()) return mat;
+            } catch (Throwable ignored) {}
+        }
+
+        MaterialId base = getBaseMaterial(mat);
+        if (base != null && !base.equals(mat)) {
+            if (statType == null) {
+                try {
+                    IMaterial m = registry.getMaterial(base);
+                    if (m != null && m != IMaterial.UNKNOWN) return base;
+                } catch (Throwable ignored) {}
+            } else {
+                try {
+                    if (registry.getMaterialStats(base, statType).isPresent()) return base;
+                } catch (Throwable ignored) {}
+            }
+        }
+
+        return null;
+    }
+
+    private static void ensureVariantMaterialNbt(ItemStack stack, MaterialId mat) {
+        if (stack == null || stack.isEmpty() || mat == null) return;
+        try {
+            if (getVariantName(mat) == null) return;
+            String target = toCanonicalString(mat);
+            if (target == null || target.isEmpty()) return;
+            CompoundTag tag = stack.getOrCreateTag();
+            String existing = tag.getString("Material");
+            if (!target.equals(existing)) tag.putString("Material", target);
+        } catch (Throwable ignored) {}
+    }
+
+    private static String toCanonicalString(MaterialId mat) {
+        if (mat == null) return "";
+        String variant = getVariantName(mat);
+        if (variant == null) return mat.toString();
+        MaterialId base = getBaseMaterial(mat);
+        return base.toString() + "#" + variant;
+    }
+
+    private static boolean isRepairKitItem(IMaterialItem item) {
+        try {
+            ResourceLocation id = ForgeRegistries.ITEMS.getKey(item.asItem());
+            if (id == null) return false;
+            String path = id.getPath().toLowerCase();
+            return path.contains("repair_kit") || path.contains("repairkit");
+        } catch (Throwable ignored) {}
+        return false;
+    }
+
+    private static boolean isRepairKitPartInfo(PartInfo p) {
+        if (p == null || p.itemId == null) return false;
+        String path = p.itemId.getPath().toLowerCase();
+        return path.contains("repair_kit") || path.contains("repairkit");
+    }
+
+    /**
+     * 材料是否可制作。
+     */
+    private static boolean isCraftableMaterial(IMaterialRegistry registry, MaterialId mat) {
+        if (mat == null || registry == null) return false;
+        try {
+            IMaterial m = registry.getMaterial(mat);
+            if (m == null || m == IMaterial.UNKNOWN) return false;
+
+            try {
+                Method isCraftable = m.getClass().getMethod("isCraftable");
+                isCraftable.setAccessible(true);
+                Object v = isCraftable.invoke(m);
+                if (v instanceof Boolean) return (Boolean) v;
+            } catch (Throwable ignored) {}
+
+            return true;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /**
+     * 材料是否具备"工具部件 stats"（head / handle / limb 之一）。
+     *
+     * <p>用于复合页判定：复合材料如果有工具部件 stats 就允许显示修补件；
+     * 只有盾牌类特殊 stats 的复合材料不显示修补件。
+     */
+    private static boolean hasToolPartStats(IMaterialRegistry registry, MaterialId mat) {
+        if (mat == null || registry == null) return false;
+
+        for (MaterialStatsId stat : TOOL_PART_STATS) {
+            if (stat == null) continue;
+            try {
+                if (registry.getMaterialStats(mat, stat).isPresent()) return true;
+            } catch (Throwable ignored) {}
+
+            MaterialId base = getBaseMaterial(mat);
+            if (base != null && !base.equals(mat)) {
+                try {
+                    if (registry.getMaterialStats(base, stat).isPresent()) return true;
+                } catch (Throwable ignored) {}
+            }
+        }
+        return false;
     }
 
     // ============================================================
@@ -321,12 +650,12 @@ public class FluidPartDataCache {
         Set<String> pageKeys = new HashSet<>();
 
         MaterialId meltMat = idx.meltMap.get(fluid);
-        if (meltMat == null) meltMat = inferMaterialFromFluid(fluid);
 
         System.out.println("[Tinker's Search] build(" + fluidId + "): meltMat=" + meltMat);
 
         if (meltMat != null) {
-            List<PartInfo> parts = filterPartsForMaterial(idx, meltMat);
+            // 本体页：显示所有部件（含修补件）
+            List<PartInfo> parts = filterPartsForMaterial(idx, meltMat, false);
             if (isPageMeaningful(parts)) {
                 String key = "BASE:" + meltMat;
                 if (pageKeys.add(key)) {
@@ -349,10 +678,13 @@ public class FluidPartDataCache {
             if (ce.output == null || ce.input == null) continue;
             if (ce.output.equals(ce.input)) continue;
 
+            if (meltMat != null && ce.output.equals(meltMat)) continue;
+
             String key = "COMP:" + ce.output + "|" + ce.input;
             if (!pageKeys.add(key)) continue;
 
-            List<PartInfo> parts = filterPartsForMaterial(idx, ce.output);
+            // 复合页：修补件只在材料有工具部件 stats 时才显示
+            List<PartInfo> parts = filterPartsForMaterial(idx, ce.output, true);
             if (!isPageMeaningful(parts)) continue;
 
             String title = getMaterialDisplayName(ce.output)
@@ -374,33 +706,60 @@ public class FluidPartDataCache {
     // ===== 材料 → 部件 ==========================================
     // ============================================================
 
-    private static List<PartInfo> filterPartsForMaterial(GlobalIndex idx, MaterialId mat) {
+    /**
+     * @param isCompositePage 复合页传 {@code true}：修补件仅在材料有工具部件 stats 时显示
+     */
+    private static List<PartInfo> filterPartsForMaterial(GlobalIndex idx, MaterialId mat,
+                                                         boolean isCompositePage) {
         if (mat == null) return new ArrayList<>();
         List<PartInfo> cached = PARTS_CACHE.get(mat);
-        if (cached != null) return cached;
+        if (cached != null && !isCompositePage) return cached;
 
         List<PartInfo> result = new ArrayList<>();
         IMaterialRegistry registry = MaterialRegistry.getInstance();
         for (PartTypeRef ref : idx.castableParts) {
-            if (!canMaterialProduce(registry, mat, ref.item)) continue;
+            if (!canMaterialProduce(registry, mat, ref.item, isCompositePage)) continue;
             PartInfo info = buildPartInfo(ref, mat, registry);
             if (info != null) result.add(info);
         }
         result.sort((a, b) -> a.displayName.compareToIgnoreCase(b.displayName));
-        PARTS_CACHE.put(mat, result);
+
+        if (!isCompositePage) PARTS_CACHE.put(mat, result);
         return result;
     }
 
     private static boolean canMaterialProduce(IMaterialRegistry registry,
-                                              MaterialId mat, IMaterialItem item) {
+                                              MaterialId mat, IMaterialItem item,
+                                              boolean isCompositePage) {
         if (mat == null || item == null) return false;
+
         try { if (item.canUseMaterial(mat)) return true; } catch (Throwable ignored) {}
+
         MaterialStatsId statType = MaterialCompatibility.inferStatType(item);
         if (statType != null) {
-            try {
-                if (registry.getMaterialStats(mat, statType).isPresent()) return true;
-            } catch (Throwable ignored) {}
+            if (resolveMaterialWithStats(registry, mat, statType) != null) return true;
         }
+
+        // 修补件兜底
+        if (isRepairKitItem(item)) {
+            // 黑名单
+            if (HIDDEN_MATERIALS.contains(mat.toString())) return false;
+            MaterialId base = getBaseMaterial(mat);
+            if (base != null && !base.equals(mat) && HIDDEN_MATERIALS.contains(base.toString())) {
+                return false;
+            }
+
+            // 材料必须可制作
+            boolean craftable = isCraftableMaterial(registry, mat)
+                    || (base != null && !base.equals(mat) && isCraftableMaterial(registry, base));
+            if (!craftable) return false;
+
+            // 复合页额外要求：材料必须有工具部件 stats（head / handle / limb）
+            if (isCompositePage && !hasToolPartStats(registry, mat)) return false;
+
+            return true;
+        }
+
         return false;
     }
 
@@ -425,7 +784,7 @@ public class FluidPartDataCache {
     }
 
     // ============================================================
-    // ===== withMaterial（缓存 Method）===========================
+    // ===== withMaterial =========================================
     // ============================================================
 
     private static ItemStack tryWithMaterial(IMaterialItem mi, MaterialId mat) {
@@ -444,14 +803,18 @@ public class FluidPartDataCache {
                 }
                 m.setAccessible(true);
                 Object r = m.invoke(mi, args);
-                if (r instanceof ItemStack && !((ItemStack) r).isEmpty()) return (ItemStack) r;
+                if (r instanceof ItemStack && !((ItemStack) r).isEmpty()) {
+                    ItemStack result = (ItemStack) r;
+                    ensureVariantMaterialNbt(result, mat);
+                    return result;
+                }
             } catch (Throwable ignored) {}
         }
 
         ItemStack s = new ItemStack(mi.asItem());
         try {
             CompoundTag tag = s.getOrCreateTag();
-            tag.putString("Material", mat.toString());
+            tag.putString("Material", toCanonicalString(mat));
         } catch (Throwable ignored) {}
         return s;
     }
@@ -474,9 +837,10 @@ public class FluidPartDataCache {
     }
 
     // ============================================================
-    // ===== 兜底：从流体名推断 ====================================
+    // ===== 兜底 =================================================
     // ============================================================
 
+    @SuppressWarnings("unused")
     private static MaterialId inferMaterialFromFluid(Fluid fluid) {
         if (fluid == null) return null;
         ResourceLocation fid = ForgeRegistries.FLUIDS.getKey(fluid);
@@ -521,7 +885,6 @@ public class FluidPartDataCache {
     // ===== 判定 =================================================
     // ============================================================
 
-    /** ★ 只过滤真正的"非部件"（模具、图案）；修补件不再过滤。 */
     private static boolean isNonPartItem(String path) {
         if (path == null) return true;
         String p = path.toLowerCase();
@@ -530,12 +893,6 @@ public class FluidPartDataCache {
         return false;
     }
 
-    /**
-     * ★ 只要部件列表非空就认为是有意义的页面。
-     *
-     * <p>之前会剔除"只有修补件"的页面，导致玻璃等只能做修补件的材料
-     * 在整个详情界面里什么都不显示。现在修补件是合法部件，正常显示。
-     */
     private static boolean isPageMeaningful(List<PartInfo> parts) {
         return parts != null && !parts.isEmpty();
     }
@@ -548,8 +905,12 @@ public class FluidPartDataCache {
                                                   IMaterialRegistry registry) {
         List<ModifierInfo> modifiers = getModifiers(mat, statType);
         if (statType == null) return new PartProperties(new ArrayList<>(), modifiers);
+
+        MaterialId resolved = resolveMaterialWithStats(registry, mat, statType);
+        if (resolved == null) return new PartProperties(new ArrayList<>(), modifiers);
+
         try {
-            Optional<IMaterialStats> opt = registry.getMaterialStats(mat, statType);
+            Optional<IMaterialStats> opt = registry.getMaterialStats(resolved, statType);
             if (!opt.isPresent()) return new PartProperties(new ArrayList<>(), modifiers);
             List<Component> stats = opt.get().getLocalizedInfo();
             return new PartProperties(stats != null ? stats : new ArrayList<>(), modifiers);
@@ -573,6 +934,17 @@ public class FluidPartDataCache {
                     m.setAccessible(true);
                     entries = (List<ModifierEntry>) m.invoke(tm, mat, statType);
                 } catch (Exception ignored) {}
+            }
+            if (entries == null || entries.isEmpty()) {
+                MaterialId base = getBaseMaterial(mat);
+                if (base != null && !base.equals(mat) && statType != null) {
+                    try {
+                        Method m = tm.getClass().getMethod("getTraits",
+                                MaterialId.class, MaterialStatsId.class);
+                        m.setAccessible(true);
+                        entries = (List<ModifierEntry>) m.invoke(tm, base, statType);
+                    } catch (Exception ignored) {}
+                }
             }
             if ((entries == null || entries.isEmpty()) && statType != null) {
                 try {
@@ -658,10 +1030,6 @@ public class FluidPartDataCache {
         return null;
     }
 
-    // ============================================================
-    // ===== 反射 =================================================
-    // ============================================================
-
     private static Object invokeMethod(Object obj, String name) {
         if (obj == null) return null;
         try {
@@ -692,12 +1060,10 @@ public class FluidPartDataCache {
         return null;
     }
 
-    // ============================================================
-    // ===== 名称 =================================================
-    // ============================================================
-
     private static String getMaterialDisplayName(MaterialId mat) {
         if (mat == null) return "";
+        String variant = getVariantName(mat);
+
         try {
             IMaterial m = MaterialRegistry.getInstance().getMaterial(mat);
             if (m != null && m != IMaterial.UNKNOWN) {
@@ -710,7 +1076,39 @@ public class FluidPartDataCache {
                 }
             }
         } catch (Throwable ignored) {}
-        return defaultDisplayName(mat.getPath());
+
+        MaterialId base = getBaseMaterial(mat);
+        if (base != null && !base.equals(mat)) {
+            try {
+                IMaterial bm = MaterialRegistry.getInstance().getMaterial(base);
+                if (bm != null && bm != IMaterial.UNKNOWN) {
+                    Method dm = bm.getClass().getMethod("getDisplayName");
+                    dm.setAccessible(true);
+                    Object v = dm.invoke(bm);
+                    if (v instanceof Component) {
+                        String s = ((Component) v).getString();
+                        if (!s.isEmpty()) {
+                            return variant != null && !variant.isEmpty()
+                                    ? s + " (" + capitalize(variant) + ")"
+                                    : s;
+                        }
+                    }
+                }
+            } catch (Throwable ignored) {}
+        }
+
+        String baseName = defaultDisplayName(mat.getPath());
+        int sep = baseName.indexOf(VARIANT_SEP);
+        if (sep > 0) baseName = baseName.substring(0, sep);
+
+        return variant != null && !variant.isEmpty()
+                ? baseName + " (" + capitalize(variant) + ")"
+                : baseName;
+    }
+
+    private static String capitalize(String s) {
+        if (s == null || s.isEmpty()) return "";
+        return Character.toUpperCase(s.charAt(0)) + s.substring(1);
     }
 
     private static String getItemDisplayName(Item item) {
