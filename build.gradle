@@ -5,6 +5,10 @@ plugins {
     id 'net.minecraftforge.gradle' version '[6.0,6.2)'
 }
 
+// ============================================================================
+// Project metadata（覆盖 gradle.properties 中的部分同名属性，与原文件保持一致）
+// Project metadata (overrides some gradle.properties values, kept as original)
+// ============================================================================
 ext {
     minecraft_version = "1.20.1"
     forge_version = "47.4.10"
@@ -12,6 +16,64 @@ ext {
     tinkers_version = "3.11.2.166"
     jei_version = "15.20.0.110"
 }
+
+// ============================================================================
+// Build variant: Full vs Lite
+// ============================================================================
+//
+// 控制方式 / How to switch:
+//
+//   ./gradlew build                          # 完整版（默认，含 pinyin4j）
+//                                           # Full build (default, includes pinyin4j)
+//
+//   ./gradlew build -PincludePinyin4j=false  # 精简版（不含 pinyin4j，加 -lite 后缀）
+//                                           # Lite build (no pinyin4j, -lite suffix)
+//
+//   ./gradlew runClient                      # 启动完整版开发环境
+//                                           # Launch Full dev client
+//
+//   ./gradlew runClient -PincludePinyin4j=false  # 启动精简版开发环境
+//                                                # Launch Lite dev client
+//
+//   ./gradlew buildAll                       # 一次性构建 Full + Lite 两个产物
+//                                           # Build both Full and Lite in one go
+//
+// 产物 / Artifacts:
+//   build/libs/tinkerssearch-${mod_version}.jar         (Full)
+//   build/libs/tinkerssearch-${mod_version}-lite.jar   (Lite)
+//
+// 关键设计 / Key design:
+//   - pinyin4j 始终是 compileOnly（保证源码能编译，因为 PinyinSearch.java 顶层 import 了
+//     pinyin4j 的 format 类）
+//   - pinyin4j 的运行时打包（minecraftLibrary + jarJar）仅在 Full 构建时启用
+//   - Lite 构建产物不加 pinyin4j 到 jarJar，运行时 PinyinSearch 会捕获
+//     NoClassDefFoundError 并优雅降级（返回空拼音字符串）
+//
+//   - pinyin4j is always compileOnly (source compiles because PinyinSearch.java
+//     top-level imports pinyin4j format classes)
+//   - pinyin4j runtime packaging (minecraftLibrary + jarJar) only on Full build
+//   - Lite build omits pinyin4j from jarJar; at runtime PinyinSearch catches
+//     NoClassDefFoundError and degrades gracefully (returns empty pinyin)
+//
+def includePinyin4j = project.hasProperty('includePinyin4j')
+        ? project.property('includePinyin4j').toString() != 'false'
+        : true  // 默认 true / default true
+
+// 根据构建变体决定归档后缀：Full 无后缀，Lite 为 -lite
+// Determine archive suffix from build variant: empty for Full, 'lite' for Lite
+def archiveClassifierSuffix = includePinyin4j ? '' : 'lite'
+
+// pinyin4j 版本与兼容范围（本地定义，不修改 gradle.properties）
+// pinyin4j version and compatible range (defined locally, gradle.properties untouched)
+def pinyin4j_version = '2.5.1'
+def pinyin4j_range = '[2.5,3.0)'
+
+println "============================================================"
+println " Tinker's Search build configuration"
+println "   includePinyin4j = ${includePinyin4j}"
+println "   archive suffix  = ${includePinyin4j ? '' : '-lite'}"
+println "   build variant   = ${includePinyin4j ? 'FULL (with pinyin4j)' : 'LITE (no pinyin4j)'}"
+println "============================================================"
 
 version = mod_version
 group = mod_group_id
@@ -34,6 +96,15 @@ minecraft {
             workingDirectory project.file('run')
             property 'forge.logging.markers', 'REGISTRIES'
             property 'forge.logging.console.level', 'debug'
+
+            // 让运行时也能感知当前构建变体
+            // Make the runtime aware of the current build variant
+            if (includePinyin4j) {
+                property 'tinkerssearch.build.variant', 'full'
+            } else {
+                property 'tinkerssearch.build.variant', 'lite'
+            }
+
             mods {
                 "${mod_id}" {
                     source sourceSets.main
@@ -93,13 +164,51 @@ dependencies {
     compileOnly fg.deobf("mezz.jei:jei-${minecraft_version}-forge-api:${jei_version}")
     runtimeOnly fg.deobf("mezz.jei:jei-${minecraft_version}-forge:${jei_version}")
 
-    // pinyin4j - 拼音搜索支持
-    minecraftLibrary 'com.belerweb:pinyin4j:2.5.1'
-    jarJar(group: 'com.belerweb', name: 'pinyin4j', version: '[2.5,3.0)') {
-        jarJar.pin(it, '2.5.1')
+    // ------------------------------------------------------------------------
+    // pinyin4j - 拼音搜索依赖
+    // ------------------------------------------------------------------------
+    //
+    // 编译期：始终 compileOnly，保证 PinyinSearch.java 中的顶层 import 能解析
+    // Compile-time: always compileOnly so PinyinSearch.java's top-level imports resolve
+    //
+    // 运行时：仅 Full 构建打包进 jar
+    // Runtime: only bundled into jar in Full build
+    //
+    if (includePinyin4j) {
+        // ===== Full 构建：开发环境运行 + jarJar 打包 =====
+        // Full build: dev runtime + jarJar bundling
+
+        // 1. minecraftLibrary 让开发环境（runClient）能加载 pinyin4j
+        //    minecraftLibrary makes pinyin4j available in the dev runtime (runClient)
+        minecraftLibrary "com.belerweb:pinyin4j:${pinyin4j_version}"
+
+        // 2. jarJar 将 pinyin4j 打包进最终模组 Jar
+        //    jarJar bundles pinyin4j into the final mod jar
+        jarJar(group: 'com.belerweb', name: 'pinyin4j', version: "${pinyin4j_range}") {
+            jarJar.pin(it, "${pinyin4j_version}")  // 锁定打包版本 / pin bundled version
+        }
+
+        // 3. compileOnly 保证编译期能找到 pinyin4j 的类（format 类等）
+        //    compileOnly ensures compile-time resolution of pinyin4j classes (format classes etc.)
+        compileOnly "com.belerweb:pinyin4j:${pinyin4j_version}"
+    } else {
+        // ===== Lite 构建：不打包 pinyin4j =====
+        // Lite build: do NOT bundle pinyin4j
+
+        // 仅 compileOnly 保证源码能编译；运行时无 pinyin4j，PinyinSearch 会优雅降级
+        // compileOnly only so source compiles; at runtime pinyin4j is absent,
+        // PinyinSearch degrades gracefully
+        compileOnly "com.belerweb:pinyin4j:${pinyin4j_version}"
+
+        println "[Tinker's Search] Lite build: pinyin4j will NOT be bundled."
+        println "[Tinker's Search] PinyinSearch will return empty strings at runtime."
     }
 }
 
+// ============================================================================
+// processResources: 保留原有的属性替换
+// processResources: keep original property replacement
+// ============================================================================
 tasks.named('processResources', ProcessResources).configure {
     var replaceProperties = [
             minecraft_version: minecraft_version, minecraft_version_range: minecraft_version_range,
@@ -115,27 +224,109 @@ tasks.named('processResources', ProcessResources).configure {
     }
 }
 
+// ============================================================================
+// JAR manifest / JAR 清单
+// ============================================================================
+//
+// 说明 / Notes:
+//   默认的 `jar` 任务生成的 jar 不包含 jarJar 嵌套依赖，因此本项目禁用它，
+//   统一以 `jarJar` 的输出作为最终产物。这样 build/libs 下只会生成一个 jar：
+//       - Full: tinkerssearch-${mod_version}.jar
+//       - Lite: tinkerssearch-${mod_version}-lite.jar
+//   不再出现额外的 -all 后缀 jar 或没有 jarJar 内容的普通 jar。
+//
+//   The default `jar` task produces a jar without nested jarJar dependencies,
+//   so it is disabled here. `jarJar` becomes the single final output, avoiding
+//   both an extra `-all` jar and a plain jar without nested deps.
+//
+def manifestAttributes = [
+        'Specification-Title'     : mod_id,
+        'Specification-Vendor'    : mod_authors,
+        'Specification-Version'   : '1',
+        'Implementation-Title'    : project.name,
+        'Implementation-Version'  : project.jar.archiveVersion,
+        'Implementation-Vendor'   : mod_authors,
+        'Implementation-Timestamp': new Date().format("yyyy-MM-dd'T'HH:mm:ssZ"),
+
+        // 在 manifest 中标记构建变体，便于运行时诊断
+        // Mark build variant in manifest for runtime diagnostics
+        'TinkersSearch-Build'     : includePinyin4j ? 'full' : 'lite',
+        'TinkersSearch-Pinyin'    : includePinyin4j ? 'bundled' : 'absent'
+]
+
+// ----------------------------------------------------------------------------
+// 禁用默认的 jar 任务，只保留 jarJar 作为最终产物
+// Disable the default jar task; keep jarJar as the sole final artifact
+// ----------------------------------------------------------------------------
 tasks.named('jar', Jar).configure {
+    archiveClassifier = archiveClassifierSuffix
     manifest {
-        attributes([
-                'Specification-Title'     : mod_id,
-                'Specification-Vendor'    : mod_authors,
-                'Specification-Version'   : '1',
-                'Implementation-Title'    : project.name,
-                'Implementation-Version'  : project.jar.archiveVersion,
-                'Implementation-Vendor'   : mod_authors,
-                'Implementation-Timestamp': new Date().format("yyyy-MM-dd'T'HH:mm:ssZ")
-        ])
+        attributes(manifestAttributes)
     }
-    finalizedBy 'reobfJar'
+    enabled = false
 }
 
+// 启用 jarJar
+// Enable jarJar
 jarJar.enable()
 
+// ----------------------------------------------------------------------------
+// 配置 jarJar 任务（注意：必须使用 tasks.named('jarJar')，而不是 jarJar { }）
+// Configure the jarJar task (note: must use tasks.named('jarJar'), not jarJar { })
+// ----------------------------------------------------------------------------
+//
+// 原因：jarJar { } 配置的是 JarJarProjectExtension 扩展，它没有 archiveClassifier 属性，
+// 也没有 finalizedBy 方法。这些都属于任务本身，需要通过 tasks.named 访问。
+//
+// Reason: jarJar { } configures the JarJarProjectExtension, which has no
+// archiveClassifier property nor finalizedBy method. These belong to the task
+// itself and must be accessed via tasks.named.
+//
+tasks.named('jarJar') {
+    // 去掉默认的 `all` 分类器，使用与构建变体对齐的后缀：
+    //   Full → tinkerssearch-${mod_version}.jar
+    //   Lite → tinkerssearch-${mod_version}-lite.jar
+    // Drop the default `all` classifier; align with the build variant suffix.
+    archiveClassifier.set(archiveClassifierSuffix)
+
+    manifest {
+        attributes(manifestAttributes)
+    }
+}
+
+// ----------------------------------------------------------------------------
+// 延迟配置 reobfJar（使用 tasks.matching 惰性匹配，避免任务尚未创建时报错）
+// Delay reobfJar configuration (use tasks.matching for lazy matching to avoid
+// "task not found" errors when the task hasn't been created yet)
+// ----------------------------------------------------------------------------
+afterEvaluate {
+    // 让 reobfJar 作用于 jarJar 的输出（唯一最终产物）
+    // Have reobfJar operate on jarJar's output (the single final artifact)
+    tasks.named('jarJar') {
+        finalizedBy 'reobfJar'
+    }
+
+    // 使用 tasks.matching 惰性匹配 reobfJar，即使任务尚未创建也能正确配置
+    // Use tasks.matching to lazily configure reobfJar even if it isn't created yet
+    tasks.matching { it.name == 'reobfJar' }.configureEach {
+        // 显式指向 jarJar 的产物，确保重混淆后覆盖同一文件
+        // Point explicitly at jarJar's artifact so reobf overwrites the same file
+        input = tasks.named('jarJar').get().archiveFile.get().asFile
+    }
+}
+
+// 让 assemble / build 依赖 jarJar，从而触发整个打包链
+// Make assemble / build depend on jarJar so the packaging chain runs
+assemble.dependsOn tasks.named('jarJar')
+
+// ============================================================================
+// publishing: 发布 jarJar 的最终产物
+// publishing: publish the final jarJar artifact
+// ============================================================================
 publishing {
     publications {
         register('mavenJava', MavenPublication) {
-            artifact jar
+            artifact tasks.named('jarJar')
         }
     }
     repositories {
@@ -145,6 +336,111 @@ publishing {
     }
 }
 
+// ============================================================================
+// buildAll: 一次性构建 Full + Lite 两个产物
+// ============================================================================
+//
+// 用法 / Usage:
+//   ./gradlew buildAll
+//   ./gradlew clean buildAll
+//
+// 产出 / Output:
+//   build/libs/tinkerssearch-${mod_version}.jar
+//   build/libs/tinkerssearch-${mod_version}-lite.jar
+//
+// 实现方式：先以默认配置（Full）构建，再用 -PincludePinyin4j=false 调用 gradle
+// 子进程构建 Lite 版本。
+//
+// Implementation: build Full first (default config), then invoke a gradle
+// subprocess with -PincludePinyin4j=false to build Lite.
+//
+task buildFull {
+    group = 'build'
+    description = 'Builds the Full variant (with pinyin4j bundled).'
+    // 默认就是 Full，不需要特殊设置 / default is Full, no special setup needed
+}
+
+task buildLite {
+    group = 'build'
+    description = 'Builds the Lite variant (without pinyin4j, with -lite suffix).'
+    doFirst {
+        // 在子进程中以 -PincludePinyin4j=false 重新调用 gradle
+        // Re-invoke gradle in a subprocess with -PincludePinyin4j=false
+        def result = exec {
+            // 兼容 Windows / Unix
+            // Cross-platform compatible
+            def isWindows = System.getProperty('os.name').toLowerCase().contains('windows')
+            def gradlew = isWindows ? 'gradlew.bat' : './gradlew'
+            workingDir project.rootDir
+            commandLine gradlew, 'build',
+                    '-PincludePinyin4j=false',
+                    '--console=plain'
+            // 忽略子进程的非零退出码以继续，但显示错误
+            // ignoreNonZeroExitCode to continue, but error is shown
+            ignoreExitValue = false
+        }
+    }
+    // 防止递归：在 Lite 构建的子进程内不再触发 buildLite
+    // Prevent recursion: don't trigger buildLite inside the Lite subprocess
+    onlyIf {
+        !project.hasProperty('includePinyin4j') || project.property('includePinyin4j').toString() != 'false'
+    }
+}
+
+task buildAll {
+    group = 'build'
+    description = 'Builds both Full and Lite variants in one go.'
+    dependsOn 'buildFull'
+    finalizedBy 'buildLite'
+}
+
+// 让 buildFull 默认依赖 build，避免命名冲突
+// Make buildFull delegate to build to avoid task name conflicts
+buildFull.configure {
+    dependsOn 'build'
+}
+
+// ============================================================================
+// 诊断任务：显示当前构建变体的关键信息
+// Diagnostic task: prints key info about the current build variant
+// ============================================================================
+task buildInfo {
+    group = 'help'
+    description = 'Prints the current build variant configuration.'
+    doLast {
+        println ""
+        println "============================================================"
+        println " Tinker's Search — Build Information"
+        println "------------------------------------------------------------"
+        println " Project version     : ${project.version}"
+        println " Archives base name   : ${project.archivesBaseName}"
+        println " Minecraft version    : ${minecraft_version}"
+        println " Forge version        : ${minecraft_version}-${forge_version}"
+        println " Mantle version       : ${minecraft_version}-${mantle_version}"
+        println " TConstruct version   : ${minecraft_version}-${tinkers_version}"
+        println " JEI version          : ${minecraft_version}-${jei_version}"
+        println " pinyin4j version     : ${pinyin4j_version} (range: ${pinyin4j_range})"
+        println "------------------------------------------------------------"
+        println " Build variant        : ${includePinyin4j ? 'FULL' : 'LITE'}"
+        println " archiveClassifier    : ${includePinyin4j ? '(none)' : 'lite'}"
+        println " pinyin4j bundled     : ${includePinyin4j ? 'YES' : 'NO'}"
+        println " Expected output file : build/libs/${mod_id}-${mod_version}${includePinyin4j ? '' : '-lite'}.jar"
+        println "============================================================"
+        println ""
+        println " Available build tasks:"
+        println "   ./gradlew build                          # Full build (default)"
+        println "   ./gradlew build -PincludePinyin4j=false  # Lite build"
+        println "   ./gradlew buildAll                       # Both Full + Lite"
+        println "   ./gradlew runClient                      # Run Full dev client"
+        println "   ./gradlew runClient -PincludePinyin4j=false  # Run Lite dev client"
+        println "   ./gradlew buildInfo                      # Show this info"
+        println "============================================================"
+    }
+}
+
+// ============================================================================
+// 编码设置
+// ============================================================================
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
 }
