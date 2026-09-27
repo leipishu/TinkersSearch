@@ -70,7 +70,7 @@
 >
 > 💡 完整版内置 **pinyin4j**（Jar-in-Jar 打包），无需单独安装；Lite 版本则不打包 pinyin4j，体积更小。
 
-- **[Modrinth](https://modrinth.com/mod/tinkers-search)**（审核中）
+- **[Modrinth](https://modrinth.com/mod/tinkers-search)**
 - **[CurseForge](https://www.curseforge.com/minecraft/mc-mods/tinkers-search)**
 - GitHub Releases
 
@@ -173,7 +173,7 @@ Two builds are available. They are functionally identical except for **whether p
 >
 > 💡 The Full build bundles **pinyin4j** via Jar-in-Jar — no separate installation needed. The Lite build does not include pinyin4j, resulting in a smaller file size.
 
-- **[Modrinth](https://modrinth.com/mod/tinkers-search)** (Under review)
+- **[Modrinth](https://modrinth.com/mod/tinkers-search)**
 - **[CurseForge](https://www.curseforge.com/minecraft/mc-mods/tinkers-search)**
 - GitHub Releases
 
