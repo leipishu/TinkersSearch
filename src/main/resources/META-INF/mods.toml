@@ -6,7 +6,7 @@
 
 modLoader="javafml" #mandatory
 loaderVersion="[40,)" #mandatory
-license="All rights reserved"
+license="LGPL-3.0-only"
 
 [[mods]] #mandatory
 modId="tinkerssearch" #mandatory
