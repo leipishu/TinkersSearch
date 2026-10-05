@@ -42,7 +42,6 @@ public class PanelRenderer {
 
     private final List<ClickableArea> clickableAreas = new ArrayList<>();
 
-    // ===== 滚动条实例 =====
     private final ScrollBar favScrollBar = new ScrollBar();
     private final ScrollBar smelteryScrollBar = new ScrollBar();
     private final ScrollBar allMaterialsScrollBar = new ScrollBar();
@@ -80,13 +79,11 @@ public class PanelRenderer {
         this.interactionHandler = interactionHandler;
         this.alloyHandler = alloyHandler;
 
-        // ===== 滚动条回调 =====
         favScrollBar.setOnOffsetChanged(v -> dataManager.setFavScrollOffset(v));
         smelteryScrollBar.setOnOffsetChanged(v -> dataManager.setScrollOffset(v));
         allMaterialsScrollBar.setOnOffsetChanged(v -> dataManager.setAllMaterialsScrollOffset(v));
         alloyScrollBar.setOnOffsetChanged(v -> dataManager.setAlloyScrollOffset(v));
 
-        // ===== 滚动条动画实例 id =====
         favScrollBar.setAnimationId("panel.fav");
         smelteryScrollBar.setAnimationId("panel.smeltery");
         allMaterialsScrollBar.setAnimationId("panel.allMaterials");
@@ -178,7 +175,6 @@ public class PanelRenderer {
 
     public void renderButton(PoseStack poseStack, int mouseX, int mouseY, float partialTick) {
         clickableAreas.clear();
-        // 清空滚动条状态，避免切 Tab 后残留 bounds
         favScrollBar.setBounds(0, 0, 0, 0);
         smelteryScrollBar.setBounds(0, 0, 0, 0);
         allMaterialsScrollBar.setBounds(0, 0, 0, 0);
@@ -205,7 +201,6 @@ public class PanelRenderer {
         Font font = mc.font;
         if (cachedFont == null) cachedFont = font;
 
-        // ★ 注意：getPanelX() 已经包含 animationOffset，不要再叠加
         int px = panel.getPanelX();
         int py = panel.getPanelY();
         int pw = panel.getPanelWidth();
@@ -260,12 +255,10 @@ public class PanelRenderer {
         Tab active = dataManager.getCurrentTab();
         int activeIndex = -1;
 
-        // 底色常量
         final int BASE_BG   = 0xFF3A3020;
         final int HOVER_BG  = 0xFF4E4028;
         final int ACTIVE_BG = 0xFF6A5030;
 
-        // 文字色常量
         final int BASE_TEXT   = 0xFFAA8844;
         final int HOVER_TEXT  = 0xFFDDBB55;
         final int ACTIVE_TEXT = 0xFFFFDD77;
@@ -282,7 +275,6 @@ public class PanelRenderer {
             boolean isHover = mouseX >= tabX && mouseX <= tabX + tabW &&
                     mouseY >= tabY && mouseY <= tabY + tabH;
 
-            // ★ hover 动画（激活的 Tab 不参与 hover 插值）
             float hoverT = PanelAnimations.tabHover(i, isHover && !isActive);
 
             int bg;
@@ -303,7 +295,6 @@ public class PanelRenderer {
                     tabY + (tabH - font.lineHeight) / 2 + 1, textColor);
         }
 
-        // ★ 滑动指示器：在激活 Tab 底部画一条橙线，位置平滑过渡
         if (activeIndex >= 0) {
             int relTargetX = TAB_START_X + activeIndex * TAB_ITEM_WIDTH;
             int tabW = TAB_ITEM_WIDTH - 2;
@@ -323,20 +314,34 @@ public class PanelRenderer {
         int btnY = py + REFRESH_BTN_Y;
         boolean hover = isHovered(btnX, btnY, REFRESH_BTN_W, REFRESH_BTN_H, mouseX, mouseY);
 
-        // ★ hover 插值
         float hoverT = PanelAnimations.refreshHover(hover);
+        float pulseScale = PanelAnimations.refreshPulseScale();
 
-        int baseColor = 0xFF333333;
-        int hoverColor = 0xFF555555;
-        int color = ColorUtil.lerpARGB(baseColor, hoverColor, hoverT);
+        boolean applyScale = Math.abs(pulseScale - 1f) > 0.005f;
+        if (applyScale) {
+            float cx = btnX + REFRESH_BTN_W / 2f;
+            float cy = btnY + REFRESH_BTN_H / 2f;
+            poseStack.pushPose();
+            poseStack.translate(cx, cy, 0);
+            poseStack.scale(pulseScale, pulseScale, 1f);
+            poseStack.translate(-cx, -cy, 0);
+        }
 
-        GuiComponent.fill(poseStack, btnX, btnY, btnX + REFRESH_BTN_W, btnY + REFRESH_BTN_H, color);
-        GuiComponent.fill(poseStack, btnX, btnY, btnX + REFRESH_BTN_W, btnY + 1, 0xFF666666);
-        GuiComponent.fill(poseStack, btnX, btnY + REFRESH_BTN_H - 1, btnX + REFRESH_BTN_W, btnY + REFRESH_BTN_H, 0xFF666666);
-        GuiComponent.fill(poseStack, btnX, btnY, btnX + 1, btnY + REFRESH_BTN_H, 0xFF666666);
-        GuiComponent.fill(poseStack, btnX + REFRESH_BTN_W - 1, btnY, btnX + REFRESH_BTN_W, btnY + REFRESH_BTN_H, 0xFF666666);
+        try {
+            int baseColor = 0xFF333333;
+            int hoverColor = 0xFF555555;
+            int color = ColorUtil.lerpARGB(baseColor, hoverColor, hoverT);
 
-        font.draw(poseStack, new TranslatableComponent("gui.tinkerssearch.refresh"), btnX + 4, btnY + 3, 0xCCCCCC);
+            GuiComponent.fill(poseStack, btnX, btnY, btnX + REFRESH_BTN_W, btnY + REFRESH_BTN_H, color);
+            GuiComponent.fill(poseStack, btnX, btnY, btnX + REFRESH_BTN_W, btnY + 1, 0xFF666666);
+            GuiComponent.fill(poseStack, btnX, btnY + REFRESH_BTN_H - 1, btnX + REFRESH_BTN_W, btnY + REFRESH_BTN_H, 0xFF666666);
+            GuiComponent.fill(poseStack, btnX, btnY, btnX + 1, btnY + REFRESH_BTN_H, 0xFF666666);
+            GuiComponent.fill(poseStack, btnX + REFRESH_BTN_W - 1, btnY, btnX + REFRESH_BTN_W, btnY + REFRESH_BTN_H, 0xFF666666);
+
+            font.draw(poseStack, new TranslatableComponent("gui.tinkerssearch.refresh"), btnX + 4, btnY + 3, 0xCCCCCC);
+        } finally {
+            if (applyScale) poseStack.popPose();
+        }
     }
 
     // ==================== 搜索框 ====================
@@ -396,7 +401,6 @@ public class PanelRenderer {
                                        int mouseX, int mouseY, Font font) {
         int cardAreaW = pw - 10 - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING;
 
-        // 收藏区
         if (!dataManager.getDisplayedFavoriteFluids().isEmpty()) {
             int favTitleY = py + layoutCalculator.getFavoriteTitleY();
             font.draw(poseStack, "§6" + new TranslatableComponent("gui.tinkerssearch.favorites").getString(),
@@ -424,7 +428,6 @@ public class PanelRenderer {
             }
         }
 
-        // 冶炼炉区
         int smelteryTitleY = py + layoutCalculator.getSmelteryTitleY();
         font.draw(poseStack, "§e" + new TranslatableComponent("gui.tinkerssearch.smeltery").getString(),
                 px + 5, smelteryTitleY, 0xFFFFFF);
@@ -457,7 +460,6 @@ public class PanelRenderer {
         int endY = areaStartY + areaHeight;
 
         boolean isEmpty = dataManager.getDisplayedFluids().isEmpty();
-        // ★ 空状态 alpha（无论空否都更新目标值）
         float emptyAlpha = PanelAnimations.emptyAlpha("smeltery", isEmpty);
 
         if (isEmpty) {
@@ -607,64 +609,97 @@ public class PanelRenderer {
         boolean isBottom = dataManager.getBottomFluidName() != null
                 && fluidName.equals(dataManager.getBottomFluidName()) && existsInSmeltery;
 
+        // ★ 统一 key
+        String cardKey = PanelAnimations.cardKeyFor(fluid);
+
         // ★ hover 插值
-        String cardKey = (regName != null) ? regName.toString() : fluidName;
         float hoverT = PanelAnimations.cardHover(cardKey, hover);
 
-        int bg = ColorUtil.lerpARGB(0xFF222222, 0xFF3A3A3A, hoverT);
-        int border;
-        if (isBottom) {
-            // 底部高亮用绿色，hover 时轻微加亮
-            border = ColorUtil.lerpARGB(0xFF00FF00, 0xFF88FF88, hoverT);
-        } else {
-            border = ColorUtil.lerpARGB(0xFF333333, 0xFF888888, hoverT);
-        }
-        CardBackground.draw(poseStack, x, y, w, h, bg, border);
+        // ★ 点击脉冲缩放
+        float clickScale = PanelAnimations.cardClickScale(cardKey);
+        boolean applyClickScale = Math.abs(clickScale - 1f) > 0.005f;
 
-        int iconSize = ICON_SIZE;
-        int iconX = x + 3;
-        int iconY = y + (h - iconSize) / 2;
-        SmelteryDataHelper.drawFluidIcon(poseStack, iconX, iconY, fluid, iconSize);
-
-        int textX = iconX + iconSize + ICON_TEXT_GAP;
-        int maxTextW = w - iconSize - ICON_TEXT_GAP - 8 - 16;
-
-        String displayName = fluidName.replace("Molten ", "").replace("熔融", "");
-        String truncatedName = truncateTextWithEllipsis(font, displayName, maxTextW);
-
-        // 文字颜色：hover 时略微变亮
-        int nameColor = isBottom
-                ? ColorUtil.lerpARGB(0xFF00FF00, 0xFF88FF88, hoverT)
-                : ColorUtil.lerpARGB(0xFFFFFFFF, 0xFFFFEEDD, hoverT);
-        font.draw(poseStack, truncatedName, textX, y + 4, nameColor);
-
-        if (!existsInSmeltery) {
-            String locked = new TranslatableComponent("gui.tinkerssearch.locked").getString();
-            font.draw(poseStack, "§8" + locked, textX, y + 18, 0x888888);
-        } else {
-            String amtStr;
-            if (actualAmount >= 1000) amtStr = String.format("%.1fB", actualAmount / 1000.0);
-            else amtStr = actualAmount + "mB";
-            font.draw(poseStack, "§8" + amtStr, textX, y + 18, 0x888888);
+        if (applyClickScale) {
+            float cx = x + w / 2f;
+            float cy = y + h / 2f;
+            poseStack.pushPose();
+            poseStack.translate(cx, cy, 0);
+            poseStack.scale(clickScale, clickScale, 1f);
+            poseStack.translate(-cx, -cy, 0);
         }
 
-        boolean isFav = FavoritesManager.isFavorite(fluid);
-        int starSize = 12;
-        int starX = x + w - starSize - 4;
-        int starY = y + 4;
-        String star = isFav ? "★" : "☆";
-        int starColor = isFav ? 0xFFFFD700 : 0x666666;
-        font.draw(poseStack, star, starX, starY, starColor);
-
-        // 提示文字随 hover 淡入
-        if (hoverT > 0.15f && existsInSmeltery) {
-            RenderSystem.setShaderColor(1f, 1f, 1f, hoverT);
-            try {
-                font.draw(poseStack, "§7" + new TranslatableComponent("gui.tinkerssearch.click_move").getString(),
-                        x + 4, y + h - 10, 0x666666);
-            } finally {
-                RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
+        try {
+            int bg = ColorUtil.lerpARGB(0xFF222222, 0xFF3A3A3A, hoverT);
+            int border;
+            if (isBottom) {
+                border = ColorUtil.lerpARGB(0xFF00FF00, 0xFF88FF88, hoverT);
+            } else {
+                border = ColorUtil.lerpARGB(0xFF333333, 0xFF888888, hoverT);
             }
+            CardBackground.draw(poseStack, x, y, w, h, bg, border);
+
+            int iconSize = ICON_SIZE;
+            int iconX = x + 3;
+            int iconY = y + (h - iconSize) / 2;
+            SmelteryDataHelper.drawFluidIcon(poseStack, iconX, iconY, fluid, iconSize);
+
+            int textX = iconX + iconSize + ICON_TEXT_GAP;
+            int maxTextW = w - iconSize - ICON_TEXT_GAP - 8 - 16;
+
+            String displayName = fluidName.replace("Molten ", "").replace("熔融", "");
+            String truncatedName = truncateTextWithEllipsis(font, displayName, maxTextW);
+
+            int nameColor = isBottom
+                    ? ColorUtil.lerpARGB(0xFF00FF00, 0xFF88FF88, hoverT)
+                    : ColorUtil.lerpARGB(0xFFFFFFFF, 0xFFFFEEDD, hoverT);
+            font.draw(poseStack, truncatedName, textX, y + 4, nameColor);
+
+            if (!existsInSmeltery) {
+                String locked = new TranslatableComponent("gui.tinkerssearch.locked").getString();
+                font.draw(poseStack, "§8" + locked, textX, y + 18, 0x888888);
+            } else {
+                String amtStr;
+                if (actualAmount >= 1000) amtStr = String.format("%.1fB", actualAmount / 1000.0);
+                else amtStr = actualAmount + "mB";
+                font.draw(poseStack, "§8" + amtStr, textX, y + 18, 0x888888);
+            }
+
+            // ★ 星标（含脉冲缩放）
+            boolean isFav = FavoritesManager.isFavorite(fluid);
+            int starSize = 12;
+            int starX = x + w - starSize - 4;
+            int starY = y + 4;
+            String star = isFav ? "★" : "☆";
+            int starColor = isFav ? 0xFFFFD700 : 0x666666;
+
+            float starScale = PanelAnimations.starPulseScale(cardKey);
+            boolean applyStarScale = Math.abs(starScale - 1f) > 0.005f;
+
+            if (applyStarScale) {
+                float scx = starX + starSize / 2f;
+                float scy = starY + starSize / 2f;
+                poseStack.pushPose();
+                poseStack.translate(scx, scy, 0);
+                poseStack.scale(starScale, starScale, 1f);
+                poseStack.translate(-scx, -scy, 0);
+                font.draw(poseStack, star, starX, starY, starColor);
+                poseStack.popPose();
+            } else {
+                font.draw(poseStack, star, starX, starY, starColor);
+            }
+
+            // 提示文字随 hover 淡入
+            if (hoverT > 0.15f && existsInSmeltery) {
+                RenderSystem.setShaderColor(1f, 1f, 1f, hoverT);
+                try {
+                    font.draw(poseStack, "§7" + new TranslatableComponent("gui.tinkerssearch.click_move").getString(),
+                            x + 4, y + h - 10, 0x666666);
+                } finally {
+                    RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
+                }
+            }
+        } finally {
+            if (applyClickScale) poseStack.popPose();
         }
     }
 
@@ -678,8 +713,6 @@ public class PanelRenderer {
         bar.setRange(offset, maxOffset);
         bar.render(ps, mouseX, mouseY);
     }
-
-    // ==================== 滚动条拖拽 API ====================
 
     public boolean beginScrollBarDrag(double mouseX, double mouseY) {
         if (favScrollBar.tryBeginDrag(mouseX, mouseY)) return true;
@@ -883,10 +916,7 @@ public class PanelRenderer {
                                        FluidStack fluid, boolean hover, boolean selected, Font font) {
         String name = fluid.getDisplayName().getString().replace("Molten ", "");
 
-        // ★ hover 插值（选中态优先，不参与 hover 过渡）
-        String cardKey = fluid.getFluid().getRegistryName() != null
-                ? fluid.getFluid().getRegistryName().toString()
-                : name;
+        String cardKey = PanelAnimations.cardKeyFor(fluid);
         float hoverT = PanelAnimations.alloyCardHover(cardKey, hover && !selected);
 
         int bg;

@@ -25,6 +25,7 @@ import top.leipishu.tinkerssearch.config.PanelConfig;
 import top.leipishu.tinkerssearch.smeltery.SmelteryTemperatureReader;
 import top.leipishu.tinkerssearch.data.FavoritesManager;
 import top.leipishu.tinkerssearch.smeltery.SmelteryClickHandler;
+import top.leipishu.tinkerssearch.client.animation.controller.PanelAnimations;
 
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import slimeknights.tconstruct.smeltery.block.entity.controller.SmelteryBlockEntity;
@@ -448,6 +449,7 @@ public class FloatingSearchPanel extends AbstractWidget {
 
         if (mouseX >= px + PanelConfig.REFRESH_BTN_X && mouseX <= px + PanelConfig.REFRESH_BTN_X + PanelConfig.REFRESH_BTN_W &&
                 mouseY >= py + PanelConfig.REFRESH_BTN_Y && mouseY <= py + PanelConfig.REFRESH_BTN_Y + PanelConfig.REFRESH_BTN_H) {
+            PanelAnimations.triggerRefreshPulse();
             alloyHandler.invalidateTemperatureCache();
             temperatureReader.invalidateCache();
             refreshSmelteryEntity();
@@ -677,8 +679,13 @@ public class FloatingSearchPanel extends AbstractWidget {
                 int starY = cardY + 4;
                 boolean onStar = mouseX >= starX && mouseX <= starX + starSize &&
                         mouseY >= starY && mouseY <= starY + starSize;
+
+                // ★ 统一计算 cardKey
+                String cardKey = PanelAnimations.cardKeyFor(fluid);
+
                 if (onStar) {
                     FavoritesManager.toggleFavorite(fluid);
+                    PanelAnimations.triggerStarPulse(cardKey);   // ★ 触发星标脉冲
                     refreshMoltenFluids();
                     return true;
                 }
@@ -697,6 +704,7 @@ public class FloatingSearchPanel extends AbstractWidget {
                 }
 
                 if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && !onIcon) {
+                    PanelAnimations.triggerCardClick(cardKey);   // ★ 触发点击脉冲
                     return moveFluidToBottom(fluid);
                 }
 
