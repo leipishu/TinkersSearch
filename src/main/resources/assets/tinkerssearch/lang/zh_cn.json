@@ -64,5 +64,8 @@
   "gui.tinkerssearch.tab.smeltery": "冶炼炉",
   "gui.tinkerssearch.tab.materials": "材料",
   "gui.tinkerssearch.tab.alloy": "合金",
-  "gui.tinkerssearch.no_materials": "暂无材料"
+  "gui.tinkerssearch.no_materials": "暂无材料",
+
+  "gui.tinkerssearch.detail.casting.direct": "直接浇筑",
+  "gui.tinkerssearch.detail.casting.on": "浇筑于: %s"
 }

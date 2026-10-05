@@ -64,5 +64,8 @@
   "gui.tinkerssearch.tab.smeltery": "Smeltery",
   "gui.tinkerssearch.tab.materials": "Materials",
   "gui.tinkerssearch.tab.alloy": "Alloy",
-  "gui.tinkerssearch.no_materials": "No materials"
+  "gui.tinkerssearch.no_materials": "No materials",
+
+  "gui.tinkerssearch.detail.casting.direct": "Direct Casting",
+  "gui.tinkerssearch.detail.casting.on": "Cast onto: %s"
 }
