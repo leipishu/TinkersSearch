@@ -13,6 +13,8 @@ import net.minecraftforge.registries.ForgeRegistries;
 import top.leipishu.tinkerssearch.alloy.AlloyQueryHandler;
 import top.leipishu.tinkerssearch.alloy.AlloyRecipeData;
 import top.leipishu.tinkerssearch.alloy.AlloyResultCalculator;
+import top.leipishu.tinkerssearch.client.animation.controller.PanelAnimations;
+import top.leipishu.tinkerssearch.client.animation.core.ColorUtil;
 import top.leipishu.tinkerssearch.client.gui.FloatingSearchPanel;
 import top.leipishu.tinkerssearch.client.gui.PanelInteractionHandler;
 import top.leipishu.tinkerssearch.client.gui.components.CardBackground;
@@ -84,6 +86,12 @@ public class PanelRenderer {
         smelteryScrollBar.setOnOffsetChanged(v -> dataManager.setScrollOffset(v));
         allMaterialsScrollBar.setOnOffsetChanged(v -> dataManager.setAllMaterialsScrollOffset(v));
         alloyScrollBar.setOnOffsetChanged(v -> dataManager.setAlloyScrollOffset(v));
+
+        // ★ 滚动条动画实例 id
+        favScrollBar.setAnimationId("panel.fav");
+        smelteryScrollBar.setAnimationId("panel.smeltery");
+        allMaterialsScrollBar.setAnimationId("panel.allMaterials");
+        alloyScrollBar.setAnimationId("panel.alloy");
     }
 
     // ==================== 公共方法 ====================
@@ -138,7 +146,6 @@ public class PanelRenderer {
             String name = fs.getDisplayName().getString().replace("Molten ", "").replace("熔融", "");
             int needed = input.getAmount();
             int available = 0;
-            // ✅ 1.19.2：通过 ForgeRegistries 获取注册名
             ResourceLocation fsRl = ForgeRegistries.FLUIDS.getKey(fs.getFluid());
             for (FluidStack availableFs : dataManager.getAllFluids()) {
                 ResourceLocation availRl = ForgeRegistries.FLUIDS.getKey(availableFs.getFluid());
@@ -174,7 +181,6 @@ public class PanelRenderer {
 
     public void renderButton(PoseStack poseStack, int mouseX, int mouseY, float partialTick) {
         clickableAreas.clear();
-        // 清空滚动条状态，避免切 Tab 后残留 bounds
         favScrollBar.setBounds(0, 0, 0, 0);
         smelteryScrollBar.setBounds(0, 0, 0, 0);
         allMaterialsScrollBar.setBounds(0, 0, 0, 0);
@@ -187,7 +193,8 @@ public class PanelRenderer {
         }
 
         dataManager.checkPendingHighlightUpdate();
-        animationManager.updateAnimation();
+        // ★ 移除了 animationManager.updateAnimation()：
+        //   动画由 TinkersSearch.onRenderTick → AnimationManager.update() 统一驱动
 
         if (!panel.isVisible() && !animationManager.isAnimating()) return;
 
@@ -202,7 +209,8 @@ public class PanelRenderer {
         Font font = mc.font;
         if (cachedFont == null) cachedFont = font;
 
-        int px = panel.getPanelX() + animationManager.getAnimationOffset();
+        // ★ 修复：getPanelX() 已包含 animationOffset，不再叠加
+        int px = panel.getPanelX();
         int py = panel.getPanelY();
         int pw = panel.getPanelWidth();
         int ph = panel.getPanelHeight();
@@ -254,6 +262,15 @@ public class PanelRenderer {
         };
 
         Tab active = dataManager.getCurrentTab();
+        int activeIndex = -1;
+
+        final int BASE_BG   = 0xFF3A3020;
+        final int HOVER_BG  = 0xFF4E4028;
+        final int ACTIVE_BG = 0xFF6A5030;
+
+        final int BASE_TEXT   = 0xFFAA8844;
+        final int HOVER_TEXT  = 0xFFDDBB55;
+        final int ACTIVE_TEXT = 0xFFFFDD77;
 
         for (int i = 0; i < TAB_COUNT; i++) {
             int tabX = px + TAB_START_X + i * TAB_ITEM_WIDTH;
@@ -262,25 +279,44 @@ public class PanelRenderer {
             int tabH = TAB_ITEM_HEIGHT;
 
             boolean isActive = (i < tabs.length) && (tabs[i] == active);
+            if (isActive) activeIndex = i;
+
             boolean isHover = mouseX >= tabX && mouseX <= tabX + tabW &&
                     mouseY >= tabY && mouseY <= tabY + tabH;
 
+            // ★ Tab hover 动画
+            float hoverT = PanelAnimations.tabHover(i, isHover && !isActive);
+
             int bg;
-            if (isActive) bg = 0xFF6A5030;
-            else if (isHover) bg = 0xFF4E4028;
-            else bg = 0xFF3A3020;
+            int textColor;
+            if (isActive) {
+                bg = ACTIVE_BG;
+                textColor = ACTIVE_TEXT;
+            } else {
+                bg = ColorUtil.lerpARGB(BASE_BG, HOVER_BG, hoverT);
+                textColor = ColorUtil.lerpARGB(BASE_TEXT, HOVER_TEXT, hoverT);
+            }
 
             GuiComponent.fill(poseStack, tabX, tabY, tabX + tabW, tabY + tabH, bg);
 
-            if (isActive) {
-                GuiComponent.fill(poseStack, tabX, tabY + tabH - 1, tabX + tabW, tabY + tabH, 0xFFFFAA00);
-            }
-
             String label = labels[i];
-            int textColor = isActive ? 0xFFFFDD77 : (isHover ? 0xFFDDBB55 : 0xFFAA8844);
             int textW = font.width(label);
             font.draw(poseStack, label, tabX + (tabW - textW) / 2,
                     tabY + (tabH - font.lineHeight) / 2 + 1, textColor);
+        }
+
+        // ★ 滑动指示器
+        if (activeIndex >= 0) {
+            int relTargetX = TAB_START_X + activeIndex * TAB_ITEM_WIDTH;
+            int tabW = TAB_ITEM_WIDTH - 2;
+            int tabY = py + TAB_ITEM_Y;
+            int tabH = TAB_ITEM_HEIGHT;
+
+            float relIndicatorX = PanelAnimations.tabIndicatorX(relTargetX);
+            int indicatorX = px + (int) relIndicatorX;
+
+            GuiComponent.fill(poseStack, indicatorX, tabY + tabH - 1,
+                    indicatorX + tabW, tabY + tabH, 0xFFFFAA00);
         }
     }
 
@@ -289,14 +325,35 @@ public class PanelRenderer {
         int btnY = py + REFRESH_BTN_Y;
         boolean hover = isHovered(btnX, btnY, REFRESH_BTN_W, REFRESH_BTN_H, mouseX, mouseY);
 
-        int color = hover ? 0xFF555555 : 0xFF333333;
-        GuiComponent.fill(poseStack, btnX, btnY, btnX + REFRESH_BTN_W, btnY + REFRESH_BTN_H, color);
-        GuiComponent.fill(poseStack, btnX, btnY, btnX + REFRESH_BTN_W, btnY + 1, 0xFF666666);
-        GuiComponent.fill(poseStack, btnX, btnY + REFRESH_BTN_H - 1, btnX + REFRESH_BTN_W, btnY + REFRESH_BTN_H, 0xFF666666);
-        GuiComponent.fill(poseStack, btnX, btnY, btnX + 1, btnY + REFRESH_BTN_H, 0xFF666666);
-        GuiComponent.fill(poseStack, btnX + REFRESH_BTN_W - 1, btnY, btnX + REFRESH_BTN_W, btnY + REFRESH_BTN_H, 0xFF666666);
+        // ★ hover 插值 + 点击脉冲缩放
+        float hoverT = PanelAnimations.refreshHover(hover);
+        float pulseScale = PanelAnimations.refreshPulseScale();
 
-        font.draw(poseStack, Component.translatable("gui.tinkerssearch.refresh"), btnX + 4, btnY + 3, 0xCCCCCC);
+        boolean applyScale = Math.abs(pulseScale - 1f) > 0.005f;
+        if (applyScale) {
+            float cx = btnX + REFRESH_BTN_W / 2f;
+            float cy = btnY + REFRESH_BTN_H / 2f;
+            poseStack.pushPose();
+            poseStack.translate(cx, cy, 0);
+            poseStack.scale(pulseScale, pulseScale, 1f);
+            poseStack.translate(-cx, -cy, 0);
+        }
+
+        try {
+            int baseColor = 0xFF333333;
+            int hoverColor = 0xFF555555;
+            int color = ColorUtil.lerpARGB(baseColor, hoverColor, hoverT);
+
+            GuiComponent.fill(poseStack, btnX, btnY, btnX + REFRESH_BTN_W, btnY + REFRESH_BTN_H, color);
+            GuiComponent.fill(poseStack, btnX, btnY, btnX + REFRESH_BTN_W, btnY + 1, 0xFF666666);
+            GuiComponent.fill(poseStack, btnX, btnY + REFRESH_BTN_H - 1, btnX + REFRESH_BTN_W, btnY + REFRESH_BTN_H, 0xFF666666);
+            GuiComponent.fill(poseStack, btnX, btnY, btnX + 1, btnY + REFRESH_BTN_H, 0xFF666666);
+            GuiComponent.fill(poseStack, btnX + REFRESH_BTN_W - 1, btnY, btnX + REFRESH_BTN_W, btnY + REFRESH_BTN_H, 0xFF666666);
+
+            font.draw(poseStack, Component.translatable("gui.tinkerssearch.refresh"), btnX + 4, btnY + 3, 0xCCCCCC);
+        } finally {
+            if (applyScale) poseStack.popPose();
+        }
     }
 
     // ==================== 搜索框 ====================
@@ -356,7 +413,6 @@ public class PanelRenderer {
                                        int mouseX, int mouseY, Font font) {
         int cardAreaW = pw - 10 - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING;
 
-        // 收藏区
         if (!dataManager.getDisplayedFavoriteFluids().isEmpty()) {
             int favTitleY = py + layoutCalculator.getFavoriteTitleY();
             font.draw(poseStack, "§6" + Component.translatable("gui.tinkerssearch.favorites").getString(),
@@ -384,7 +440,6 @@ public class PanelRenderer {
             }
         }
 
-        // 冶炼炉区
         int smelteryTitleY = py + layoutCalculator.getSmelteryTitleY();
         font.draw(poseStack, "§e" + Component.translatable("gui.tinkerssearch.smeltery").getString(),
                 px + 5, smelteryTitleY, 0xFFFFFF);
@@ -416,11 +471,22 @@ public class PanelRenderer {
         int startY = areaStartY - dataManager.getScrollOffset();
         int endY = areaStartY + areaHeight;
 
-        if (dataManager.getDisplayedFluids().isEmpty()) {
-            String msg = interactionHandler.getSearchKeyword().isEmpty() ?
-                    "§7" + Component.translatable("gui.tinkerssearch.no_fluids").getString() :
-                    "§7" + Component.translatable("gui.tinkerssearch.no_match").getString();
-            font.draw(poseStack, msg, px + 5, areaStartY + 10, 0x666666);
+        boolean isEmpty = dataManager.getDisplayedFluids().isEmpty();
+        // ★ 空状态淡入
+        float emptyAlpha = PanelAnimations.emptyAlpha("smeltery", isEmpty);
+
+        if (isEmpty) {
+            if (emptyAlpha > 0.01f) {
+                String msg = interactionHandler.getSearchKeyword().isEmpty() ?
+                        "§7" + Component.translatable("gui.tinkerssearch.no_fluids").getString() :
+                        "§7" + Component.translatable("gui.tinkerssearch.no_match").getString();
+                RenderSystem.setShaderColor(1f, 1f, 1f, emptyAlpha);
+                try {
+                    font.draw(poseStack, msg, px + 5, areaStartY + 10, 0x666666);
+                } finally {
+                    RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
+                }
+            }
             return;
         }
 
@@ -474,9 +540,19 @@ public class PanelRenderer {
         int height = layoutCalculator.getAllMaterialsAreaHeight();
         int endY = startY + height;
 
-        if (dataManager.getDisplayedAllMaterials().isEmpty()) {
-            font.draw(poseStack, "§7" + Component.translatable("gui.tinkerssearch.no_materials").getString(),
-                    px + 5, startY + 10, 0x666666);
+        boolean isEmpty = dataManager.getDisplayedAllMaterials().isEmpty();
+        float emptyAlpha = PanelAnimations.emptyAlpha("materials", isEmpty);
+
+        if (isEmpty) {
+            if (emptyAlpha > 0.01f) {
+                String msg = "§7" + Component.translatable("gui.tinkerssearch.no_materials").getString();
+                RenderSystem.setShaderColor(1f, 1f, 1f, emptyAlpha);
+                try {
+                    font.draw(poseStack, msg, px + 5, startY + 10, 0x666666);
+                } finally {
+                    RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
+                }
+            }
             return;
         }
 
@@ -524,7 +600,6 @@ public class PanelRenderer {
                                 boolean hover, Font font, AreaKind areaKind) {
         String fluidName = fluid.getDisplayName().getString();
 
-        // ✅ 1.19.2：通过 ForgeRegistries 获取注册名
         ResourceLocation regName = ForgeRegistries.FLUIDS.getKey(fluid.getFluid());
         if (fluidName == null || fluidName.isEmpty() || fluidName.equals("Air") || fluidName.equals("empty")) {
             if (regName != null) fluidName = regName.getPath();
@@ -536,7 +611,6 @@ public class PanelRenderer {
         if (areaKind != AreaKind.SMELTERY) {
             existsInSmeltery = false;
             for (FluidStack fs : dataManager.getAllFluids()) {
-                // ✅ 1.19.2：通过 ForgeRegistries 获取注册名
                 ResourceLocation fsRl = ForgeRegistries.FLUIDS.getKey(fs.getFluid());
                 if (fsRl != null && fsRl.equals(regName)) {
                     existsInSmeltery = true;
@@ -549,47 +623,98 @@ public class PanelRenderer {
         boolean isBottom = dataManager.getBottomFluidName() != null
                 && fluidName.equals(dataManager.getBottomFluidName()) && existsInSmeltery;
 
-        int bg = hover ? 0xFF3A3A3A : 0xFF222222;
-        int border;
-        if (isBottom) border = 0xFF00FF00;
-        else border = hover ? 0xFF888888 : 0xFF333333;
-        CardBackground.draw(poseStack, x, y, w, h, bg, border);
+        // ★ 统一 key
+        String cardKey = PanelAnimations.cardKeyFor(fluid);
 
-        int iconSize = ICON_SIZE;
-        int iconX = x + 3;
-        int iconY = y + (h - iconSize) / 2;
-        SmelteryDataHelper.drawFluidIcon(poseStack, iconX, iconY, fluid, iconSize);
+        // ★ hover 插值
+        float hoverT = PanelAnimations.cardHover(cardKey, hover);
 
-        int textX = iconX + iconSize + ICON_TEXT_GAP;
-        int maxTextW = w - iconSize - ICON_TEXT_GAP - 8 - 16;
+        // ★ 点击脉冲缩放
+        float clickScale = PanelAnimations.cardClickScale(cardKey);
+        boolean applyClickScale = Math.abs(clickScale - 1f) > 0.005f;
 
-        String displayName = fluidName.replace("Molten ", "").replace("熔融", "");
-        String truncatedName = truncateTextWithEllipsis(font, displayName, maxTextW);
-
-        int nameColor = isBottom ? 0xFF00FF00 : 0xFFFFFF;
-        font.draw(poseStack, truncatedName, textX, y + 4, nameColor);
-
-        if (!existsInSmeltery) {
-            String locked = Component.translatable("gui.tinkerssearch.locked").getString();
-            font.draw(poseStack, "§8" + locked, textX, y + 18, 0x888888);
-        } else {
-            String amtStr;
-            if (actualAmount >= 1000) amtStr = String.format("%.1fB", actualAmount / 1000.0);
-            else amtStr = actualAmount + "mB";
-            font.draw(poseStack, "§8" + amtStr, textX, y + 18, 0x888888);
+        if (applyClickScale) {
+            float cx = x + w / 2f;
+            float cy = y + h / 2f;
+            poseStack.pushPose();
+            poseStack.translate(cx, cy, 0);
+            poseStack.scale(clickScale, clickScale, 1f);
+            poseStack.translate(-cx, -cy, 0);
         }
 
-        boolean isFav = FavoritesManager.isFavorite(fluid);
-        int starSize = 12;
-        int starX = x + w - starSize - 4;
-        int starY = y + 4;
-        String star = isFav ? "★" : "☆";
-        int starColor = isFav ? 0xFFFFD700 : 0x666666;
-        font.draw(poseStack, star, starX, starY, starColor);
+        try {
+            int bg = ColorUtil.lerpARGB(0xFF222222, 0xFF3A3A3A, hoverT);
+            int border;
+            if (isBottom) {
+                border = ColorUtil.lerpARGB(0xFF00FF00, 0xFF88FF88, hoverT);
+            } else {
+                border = ColorUtil.lerpARGB(0xFF333333, 0xFF888888, hoverT);
+            }
+            CardBackground.draw(poseStack, x, y, w, h, bg, border);
 
-        if (hover && existsInSmeltery) {
-            font.draw(poseStack, "§7" + Component.translatable("gui.tinkerssearch.click_move").getString(),
-                    x + 4, y + h - 10, 0x666666);
+            int iconSize = ICON_SIZE;
+            int iconX = x + 3;
+            int iconY = y + (h - iconSize) / 2;
+            // ★ 图标随面板滑入/滑出延迟淡入淡出
+            SmelteryDataHelper.drawFluidIcon(poseStack, iconX, iconY, fluid, iconSize, getIconAlpha());
+
+            int textX = iconX + iconSize + ICON_TEXT_GAP;
+            int maxTextW = w - iconSize - ICON_TEXT_GAP - 8 - 16;
+
+            String displayName = fluidName.replace("Molten ", "").replace("熔融", "");
+            String truncatedName = truncateTextWithEllipsis(font, displayName, maxTextW);
+
+            int nameColor = isBottom
+                    ? ColorUtil.lerpARGB(0xFF00FF00, 0xFF88FF88, hoverT)
+                    : ColorUtil.lerpARGB(0xFFFFFFFF, 0xFFFFEEDD, hoverT);
+            font.draw(poseStack, truncatedName, textX, y + 4, nameColor);
+
+            if (!existsInSmeltery) {
+                String locked = Component.translatable("gui.tinkerssearch.locked").getString();
+                font.draw(poseStack, "§8" + locked, textX, y + 18, 0x888888);
+            } else {
+                String amtStr;
+                if (actualAmount >= 1000) amtStr = String.format("%.1fB", actualAmount / 1000.0);
+                else amtStr = actualAmount + "mB";
+                font.draw(poseStack, "§8" + amtStr, textX, y + 18, 0x888888);
+            }
+
+            // ★ 星标（含脉冲缩放）
+            boolean isFav = FavoritesManager.isFavorite(fluid);
+            int starSize = 12;
+            int starX = x + w - starSize - 4;
+            int starY = y + 4;
+            String star = isFav ? "★" : "☆";
+            int starColor = isFav ? 0xFFFFD700 : 0x666666;
+
+            float starScale = PanelAnimations.starPulseScale(cardKey);
+            boolean applyStarScale = Math.abs(starScale - 1f) > 0.005f;
+
+            if (applyStarScale) {
+                float scx = starX + starSize / 2f;
+                float scy = starY + starSize / 2f;
+                poseStack.pushPose();
+                poseStack.translate(scx, scy, 0);
+                poseStack.scale(starScale, starScale, 1f);
+                poseStack.translate(-scx, -scy, 0);
+                font.draw(poseStack, star, starX, starY, starColor);
+                poseStack.popPose();
+            } else {
+                font.draw(poseStack, star, starX, starY, starColor);
+            }
+
+            // 提示文字随 hover 淡入
+            if (hoverT > 0.15f && existsInSmeltery) {
+                RenderSystem.setShaderColor(1f, 1f, 1f, hoverT);
+                try {
+                    font.draw(poseStack, "§7" + Component.translatable("gui.tinkerssearch.click_move").getString(),
+                            x + 4, y + h - 10, 0x666666);
+                } finally {
+                    RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
+                }
+            }
+        } finally {
+            if (applyClickScale) poseStack.popPose();
         }
     }
 
@@ -727,9 +852,19 @@ public class PanelRenderer {
         int cardAreaHeight = endY - cardStartY;
         int cardAreaW = pw - 10 - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING;
 
-        if (materials.isEmpty()) {
-            font.draw(poseStack, "§7" + Component.translatable("gui.tinkerssearch.no_match").getString(),
-                    px + 5, cardStartY + 10, 0x666666);
+        boolean isEmpty = materials.isEmpty();
+        float emptyAlpha = PanelAnimations.emptyAlpha("alloy", isEmpty);
+
+        if (isEmpty) {
+            if (emptyAlpha > 0.01f) {
+                RenderSystem.setShaderColor(1f, 1f, 1f, emptyAlpha);
+                try {
+                    font.draw(poseStack, "§7" + Component.translatable("gui.tinkerssearch.no_match").getString(),
+                            px + 5, cardStartY + 10, 0x666666);
+                } finally {
+                    RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
+                }
+            }
             return;
         }
 
@@ -804,14 +939,24 @@ public class PanelRenderer {
                                        FluidStack fluid, boolean hover, boolean selected, Font font) {
         String name = fluid.getDisplayName().getString().replace("Molten ", "");
 
-        int bg = selected ? 0xFF1A3A6A : (hover ? 0xFF3A3A3A : 0xFF222222);
-        int border = selected ? 0xFF4488FF : (hover ? 0xFF888888 : 0xFF333333);
+        String cardKey = PanelAnimations.cardKeyFor(fluid);
+        float hoverT = PanelAnimations.alloyCardHover(cardKey, hover && !selected);
+
+        int bg;
+        int border;
+        if (selected) {
+            bg = 0xFF1A3A6A;
+            border = 0xFF4488FF;
+        } else {
+            bg = ColorUtil.lerpARGB(0xFF222222, 0xFF3A3A3A, hoverT);
+            border = ColorUtil.lerpARGB(0xFF333333, 0xFF888888, hoverT);
+        }
         CardBackground.draw(poseStack, x, y, w, h, bg, border);
 
         int iconSize = ICON_SIZE;
         int iconX = x + 3;
         int iconY = y + (h - iconSize) / 2;
-        SmelteryDataHelper.drawFluidIcon(poseStack, iconX, iconY, fluid, iconSize);
+        SmelteryDataHelper.drawFluidIcon(poseStack, iconX, iconY, fluid, iconSize, getIconAlpha());
 
         int textX = iconX + iconSize + ICON_TEXT_GAP;
         int maxTextW = w - iconSize - ICON_TEXT_GAP - 8;
@@ -867,7 +1012,6 @@ public class PanelRenderer {
             FluidStack resultFluid = result.getResultFluid();
             String registryName = "";
             if (resultFluid != null && !resultFluid.isEmpty()) {
-                // ✅ 1.19.2：通过 ForgeRegistries 获取注册名
                 ResourceLocation rl = ForgeRegistries.FLUIDS.getKey(resultFluid.getFluid());
                 if (rl != null) registryName = rl.getPath();
             }
@@ -956,7 +1100,6 @@ public class PanelRenderer {
                 String name = fs.getDisplayName().getString().replace("Molten ", "").replace("熔融", "");
                 int needed = input.getAmount();
                 int available = 0;
-                // ✅ 1.19.2：通过 ForgeRegistries 获取注册名
                 ResourceLocation fsRl = ForgeRegistries.FLUIDS.getKey(fs.getFluid());
                 for (FluidStack availableFs : dataManager.getAllFluids()) {
                     ResourceLocation availRl = ForgeRegistries.FLUIDS.getKey(availableFs.getFluid());
@@ -1054,6 +1197,39 @@ public class PanelRenderer {
         }
 
         return y + cardH;
+    }
+
+    // ============================================================
+    // ===== 图标延迟淡入淡出 ======================================
+    // ============================================================
+
+    /**
+     * 面板卡片图标的透明度。
+     *
+     * <p>用一条单曲线表达"打开晚出现、关闭早消失"：
+     * <pre>
+     *   progress &lt; 0.8            → alpha = 0
+     *   0.8 ≤ progress ≤ 1.0     → alpha 从 0 线性到 1
+     * </pre>
+     *
+     * <p>其中 {@code progress = 1 + offset / panelWidth}，
+     * 0 = 面板完全隐藏，1 = 面板完全显示。
+     */
+    private float getIconAlpha() {
+        if (!animationManager.isAnimating()) {
+            return panel.isVisible() ? 1f : 0f;
+        }
+
+        int panelWidth = panel.getPanelWidth();
+        if (panelWidth <= 0) return 1f;
+
+        int offset = animationManager.getAnimationOffset();
+        float progress = 1f + (float) offset / panelWidth;
+        if (progress <= 0f) return 0f;
+        if (progress >= 1f) return 1f;
+
+        float t = (progress - 0.8f) / 0.2f;
+        return Math.max(0f, Math.min(1f, t));
     }
 
     // ==================== 工具方法 ====================

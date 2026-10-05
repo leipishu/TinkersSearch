@@ -57,6 +57,8 @@ public class PanelInteractionHandler {
         this.searchBox.setHintText(Component.translatable("gui.tinkerssearch.search_hint"));
         this.searchBox.setOnTextChanged(s -> onRefresh.run());
 
+        this.searchBox.setAnimationId("panel");
+
         System.out.println("Tinker's Search: PanelInteractionHandler JEI available: " + jeiAvailable);
     }
 

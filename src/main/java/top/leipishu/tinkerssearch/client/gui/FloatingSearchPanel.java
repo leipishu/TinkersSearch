@@ -24,6 +24,7 @@ import top.leipishu.tinkerssearch.config.PanelConfig;
 import top.leipishu.tinkerssearch.smeltery.SmelteryTemperatureReader;
 import top.leipishu.tinkerssearch.data.FavoritesManager;
 import top.leipishu.tinkerssearch.smeltery.SmelteryClickHandler;
+import top.leipishu.tinkerssearch.client.animation.controller.PanelAnimations;
 
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import slimeknights.tconstruct.smeltery.block.entity.controller.SmelteryBlockEntity;
@@ -246,6 +247,16 @@ public class FloatingSearchPanel extends AbstractWidget {
         }
     }
 
+    /**
+     * 立即隐藏（无滑出动画）。
+     *
+     * <p>用于父界面关闭等场景——此时渲染已经停止，播放滑出动画既看不到，
+     * 又会让 {@code isVisible} 卡在 true。
+     */
+    public void forceHideImmediate() {
+        animationManager.hideImmediate();
+    }
+
     private void refreshSmelteryEntity() {
         Minecraft mc = Minecraft.getInstance();
         if (mc.screen == null) return;
@@ -443,6 +454,7 @@ public class FloatingSearchPanel extends AbstractWidget {
         // ===== 6. 刷新 =====
         if (mouseX >= px + PanelConfig.REFRESH_BTN_X && mouseX <= px + PanelConfig.REFRESH_BTN_X + PanelConfig.REFRESH_BTN_W &&
                 mouseY >= py + PanelConfig.REFRESH_BTN_Y && mouseY <= py + PanelConfig.REFRESH_BTN_Y + PanelConfig.REFRESH_BTN_H) {
+            PanelAnimations.triggerRefreshPulse();   // ★ 触发刷新脉冲
             alloyHandler.invalidateTemperatureCache();
             temperatureReader.invalidateCache();
             refreshSmelteryEntity();
@@ -681,8 +693,11 @@ public class FloatingSearchPanel extends AbstractWidget {
                 int starY = cardY + 4;
                 boolean onStar = mouseX >= starX && mouseX <= starX + starSize &&
                         mouseY >= starY && mouseY <= starY + starSize;
+                String cardKey = PanelAnimations.cardKeyFor(fluid);
+
                 if (onStar) {
                     FavoritesManager.toggleFavorite(fluid);
+                    PanelAnimations.triggerStarPulse(cardKey);   // ★ 触发星标脉冲
                     refreshMoltenFluids();
                     return true;
                 }
@@ -701,6 +716,7 @@ public class FloatingSearchPanel extends AbstractWidget {
                 }
 
                 if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && !onIcon) {
+                    PanelAnimations.triggerCardClick(cardKey);
                     return moveFluidToBottom(fluid);
                 }
 

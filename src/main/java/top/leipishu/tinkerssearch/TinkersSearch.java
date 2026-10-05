@@ -8,7 +8,6 @@ import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiComponent;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.world.level.block.entity.BlockEntity;
-import net.minecraftforge.client.event.InputEvent;
 import net.minecraftforge.client.event.ScreenEvent;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.TickEvent;
@@ -19,6 +18,7 @@ import net.minecraftforge.fml.ModList;
 import net.minecraftforge.client.event.RenderTooltipEvent;
 import org.lwjgl.glfw.GLFW;
 import org.lwjgl.opengl.GL11;
+import top.leipishu.tinkerssearch.client.animation.core.AnimationManager;
 import top.leipishu.tinkerssearch.client.gui.FloatingSearchPanel;
 import top.leipishu.tinkerssearch.client.gui.FluidDetailScreen;
 import top.leipishu.tinkerssearch.client.gui.PanelInteractionHandler;
@@ -62,9 +62,20 @@ public class TinkersSearch {
         return searchPanel;
     }
 
-    /** 详情窗口打开时，本 mod 的其他事件应让位。 */
     private boolean isDetailScreenOpen() {
         return Minecraft.getInstance().screen instanceof FluidDetailScreen;
+    }
+
+    /**
+     * 每帧驱动动画系统。
+     *
+     * <p>使用 {@code RenderTickEvent.Phase.START}：它在每帧渲染前触发，
+     * 保证 {@code PanelRenderer} / {@code FluidDetailScreen} 读到本帧最新值。
+     */
+    @SubscribeEvent
+    public void onRenderTick(TickEvent.RenderTickEvent event) {
+        if (event.phase != TickEvent.Phase.START) return;
+        AnimationManager.get().update();
     }
 
     @SubscribeEvent(priority = EventPriority.LOWEST)
@@ -114,7 +125,6 @@ public class TinkersSearch {
             System.out.println("Tinker's Search: SmelteryScreen detected!");
         }
 
-        // ★ 只在 BE 为空时查找，避免从 Detail 关闭回来后重复刷新
         if (smelteryBlockEntity == null) {
             findSmelteryBlockEntity(screen);
         }
@@ -153,10 +163,15 @@ public class TinkersSearch {
         if (isSmelteryScreen) {
             isSmelteryScreen = false;
 
-            if (searchPanel != null && searchPanel.isVisible()) {
-                searchPanel.setVisible(false);
+            if (searchPanel != null) {
+                // ★ 立即隐藏，不播滑出动画（父界面正在消失，渲染马上停止）
+                searchPanel.forceHideImmediate();
                 System.out.println("Tinker's Search: Panel closed due to smeltery screen closing");
             }
+
+            // ★ 清理面板 + 组件动画
+            AnimationManager.get().stopPrefix("panel.");
+            AnimationManager.get().stopPrefix("widget.");
 
             if (jeiAvailable) {
                 Jei.refreshExclusionAreas();
@@ -456,7 +471,4 @@ public class TinkersSearch {
         int textColor = hover ? 0xFFFFFFFF : 0xCCCCCCCC;
         font.draw(poseStack, arrow, textX, textY, textColor);
     }
-
-    // Note: Forge removed the recipes-updated event in 1.19.2+, so the corresponding handler is omitted.
-    // CastingRecipeHelper.invalidateCache() can be triggered elsewhere (e.g. PlayerTickEvent check) if needed.
 }
