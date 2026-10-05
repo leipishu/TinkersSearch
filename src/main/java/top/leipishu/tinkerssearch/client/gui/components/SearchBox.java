@@ -6,19 +6,16 @@ import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiComponent;
 import net.minecraft.network.chat.Component;
 import org.lwjgl.glfw.GLFW;
+import top.leipishu.tinkerssearch.client.animation.controller.WidgetAnimations;
+import top.leipishu.tinkerssearch.client.animation.core.ColorUtil;
 
 import java.util.function.Consumer;
 
 /**
  * 通用搜索框组件。
  *
- * <p>包含：背景框、边框、提示文字、光标闪烁、清空按钮、键盘/鼠标交互。
- *
- * <p>组件本身不感知父容器布局——坐标由调用方通过 {@link #setBounds} 每帧设置。
- * 文本变化通过 {@link #setOnTextChanged} 注册的回调通知。
- *
- * <p>点击语义：{@link #mouseClicked} 只在点击落在框内时返回 {@code true}；
- * 点击框外返回 {@code false}，由调用方决定是否取消焦点。
+ * <p>动画：{@link #setAnimationId} 指定实例 id 后，focus / hover 会平滑过渡。
+ * 未指定时退化为无动画（直接切换颜色），保证向后兼容。
  */
 public class SearchBox {
 
@@ -31,6 +28,9 @@ public class SearchBox {
     private String text = "";
     private int cursorPosition = 0;
     private boolean focused = false;
+
+    /** 动画实例 id；null 表示不做动画。 */
+    private String animationId = null;
 
     public SearchBox(SearchBoxStyle style) {
         this.style = style != null ? style : SearchBoxStyle.detail();
@@ -64,6 +64,17 @@ public class SearchBox {
         this.onTextChanged = listener;
     }
 
+    /**
+     * 指定动画实例 id。不同搜索框（面板 / 详情页 / 合金页）应使用不同 id，
+     * 避免共享动画状态。为 {@code null} 时禁用动画。
+     */
+    public void setAnimationId(String id) {
+        if (this.animationId != null && !this.animationId.equals(id)) {
+            WidgetAnimations.clearSearchBox(this.animationId);
+        }
+        this.animationId = id;
+    }
+
     // ==================== 状态访问 ====================
 
     public String getText() { return text; }
@@ -93,10 +104,28 @@ public class SearchBox {
     public void render(PoseStack ps, int mouseX, int mouseY, Font font) {
         if (width <= 0 || height <= 0) return;
 
-        int bg = focused ? style.bgColorFocused : style.bgColor;
+        boolean hover = isInside(mouseX, mouseY);
+
+        // focus 优先，其次是 hover：无动画时退化为硬切
+        float focusT;
+        float hoverT;
+        if (animationId != null) {
+            focusT = WidgetAnimations.searchBoxFocus(animationId, focused);
+            hoverT = WidgetAnimations.searchBoxHover(animationId, hover && !focused);
+        } else {
+            focusT = focused ? 1f : 0f;
+            hoverT = (hover && !focused) ? 1f : 0f;
+        }
+
+        // 背景：常态 → hover 轻微提亮 → focus 更强
+        int bg = ColorUtil.lerpARGB(style.bgColor, style.bgColorFocused, focusT);
+        if (hoverT > 0f && focusT < 1f) {
+            bg = ColorUtil.lerpARGB(bg, style.bgColorFocused, hoverT * 0.5f);
+        }
         GuiComponent.fill(ps, x, y, x + width, y + height, bg);
 
-        int border = focused ? style.borderColorFocused : style.borderColor;
+        // 边框
+        int border = ColorUtil.lerpARGB(style.borderColor, style.borderColorFocused, focusT);
         GuiComponent.fill(ps, x, y, x + width, y + 1, border);
         GuiComponent.fill(ps, x, y + height - 1, x + width, y + height, border);
         GuiComponent.fill(ps, x, y, x + 1, y + height, border);

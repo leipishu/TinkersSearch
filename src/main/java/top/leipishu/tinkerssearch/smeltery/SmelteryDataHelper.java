@@ -55,17 +55,14 @@ public class SmelteryDataHelper {
     public static FluidStack getBottomFluid(BlockEntity tileEntity) {
         if (tileEntity == null) return null;
 
-        // ===== 方法1：通过 HeatingStructureBlockEntity 获取 =====
         if (tileEntity instanceof HeatingStructureBlockEntity) {
             HeatingStructureBlockEntity controller = (HeatingStructureBlockEntity) tileEntity;
             SmelteryTank<?> tank = controller.getTank();
             if (tank != null && tank.getTanks() > 0) {
-                // 槽位 0 是最底部
                 FluidStack fluid = tank.getFluidInTank(0);
                 if (fluid != null && !fluid.isEmpty()) {
                     return fluid;
                 }
-                // 如果槽位 0 为空，遍历查找第一个非空
                 for (int i = 0; i < tank.getTanks(); i++) {
                     FluidStack f = tank.getFluidInTank(i);
                     if (f != null && !f.isEmpty()) {
@@ -75,16 +72,12 @@ public class SmelteryDataHelper {
             }
         }
 
-        // ===== 方法2：通过 Capability 获取 =====
         FluidStack bottom = getBottomFluidFromCapability(tileEntity);
         if (bottom != null) return bottom;
 
         return null;
     }
 
-    /**
-     * 通过 Capability 获取最下方流体
-     */
     private static FluidStack getBottomFluidFromCapability(BlockEntity tileEntity) {
         if (tileEntity == null) return null;
 
@@ -98,13 +91,11 @@ public class SmelteryDataHelper {
             int tankCount = fluidHandler.getTanks();
             if (tankCount == 0) return null;
 
-            // 槽位 0 是最底部
             FluidStack fluid = fluidHandler.getFluidInTank(0);
             if (fluid != null && !fluid.isEmpty()) {
                 return fluid;
             }
 
-            // 如果槽位 0 为空，遍历查找第一个非空
             for (int i = 0; i < tankCount; i++) {
                 FluidStack f = fluidHandler.getFluidInTank(i);
                 if (f != null && !f.isEmpty()) {
@@ -153,15 +144,30 @@ public class SmelteryDataHelper {
     }
 
     /**
-     * 绘制流体图标 - 1.19.2 使用 PoseStack + GuiComponent
+     * 绘制流体图标（不透明）。
      */
     public static void drawFluidIcon(PoseStack poseStack, int x, int y, FluidStack fluidStack, int size) {
+        drawFluidIcon(poseStack, x, y, fluidStack, size, 1.0f);
+    }
+
+    /**
+     * 绘制流体图标（带外部 alpha）。
+     *
+     * <p>外部 alpha 会与流体自身颜色 alpha 相乘，用于面板滑入/滑出时的
+     * 图标延迟淡入淡出。
+     *
+     * @param alpha 0..1；&le;0.01 时直接跳过绘制
+     */
+    public static void drawFluidIcon(PoseStack poseStack, int x, int y,
+                                     FluidStack fluidStack, int size, float alpha) {
         if (fluidStack == null || fluidStack.isEmpty()) return;
+        if (alpha <= 0.01f) return;
+        if (alpha > 1f) alpha = 1f;
 
         Minecraft mc = Minecraft.getInstance();
         Fluid fluid = fluidStack.getFluid();
 
-        // 1.19.2：通过 IClientFluidTypeExtensions 获取纹理和颜色（Fluid.getAttributes() 已弃用）
+        // 1.19.2：通过 IClientFluidTypeExtensions 获取纹理和颜色
         IClientFluidTypeExtensions extensions = IClientFluidTypeExtensions.of(fluid);
         ResourceLocation stillTexture = extensions.getStillTexture(fluidStack);
         int color = extensions.getTintColor(fluidStack);
@@ -172,7 +178,9 @@ public class SmelteryDataHelper {
             ).apply(stillTexture);
 
             if (sprite == null) {
-                GuiComponent.fill(poseStack, x, y, x + size, y + size, color | 0xFF000000);
+                int a8 = (int) (((color >>> 24) & 0xFF) * alpha);
+                GuiComponent.fill(poseStack, x, y, x + size, y + size,
+                        (a8 << 24) | (color & 0x00FFFFFF));
                 return;
             }
 
@@ -181,19 +189,23 @@ public class SmelteryDataHelper {
             float r = ((color >> 16) & 0xFF) / 255.0f;
             float g = ((color >> 8) & 0xFF) / 255.0f;
             float b = (color & 0xFF) / 255.0f;
-            float a = ((color >> 24) & 0xFF) / 255.0f;
+            float a = ((color >> 24) & 0xFF) / 255.0f * alpha;
 
             RenderSystem.setShaderColor(r, g, b, a);
             GuiComponent.blit(poseStack, x, y, 0, size, size, sprite);
             RenderSystem.setShaderColor(1.0f, 1.0f, 1.0f, 1.0f);
 
-            GuiComponent.fill(poseStack, x, y, x + size, y + 1, 0xFF666666);
-            GuiComponent.fill(poseStack, x, y + size - 1, x + size, y + size, 0xFF666666);
-            GuiComponent.fill(poseStack, x, y, x + 1, y + size, 0xFF666666);
-            GuiComponent.fill(poseStack, x + size - 1, y, x + size, y + size, 0xFF666666);
+            int borderAlpha = (int) (0xFF * alpha);
+            int borderColor = (borderAlpha << 24) | 0x00666666;
+            GuiComponent.fill(poseStack, x, y, x + size, y + 1, borderColor);
+            GuiComponent.fill(poseStack, x, y + size - 1, x + size, y + size, borderColor);
+            GuiComponent.fill(poseStack, x, y, x + 1, y + size, borderColor);
+            GuiComponent.fill(poseStack, x + size - 1, y, x + size, y + size, borderColor);
 
         } catch (Exception ex) {
-            GuiComponent.fill(poseStack, x, y, x + size, y + size, color | 0xFF000000);
+            int a8 = (int) (((color >>> 24) & 0xFF) * alpha);
+            GuiComponent.fill(poseStack, x, y, x + size, y + size,
+                    (a8 << 24) | (color & 0x00FFFFFF));
         }
     }
 }
