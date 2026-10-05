@@ -19,6 +19,9 @@ import org.lwjgl.opengl.GL11;
 import slimeknights.tconstruct.smeltery.block.entity.controller.SmelteryBlockEntity;
 import slimeknights.tconstruct.smeltery.block.entity.tank.SmelteryTank;
 import slimeknights.tconstruct.library.tools.part.IMaterialItem;
+import slimeknights.tconstruct.library.materials.MaterialRegistry;
+import slimeknights.tconstruct.library.materials.definition.IMaterial;
+import slimeknights.tconstruct.library.materials.definition.MaterialId;
 
 import top.leipishu.tinkerssearch.client.animation.controller.DetailAnimations;
 import top.leipishu.tinkerssearch.client.animation.controller.DetailPageAnimations;
@@ -684,11 +687,47 @@ public class FluidDetailScreen extends Screen {
         // ===== 部件标题（不参与翻页动画）=====
         int totalPages = data.entries.size();
         String pageInfo = totalPages > 1 ? " \u00a77[" + (currentPageIndex + 1) + "/" + totalPages + "]" : "";
-        int currentPageTotal = (currentEntry() != null) ? currentEntry().parts.size() : 0;
+        MaterialEntry curEntry = currentEntry();
+        int currentPageTotal = (curEntry != null) ? curEntry.parts.size() : 0;
         String partTitle = "\u00a7d" + Component.translatable("gui.tinkerssearch.detail.parts").getString()
                 + pageInfo
                 + " \u00a77(\u00a7e" + filteredPartInfos.size() + "\u00a77/\u00a78" + currentPageTotal + "\u00a77)";
         graphics.drawString(font, partTitle, baseX + PADDING, baseY + partTitleY, 0xFFFFFF);
+
+        // ★ 当前页浇筑模式标识（与部件标题、翻页按钮同一行）
+        //   材料名用 MaterialRegistry 动态查询 → 跟随语言切换
+        if (curEntry != null) {
+            String matLabel;
+            if (curEntry.kind == MaterialEntry.SourceKind.COMPOSITE
+                    && curEntry.compositeInput != null) {
+                String inputName = resolveMaterialDisplayName(curEntry.compositeInput);
+                if (!inputName.isEmpty()) {
+                    matLabel = Component.translatable(
+                            "gui.tinkerssearch.detail.casting.on", inputName).getString();
+                } else {
+                    matLabel = Component.translatable(
+                            "gui.tinkerssearch.detail.casting.direct").getString();
+                }
+            } else {
+                matLabel = Component.translatable(
+                        "gui.tinkerssearch.detail.casting.direct").getString();
+            }
+
+            String matDisplay = "§7[" + matLabel + "]";
+            int matLabelX = baseX + PADDING + font.width(partTitle) + 6;
+
+            // 翻页按钮占位（只在多页时预留）
+            int rightReserve = totalPages > 1 ? (PAGE_BTN_W * 2 + 40 + 8) : 0;
+            int rightLimit = baseX + windowWidth - PADDING - rightReserve;
+
+            if (matLabelX < rightLimit - 10) {
+                int availW = rightLimit - matLabelX;
+                String display = font.width(matDisplay) <= availW
+                        ? matDisplay
+                        : font.plainSubstrByWidth(matDisplay, Math.max(10, availW - 6)) + "…";
+                graphics.drawString(font, display, matLabelX, baseY + partTitleY, 0xAAAAAA);
+            }
+        }
 
         // ===== 翻页按钮（不参与翻页动画）=====
         if (totalPages > 1) {
@@ -724,6 +763,31 @@ public class FluidDetailScreen extends Screen {
         // ===== 页脚（不参与翻页动画）=====
         String footer = "\u00a78[\u53f3\u952e/ESC " + Component.translatable("gui.tinkerssearch.detail.close").getString() + "]";
         graphics.drawString(font, footer, baseX + PADDING, baseY + bottomHintY, 0x444444);
+    }
+
+    /**
+     * 从 {@link MaterialId} 解析当前语言的显示名。
+     *
+     * <p>不使用 {@link IMaterial} 接口的任何方法，直接按 TConstruct 的
+     * 翻译键约定 {@code material.<namespace>.<path>} 构造，
+     * 交给 MC I18n 解析——与流体卡片使用同一套本地化机制。
+     *
+     * <p>如果材料没有对应翻译（如某些附属模组未提供 lang 条目），
+     * 自动退化为 {@code mat.getPath()}。
+     */
+    private static String resolveMaterialDisplayName(MaterialId mat) {
+        if (mat == null) return "";
+
+        // 1. 直接构造翻译键
+        String key = "material." + mat.getNamespace() + "." + mat.getPath();
+        String localized = Component.translatable(key).getString();
+
+        // 2. 若翻译不存在（Component.translatable 会返回键本身作为 fallback），退化为 path
+        if (localized != null && !localized.isEmpty() && !localized.equals(key)) {
+            return localized;
+        }
+
+        return mat.getPath();
     }
 
     private void drawPageButton(GuiGraphics graphics, int x, int y, String arrow,

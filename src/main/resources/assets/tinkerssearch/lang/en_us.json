@@ -51,5 +51,8 @@
   "gui.tinkerssearch.detail.traits": "Traits:",
   "gui.tinkerssearch.detail.no_traits": "(No traits)",
   "gui.tinkerssearch.detail.no_desc": "No description",
-  "gui.tinkerssearch.detail.no_recipe": "No Recipe"
+  "gui.tinkerssearch.detail.no_recipe": "No Recipe",
+
+  "gui.tinkerssearch.detail.casting.direct": "Direct Casting",
+  "gui.tinkerssearch.detail.casting.on": "Cast onto: %s"
 }

@@ -51,5 +51,8 @@
   "gui.tinkerssearch.detail.traits": "词条:",
   "gui.tinkerssearch.detail.no_traits": "（无词条）",
   "gui.tinkerssearch.detail.no_desc": "无描述",
-  "gui.tinkerssearch.detail.no_recipe": "无配方"
+  "gui.tinkerssearch.detail.no_recipe": "无配方",
+
+  "gui.tinkerssearch.detail.casting.direct": "直接浇筑",
+  "gui.tinkerssearch.detail.casting.on": "浇筑于: %s"
 }
