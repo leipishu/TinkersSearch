@@ -17,6 +17,7 @@ import net.minecraftforge.fml.ModList;
 import net.minecraftforge.client.event.RenderTooltipEvent;
 import org.lwjgl.glfw.GLFW;
 import org.lwjgl.opengl.GL11;
+import top.leipishu.tinkerssearch.client.animation.core.AnimationManager;
 import top.leipishu.tinkerssearch.client.gui.FloatingSearchPanel;
 import top.leipishu.tinkerssearch.client.gui.FluidDetailScreen;
 import top.leipishu.tinkerssearch.client.gui.PanelInteractionHandler;
@@ -61,6 +62,18 @@ public class TinkersSearch {
         return Minecraft.getInstance().screen instanceof FluidDetailScreen;
     }
 
+    /**
+     * 每帧驱动动画系统。
+     *
+     * <p>使用 {@code RenderTickEvent.Phase.START}：它在每帧渲染前触发，
+     * 保证 {@code PanelRenderer} / {@code FluidDetailScreen} 读到本帧最新值。
+     */
+    @SubscribeEvent
+    public void onRenderTick(TickEvent.RenderTickEvent event) {
+        if (event.phase != TickEvent.Phase.START) return;
+        AnimationManager.get().update();
+    }
+
     @SubscribeEvent(priority = EventPriority.LOWEST)
     public void onScreenInit(ScreenEvent.Init event) {
         Screen screen = event.getScreen();
@@ -71,6 +84,10 @@ public class TinkersSearch {
         if (isSmeltery) {
             handleSmelteryOpen(screen);
             addPanelToRenderables(screen);
+            // ★ Detail 关闭后恢复滚动位置
+            if (searchPanel != null) {
+                searchPanel.restoreScrollSnapshotIfPresent();
+            }
         } else {
             handleSmelteryClose();
             removePanelFromRenderables(screen);
@@ -129,7 +146,16 @@ public class TinkersSearch {
     private void handleSmelteryClose() {
         if (isSmelteryScreen) {
             isSmelteryScreen = false;
-            if (searchPanel != null && searchPanel.isVisible()) searchPanel.setVisible(false);
+
+            if (searchPanel != null) {
+                // ★ 立即隐藏，不播滑出动画（父界面正在消失，渲染马上停止）
+                searchPanel.forceHideImmediate();
+            }
+
+            // ★ 清理面板 + 组件动画
+            AnimationManager.get().stopPrefix("panel.");
+            AnimationManager.get().stopPrefix("widget.");
+
             if (jeiAvailable) Jei.refreshExclusionAreas();
         }
     }
@@ -285,7 +311,6 @@ public class TinkersSearch {
         graphics.pose().pushPose();
         graphics.pose().translate(0, 0, 500);
 
-        // ★ 1.20.1 正确清理：使用 GlStateManager._clear 而非 GL11.glClear
         try {
             GlStateManager._clear(GL11.GL_DEPTH_BUFFER_BIT, Minecraft.ON_OSX);
         } catch (Exception ignored) {}

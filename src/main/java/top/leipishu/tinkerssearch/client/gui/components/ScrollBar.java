@@ -1,35 +1,16 @@
 package top.leipishu.tinkerssearch.client.gui.components;
 
 import net.minecraft.client.gui.GuiGraphics;
+import top.leipishu.tinkerssearch.client.animation.controller.WidgetAnimations;
+import top.leipishu.tinkerssearch.client.animation.core.ColorUtil;
 
 import java.util.function.Consumer;
 
 /**
  * 通用滚动条组件（1.20.1）。
  *
- * <p>相比 1.19.2 版本：
- * <ul>
- *   <li>渲染入口 {@code PoseStack} → {@link GuiGraphics}</li>
- *   <li>{@code GuiComponent.fill(ps, ...)} → {@code graphics.fill(...)}</li>
- * </ul>
- *
- * <p>API 与 1.19.2 版本<b>完全一致</b>（含 {@link #setHoverExpandX(int)}），
- * {@code PanelRenderer} / {@code FluidDetailScreen} 无需改动即可直接调用。
- *
- * <p>每帧调用顺序：
- * <ol>
- *   <li>{@link #setBounds} 设置位置与尺寸</li>
- *   <li>{@link #setRange} 设置当前偏移与最大偏移</li>
- *   <li>{@link #render} 绘制</li>
- * </ol>
- *
- * <p>拖拽接口：
- * <ul>
- *   <li>{@link #tryBeginDrag} — 鼠标按下时调用，命中返回 true</li>
- *   <li>{@link #updateDrag} — 鼠标拖动时调用</li>
- *   <li>{@link #endDrag} — 鼠标松开时调用</li>
- *   <li>{@link #isDragging}</li>
- * </ul>
+ * <p>动画：{@link #setAnimationId} 指定实例 id 后，thumb 位置与 hover
+ * 颜色会平滑过渡。拖拽时 thumb 立即跟随（不做平滑），滚轮滚动时平滑。
  */
 public class ScrollBar {
 
@@ -57,6 +38,9 @@ public class ScrollBar {
 
     /** 鼠标命中容差（水平方向向外扩展的像素）。 */
     private int hoverExpandX = 0;
+
+    /** 动画实例 id；null 表示不做动画。 */
+    private String animationId = null;
 
     public ScrollBar() {}
 
@@ -91,6 +75,17 @@ public class ScrollBar {
         this.hoverExpandX = Math.max(0, px);
     }
 
+    /**
+     * 指定动画实例 id。不同滚动条应使用不同 id。
+     * 为 {@code null} 时禁用动画（thumb 立即定位、颜色硬切）。
+     */
+    public void setAnimationId(String id) {
+        if (this.animationId != null && !this.animationId.equals(id)) {
+            WidgetAnimations.clearScrollBar(this.animationId);
+        }
+        this.animationId = id;
+    }
+
     // ==================== 状态 ====================
 
     public boolean isActive() { return maxOffset > 0; }
@@ -110,20 +105,35 @@ public class ScrollBar {
 
         graphics.fill(x, y, x + width, y + height, trackColor);
 
-        float ratio = (float) offset / (float) maxOffset;
+        // thumb 位置：拖拽时立即跟随，滚轮时平滑
+        float ratio;
+        if (animationId != null) {
+            ratio = WidgetAnimations.scrollBarThumbRatio(offset, maxOffset, animationId, dragging);
+        } else {
+            ratio = (float) offset / (float) maxOffset;
+        }
+        if (ratio < 0f) ratio = 0f;
+        else if (ratio > 1f) ratio = 1f;
+
         int thumbH = Math.max(thumbMinHeight, (int) (height * thumbRatio));
         if (thumbH > height) thumbH = height;
         int thumbY = y + (int) (ratio * (height - thumbH));
 
-        int color = (dragging || isHovered(mouseX, mouseY)) ? thumbColorHover : thumbColor;
+        // hover / 拖拽高亮
+        int color;
+        if (animationId != null) {
+            float hoverT = WidgetAnimations.scrollBarHoverFactor(
+                    animationId, isHovered(mouseX, mouseY), dragging);
+            color = ColorUtil.lerpARGB(thumbColor, thumbColorHover, hoverT);
+        } else {
+            color = (dragging || isHovered(mouseX, mouseY)) ? thumbColorHover : thumbColor;
+        }
+
         graphics.fill(x, thumbY, x + width, thumbY + thumbH, color);
     }
 
     // ==================== 拖拽 ====================
 
-    /**
-     * 鼠标按下时调用。命中轨道返回 true，并进入拖拽状态。
-     */
     public boolean tryBeginDrag(double mouseX, double mouseY) {
         if (!isActive() || !isHovered(mouseX, mouseY)) return false;
         dragging = true;
@@ -132,9 +142,6 @@ public class ScrollBar {
         return true;
     }
 
-    /**
-     * 鼠标拖动时调用。按"内容比例"换算偏移，避免 thumb 长度不准导致跳变。
-     */
     public boolean updateDrag(double mouseY) {
         if (!dragging) return false;
 

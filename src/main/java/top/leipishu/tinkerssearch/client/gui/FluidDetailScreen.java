@@ -3,7 +3,6 @@ package top.leipishu.tinkerssearch.client.gui;
 import com.mojang.blaze3d.platform.GlStateManager;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.PoseStack;
-import org.lwjgl.opengl.GL11;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
@@ -16,10 +15,17 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.fluids.FluidStack;
 import net.minecraftforge.registries.ForgeRegistries;
 import org.lwjgl.glfw.GLFW;
+import org.lwjgl.opengl.GL11;
 import slimeknights.tconstruct.smeltery.block.entity.controller.SmelteryBlockEntity;
 import slimeknights.tconstruct.smeltery.block.entity.tank.SmelteryTank;
 import slimeknights.tconstruct.library.tools.part.IMaterialItem;
 
+import top.leipishu.tinkerssearch.client.animation.controller.DetailAnimations;
+import top.leipishu.tinkerssearch.client.animation.controller.DetailPageAnimations;
+import top.leipishu.tinkerssearch.client.animation.core.Animation;
+import top.leipishu.tinkerssearch.client.animation.core.AnimationManager;
+import top.leipishu.tinkerssearch.client.animation.core.Animator;
+import top.leipishu.tinkerssearch.client.animation.core.Easing;
 import top.leipishu.tinkerssearch.client.gui.components.CardBackground;
 import top.leipishu.tinkerssearch.client.gui.components.ScrollBar;
 import top.leipishu.tinkerssearch.client.gui.components.SearchBox;
@@ -78,8 +84,20 @@ public class FluidDetailScreen extends Screen {
 
     private static final int BLOCK_SIZE = 56;
     private static final int BLOCK_SPACING = 6;
-    private static final long EXPAND_DURATION = 250;
-    private static final long CONTENT_FADE_DURATION = 150;
+
+    // ===== 部件展开 / 淡入淡出（加速版）=====
+    private static final long EXPAND_DURATION = 180;
+    private static final long CONTENT_FADE_DURATION = 80;
+    private static final Easing EXPAND_EASING = Easing.EASE_OUT_CUBIC;
+
+    private static final String PART_EXPAND_PREFIX = "detail.part.expand:";
+    private static final String PART_FADE_PREFIX   = "detail.part.fade:";
+    private static final String PART_ANY_PREFIX    = "detail.part.";
+
+    // 位置动画
+    private static final String PART_POS_ROW_PREFIX = "detail.part.pos.row:";
+    private static final String PART_POS_COL_PREFIX = "detail.part.pos.col:";
+    private static final float  PART_POS_TAU        = 90f;
 
     private static final int EXPAND_W_COLS = 2;
     private static final int EXPAND_H_ROWS = 3;
@@ -88,11 +106,15 @@ public class FluidDetailScreen extends Screen {
     private static final int PAGE_BTN_H = 16;
     private static final int CLOSE_BTN_SIZE = 12;
 
-    /** ★ 滚动条组件（含拖拽）。 */
     private final ScrollBar totalScrollBar = new ScrollBar();
 
     private boolean isLoading = true;
+    private boolean dataLoaded = false;
     private boolean needsLayoutRecalc = true;
+    private boolean closing = false;
+
+    /** 翻页期间卡片区的整体 alpha。 */
+    private float currentPageAlpha = 1f;
 
     private Font font;
 
@@ -110,7 +132,6 @@ public class FluidDetailScreen extends Screen {
     private int searchBoxY = 0;
     private int searchBoxX = 0;
     private int searchBoxW = 0;
-
     private int scrollStartY = 0;
 
     private int castingTitleY = 0;
@@ -118,28 +139,28 @@ public class FluidDetailScreen extends Screen {
 
     private int partTitleY = 0;
     private int partStartY = 0;
-
     private int bottomHintY = 0;
 
     private int lastScreenWidth = 0;
     private int lastScreenHeight = 0;
 
     private final Set<String> expandedKeys = new HashSet<>();
-    private final Map<String, Long> animStartTimes = new HashMap<>();
+    private final Map<String, Integer> knownRow = new HashMap<>();
+    private final Map<String, Integer> knownCol = new HashMap<>();
+
     private List<PartLayout> partLayouts = new ArrayList<>();
     private List<Component> pendingTooltip = null;
-
     private final List<int[]> pageButtonRects = new ArrayList<>();
 
     private static class PartLayout {
-        PartInfo info;
-        String key;
-        int x, y, w, h;
-        boolean expanded;
+        final PartInfo info;
+        final String key;
+        final int x, y, w, h;
+        final boolean expanded;
         PartLayout(PartInfo info, String key, int x, int y, int w, int h, boolean expanded) {
-            this.info = info;
-            this.key = key;
-            this.x = x; this.y = y; this.w = w; this.h = h; this.expanded = expanded;
+            this.info = info; this.key = key;
+            this.x = x; this.y = y; this.w = w; this.h = h;
+            this.expanded = expanded;
         }
     }
 
@@ -155,12 +176,13 @@ public class FluidDetailScreen extends Screen {
 
         searchBox.setHintText(Component.translatable("gui.tinkerssearch.detail.search_hint"));
         searchBox.setOnTextChanged(s -> applyFilter());
+        searchBox.setAnimationId("detail.searchbox");
 
-        // ★ 滚动条：拖动写回偏移
         totalScrollBar.setOnOffsetChanged(v -> this.totalScrollOffset = v);
         totalScrollBar.setThumbRatio(0.3f);
         totalScrollBar.setThumbMinHeight(16);
         totalScrollBar.setHoverExpandX(6);
+        totalScrollBar.setAnimationId("detail.scrollbar");
 
         new Thread(() -> {
             try {
@@ -178,9 +200,12 @@ public class FluidDetailScreen extends Screen {
             }
             Minecraft.getInstance().execute(() -> {
                 isLoading = false;
+                dataLoaded = true;
                 needsLayoutRecalc = true;
             });
         }).start();
+
+        DetailAnimations.startOpenAnimation();
     }
 
     private static int resolveActualAmount(FluidStack target, SmelteryBlockEntity smeltery) {
@@ -210,16 +235,115 @@ public class FluidDetailScreen extends Screen {
         return data.entries.get(currentPageIndex);
     }
 
+    // ============================================================
+    // ===== 部件动画状态 =========================================
+    // ============================================================
+
+    private float getAnimProgress(String key) {
+        Animation a = AnimationManager.get().get(PART_EXPAND_PREFIX + key);
+        if (a != null) return a.getValue();
+        return expandedKeys.contains(key) ? 1f : 0f;
+    }
+
+    private float getContentAlpha(String key) {
+        Animation a = AnimationManager.get().get(PART_FADE_PREFIX + key);
+        if (a != null) return a.getValue();
+        return expandedKeys.contains(key) ? 1f : 0f;
+    }
+
+    private boolean useExpandedLayout(String key) {
+        if (expandedKeys.contains(key)) return true;
+        return getAnimProgress(key) > 0.01f || getContentAlpha(key) > 0.01f;
+    }
+
+    // ============================================================
+    // ===== 位置动画 =============================================
+    // ============================================================
+
+    private float animRow(String key, int targetRow) {
+        Integer prev = knownRow.get(key);
+        Animator a = AnimationManager.get().animator(PART_POS_ROW_PREFIX + key, targetRow, PART_POS_TAU);
+        if (prev == null) { a.snap(targetRow); knownRow.put(key, targetRow); }
+        else { a.setTarget(targetRow); }
+        return a.getValue();
+    }
+
+    private float animCol(String key, int targetCol) {
+        Integer prev = knownCol.get(key);
+        Animator a = AnimationManager.get().animator(PART_POS_COL_PREFIX + key, targetCol, PART_POS_TAU);
+        if (prev == null) { a.snap(targetCol); knownCol.put(key, targetCol); }
+        else { a.setTarget(targetCol); }
+        return a.getValue();
+    }
+
+    private void clearPartAnimForKey(String key) {
+        AnimationManager.get().stop(PART_EXPAND_PREFIX + key);
+        AnimationManager.get().stop(PART_FADE_PREFIX + key);
+        AnimationManager.get().stopAnimator(PART_POS_ROW_PREFIX + key);
+        AnimationManager.get().stopAnimator(PART_POS_COL_PREFIX + key);
+        knownRow.remove(key);
+        knownCol.remove(key);
+    }
+
+    // ============================================================
+    // ===== 展开 / 收起 ==========================================
+    // ============================================================
+
+    private void toggleExpand(String key) {
+        float currentProgress = getAnimProgress(key);
+        boolean nowExpand = !expandedKeys.contains(key);
+
+        if (nowExpand) {
+            expandedKeys.add(key);
+            AnimationManager.get().play(
+                    PART_EXPAND_PREFIX + key, currentProgress, 1f,
+                    EXPAND_DURATION, 0L, EXPAND_EASING, null);
+
+            long fadeDelay = (long) (EXPAND_DURATION * (1f - currentProgress));
+            AnimationManager.get().play(
+                    PART_FADE_PREFIX + key, 0f, 1f,
+                    CONTENT_FADE_DURATION, fadeDelay, Easing.LINEAR, null);
+        } else {
+            expandedKeys.remove(key);
+            float startFade = getContentAlpha(key);
+
+            AnimationManager.get().play(
+                    PART_EXPAND_PREFIX + key, currentProgress, currentProgress,
+                    CONTENT_FADE_DURATION, 0L, Easing.LINEAR, null);
+
+            AnimationManager.get().play(
+                    PART_FADE_PREFIX + key, startFade, 0f,
+                    CONTENT_FADE_DURATION, 0L, Easing.LINEAR,
+                    () -> {
+                        AnimationManager.get().play(
+                                PART_EXPAND_PREFIX + key, currentProgress, 0f,
+                                EXPAND_DURATION, 0L, EXPAND_EASING, null);
+                        needsLayoutRecalc = true;
+                    });
+        }
+        needsLayoutRecalc = true;
+    }
+
+    private void clearPartAnimations() {
+        expandedKeys.clear();
+        AnimationManager.get().stopPrefix(PART_ANY_PREFIX);
+        knownRow.clear();
+        knownCol.clear();
+    }
+
     private void switchPage(int delta) {
         if (data == null || data.entries.isEmpty()) return;
         int n = data.entries.size();
-        currentPageIndex = ((currentPageIndex + delta) % n + n) % n;
+        if (n <= 1) return;
 
-        filteredPartInfos = new ArrayList<>(data.entries.get(currentPageIndex).parts);
-        expandedKeys.clear();
-        animStartTimes.clear();
-        partLayouts.clear();
-        needsLayoutRecalc = true;
+        // 只触发动画；数据切换延迟到淡出完成的回调里
+        DetailPageAnimations.startTurn(delta, () -> {
+            currentPageIndex = ((currentPageIndex + delta) % n + n) % n;
+            filteredPartInfos = new ArrayList<>(data.entries.get(currentPageIndex).parts);
+            clearPartAnimations();
+            partLayouts.clear();
+            needsLayoutRecalc = true;
+        });
     }
 
     private void applyFilter() {
@@ -253,51 +377,17 @@ public class FluidDetailScreen extends Screen {
 
         Set<String> visibleKeys = new HashSet<>();
         for (PartInfo info : filteredPartInfos) visibleKeys.add(buildKey(info));
+        Set<String> removed = new HashSet<>(expandedKeys);
+        removed.removeAll(visibleKeys);
+        for (String key : removed) clearPartAnimForKey(key);
         expandedKeys.retainAll(visibleKeys);
-        animStartTimes.keySet().retainAll(visibleKeys);
 
         needsLayoutRecalc = true;
     }
 
-    // ==================== 动画 ====================
-
-    private float getAnimProgress(String key) {
-        boolean expanded = expandedKeys.contains(key);
-        Long t = animStartTimes.get(key);
-        if (t == null) return expanded ? 1f : 0f;
-        long elapsed = System.currentTimeMillis() - t;
-        if (elapsed >= EXPAND_DURATION) return expanded ? 1f : 0f;
-        float p = (float) elapsed / EXPAND_DURATION;
-        float eased = 1f - (float) Math.pow(1f - p, 3);
-        return expanded ? eased : (1f - eased);
-    }
-
-    private float getContentAlpha(String key) {
-        if (!expandedKeys.contains(key)) return 0f;
-        Long t = animStartTimes.get(key);
-        if (t == null) return 1f;
-        long elapsed = System.currentTimeMillis() - t;
-        if (elapsed < EXPAND_DURATION) return 0f;
-        long fadeElapsed = elapsed - EXPAND_DURATION;
-        if (fadeElapsed >= CONTENT_FADE_DURATION) return 1f;
-        return (float) fadeElapsed / CONTENT_FADE_DURATION;
-    }
-
-    private boolean isAnimating(String key) {
-        Long t = animStartTimes.get(key);
-        if (t == null) return false;
-        long elapsed = System.currentTimeMillis() - t;
-        return elapsed < (EXPAND_DURATION + CONTENT_FADE_DURATION);
-    }
-
-    private boolean anyAnimating() {
-        long now = System.currentTimeMillis();
-        long total = EXPAND_DURATION + CONTENT_FADE_DURATION;
-        for (Long t : animStartTimes.values()) if (now - t < total) return true;
-        return false;
-    }
-
-    // ==================== 布局 ====================
+    // ============================================================
+    // ===== 布局 ==================================================
+    // ============================================================
 
     private void recalculateLayout() {
         if (font == null) font = Minecraft.getInstance().font;
@@ -313,7 +403,6 @@ public class FluidDetailScreen extends Screen {
 
         lastScreenWidth = screenWidth;
         lastScreenHeight = screenHeight;
-
         infoLineHeight = font.lineHeight + 2;
 
         int y = PADDING + 2;
@@ -330,7 +419,6 @@ public class FluidDetailScreen extends Screen {
         infoStartY = headerStartY + titleLineHeight + 2;
 
         y = headerStartY + headerHeight + SECTION_SPACING;
-
         searchBoxY = y;
         searchBoxX = PADDING;
         searchBoxW = Math.max(20, windowWidth - PADDING * 2);
@@ -374,7 +462,7 @@ public class FluidDetailScreen extends Screen {
 
         for (PartInfo info : filteredPartInfos) {
             String key = buildKey(info);
-            boolean expanded = expandedKeys.contains(key);
+            boolean expanded = useExpandedLayout(key);
             int sizeW = expanded ? EXPAND_W_COLS : 1;
             int sizeH = expanded ? EXPAND_H_ROWS : 1;
 
@@ -407,11 +495,13 @@ public class FluidDetailScreen extends Screen {
         return null;
     }
 
-    // ==================== 渲染 ====================
+    // ============================================================
+    // ===== 渲染 ==================================================
+    // ============================================================
 
     @Override
     public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        // 1) 渲染背景容器屏幕，用独立 pose 保护
+        // 1) 渲染背景容器屏幕
         if (savedScreen != null) {
             PoseStack ps = graphics.pose();
             ps.pushPose();
@@ -421,24 +511,44 @@ public class FluidDetailScreen extends Screen {
 
         Minecraft mc = Minecraft.getInstance();
 
-        // 2) ★ 关键修复：flush 背景 buffered 物品 + 清 depth buffer
+        // 2) 关键修复：flush 背景 buffered 物品 + 清 depth buffer
         RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
         RenderSystem.enableBlend();
         RenderSystem.defaultBlendFunc();
         RenderSystem.enableDepthTest();
         RenderSystem.depthMask(true);
-        RenderSystem.depthFunc(515); // GL_LEQUAL
+        RenderSystem.depthFunc(515);
 
         try { mc.renderBuffers().bufferSource().endBatch(); } catch (Throwable ignored) {}
         try { GlStateManager._clear(GL11.GL_DEPTH_BUFFER_BIT, Minecraft.ON_OSX); } catch (Throwable ignored) {}
         RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
 
-        // 3) 渲染详情界面
+        // 3) 窗口开关动画状态
+        float windowScale = DetailAnimations.getWindowScale();
+        float maskProgress = DetailAnimations.getMaskProgress();
+
         PoseStack poseStack = graphics.pose();
         poseStack.pushPose();
         poseStack.translate(0, 0, 500);
         RenderSystem.disableDepthTest();
         RenderSystem.depthMask(false);
+
+        // 遮罩：alpha 通过颜色分量控制
+        int maskAlpha = (int) (0x80 * maskProgress);
+        if (maskAlpha > 0) {
+            graphics.fill(0, 0, this.width, this.height, maskAlpha << 24);
+        }
+
+        // 窗口内容缩放（以窗口中心为原点）
+        boolean identityScale = Math.abs(windowScale - 1f) < 0.001f;
+        if (!identityScale) {
+            float cx = centerX + windowWidth / 2f;
+            float cy = centerY + windowHeight / 2f;
+            poseStack.pushPose();
+            poseStack.translate(cx, cy, 0);
+            poseStack.scale(windowScale, windowScale, 1f);
+            poseStack.translate(-cx, -cy, 0);
+        }
 
         pendingTooltip = null;
         pageButtonRects.clear();
@@ -450,11 +560,10 @@ public class FluidDetailScreen extends Screen {
 
         if (newW != windowWidth || newH != windowHeight
                 || this.width != lastScreenWidth || this.height != lastScreenHeight
-                || needsLayoutRecalc || anyAnimating()) {
+                || needsLayoutRecalc || anyPartAnimating() || DetailPageAnimations.isTurning()) {
             recalculateLayout();
         }
 
-        graphics.fill(0, 0, this.width, this.height, 0x80000000);
         graphics.fill(centerX + 2, centerY + 2, centerX + windowWidth + 2, centerY + windowHeight + 2, 0x40000000);
         graphics.fill(centerX, centerY, centerX + windowWidth, centerY + windowHeight, 0xF0181818);
         drawBorder(graphics, centerX, centerY, windowWidth, windowHeight, 0xFF555555);
@@ -467,10 +576,12 @@ public class FluidDetailScreen extends Screen {
         int clipX = centerX + PADDING;
         int clipW = windowWidth - PADDING * 2;
 
+        boolean useScissor = identityScale;
+
         int fixedClipTop = centerY + PADDING;
         int fixedClipHeight = centerY + scrollStartY - fixedClipTop;
         if (fixedClipHeight > 0) {
-            boolean ok = ScissorHelper.enableScissor(clipX, fixedClipTop, clipW, fixedClipHeight);
+            boolean ok = useScissor && ScissorHelper.enableScissor(clipX, fixedClipTop, clipW, fixedClipHeight);
             try { renderFixedContent(graphics, mouseX, mouseY); }
             finally { if (ok) ScissorHelper.disableScissor(); }
         }
@@ -478,12 +589,11 @@ public class FluidDetailScreen extends Screen {
         int scrollClipTop = centerY + scrollStartY;
         int scrollClipHeight = centerY + windowHeight - PADDING - scrollClipTop;
         if (scrollClipHeight > 0) {
-            boolean ok = ScissorHelper.enableScissor(clipX, scrollClipTop, clipW, scrollClipHeight);
+            boolean ok = useScissor && ScissorHelper.enableScissor(clipX, scrollClipTop, clipW, scrollClipHeight);
             try { renderScrolledContent(graphics, mouseX, mouseY); }
             finally { if (ok) ScissorHelper.disableScissor(); }
         }
 
-        // ★ 滚动条：由组件自己决定是否画
         renderScrollBar(graphics, mouseX, mouseY);
 
         if (isLoading) {
@@ -495,6 +605,9 @@ public class FluidDetailScreen extends Screen {
 
         super.render(graphics, mouseX, mouseY, partialTick);
 
+        if (!identityScale) poseStack.popPose();
+
+        // Tooltip：正常渲染，无额外 GL 状态改动
         if (pendingTooltip != null) {
             graphics.renderComponentTooltip(font, pendingTooltip, mouseX, mouseY);
             pendingTooltip = null;
@@ -504,7 +617,6 @@ public class FluidDetailScreen extends Screen {
         RenderSystem.enableDepthTest();
         poseStack.popPose();
 
-        // 4) ★ 收尾：flush 详情界面自己渲染的物品
         try { mc.renderBuffers().bufferSource().endBatch(); } catch (Throwable ignored) {}
     }
 
@@ -557,6 +669,7 @@ public class FluidDetailScreen extends Screen {
         int baseX = centerX;
         int baseY = centerY - totalScrollOffset;
 
+        // ===== 铸造部分（不参与翻页动画）=====
         String castingTitle = "\u00a76" + Component.translatable("gui.tinkerssearch.detail.casting").getString() +
                 " \u00a77(\u00a7e" + filteredCastingInfos.size() + "\u00a77/\u00a78" + allCastingInfos.size() + "\u00a77)";
         graphics.drawString(font, castingTitle, baseX + PADDING, baseY + castingTitleY, 0xFFFFFF);
@@ -568,6 +681,7 @@ public class FluidDetailScreen extends Screen {
             renderCastingCards(graphics, baseX, baseY + castingStartY, mouseX, mouseY);
         }
 
+        // ===== 部件标题（不参与翻页动画）=====
         int totalPages = data.entries.size();
         String pageInfo = totalPages > 1 ? " \u00a77[" + (currentPageIndex + 1) + "/" + totalPages + "]" : "";
         int currentPageTotal = (currentEntry() != null) ? currentEntry().parts.size() : 0;
@@ -576,6 +690,7 @@ public class FluidDetailScreen extends Screen {
                 + " \u00a77(\u00a7e" + filteredPartInfos.size() + "\u00a77/\u00a78" + currentPageTotal + "\u00a77)";
         graphics.drawString(font, partTitle, baseX + PADDING, baseY + partTitleY, 0xFFFFFF);
 
+        // ===== 翻页按钮（不参与翻页动画）=====
         if (totalPages > 1) {
             int barY = baseY + partTitleY - 4;
             int rightX = baseX + windowWidth - PADDING;
@@ -587,13 +702,26 @@ public class FluidDetailScreen extends Screen {
             drawPageButton(graphics, nextX, barY, "\u25b6", mouseX, mouseY, 1);
         }
 
-        if (filteredPartInfos.isEmpty()) {
-            graphics.drawString(font, Component.translatable("gui.tinkerssearch.detail.no_parts").getString(),
-                    baseX + PADDING + 5, baseY + partStartY + 10, 0x666666);
-        } else {
-            renderPartCards(graphics, baseX, baseY + partStartY, mouseX, mouseY);
+        // ===== 卡片网格（唯一参与翻页动画的部分）=====
+        float pageSlideX = DetailPageAnimations.getSlideX();
+        boolean applySlide = Math.abs(pageSlideX) > 0.5f;
+
+        if (applySlide) {
+            graphics.pose().pushPose();
+            graphics.pose().translate(pageSlideX, 0, 0);
+        }
+        try {
+            if (filteredPartInfos.isEmpty()) {
+                graphics.drawString(font, Component.translatable("gui.tinkerssearch.detail.no_parts").getString(),
+                        baseX + PADDING + 5, baseY + partStartY + 10, 0x666666);
+            } else {
+                renderPartCards(graphics, baseX, baseY + partStartY, mouseX, mouseY);
+            }
+        } finally {
+            if (applySlide) graphics.pose().popPose();
         }
 
+        // ===== 页脚（不参与翻页动画）=====
         String footer = "\u00a78[\u53f3\u952e/ESC " + Component.translatable("gui.tinkerssearch.detail.close").getString() + "]";
         graphics.drawString(font, footer, baseX + PADDING, baseY + bottomHintY, 0x444444);
     }
@@ -684,6 +812,14 @@ public class FluidDetailScreen extends Screen {
     private void renderPartCards(GuiGraphics graphics, int baseX, int startY, int mouseX, int mouseY) {
         if (filteredPartInfos.isEmpty()) return;
 
+        // 翻页 alpha
+        currentPageAlpha = DetailPageAnimations.getContentAlpha();
+
+        if (currentPageAlpha <= 0.01f) {
+            partLayouts.clear();
+            return;
+        }
+
         int contentW = windowWidth - PADDING * 2;
         int cols = Math.max(1, (contentW + BLOCK_SPACING) / (BLOCK_SIZE + BLOCK_SPACING));
         int gridW = cols * BLOCK_SIZE + (cols - 1) * BLOCK_SPACING;
@@ -691,10 +827,11 @@ public class FluidDetailScreen extends Screen {
 
         partLayouts.clear();
         boolean[][] occupied = new boolean[512][cols];
+        int step = BLOCK_SIZE + BLOCK_SPACING;
 
         for (PartInfo info : filteredPartInfos) {
             String key = buildKey(info);
-            boolean expanded = expandedKeys.contains(key);
+            boolean expanded = useExpandedLayout(key);
             int sizeW = expanded ? EXPAND_W_COLS : 1;
             int sizeH = expanded ? EXPAND_H_ROWS : 1;
 
@@ -706,21 +843,31 @@ public class FluidDetailScreen extends Screen {
                 for (int c = col; c < col + sizeW && c < cols; c++) occupied[r][c] = true;
             }
 
-            int targetX = baseX + PADDING + padding + col * (BLOCK_SIZE + BLOCK_SPACING);
-            int targetY = startY + row * (BLOCK_SIZE + BLOCK_SPACING);
-            int targetW = sizeW * BLOCK_SIZE + (sizeW - 1) * BLOCK_SPACING;
-            int targetH = sizeH * BLOCK_SIZE + (sizeH - 1) * BLOCK_SPACING;
+            float animR = animRow(key, row);
+            float animC = animCol(key, col);
 
-            PartLayout layout = new PartLayout(info, key, targetX, targetY, targetW, targetH, expanded);
+            int visualX = baseX + PADDING + padding + Math.round(animC * step);
+            int visualY = startY + Math.round(animR * step);
+
+            float progress = getAnimProgress(key);
+            float contentAlpha = getContentAlpha(key);
+
+            int targetSlotW = sizeW * BLOCK_SIZE + (sizeW - 1) * BLOCK_SPACING;
+            int targetSlotH = sizeH * BLOCK_SIZE + (sizeH - 1) * BLOCK_SPACING;
+            int visualW = (int) (BLOCK_SIZE + (targetSlotW - BLOCK_SIZE) * progress);
+            int visualH = (int) (BLOCK_SIZE + (targetSlotH - BLOCK_SIZE) * progress);
+
+            PartLayout layout = new PartLayout(info, key, visualX, visualY, visualW, visualH, expanded);
             partLayouts.add(layout);
 
-            boolean hover = mouseX >= targetX && mouseX <= targetX + targetW
-                    && mouseY >= targetY && mouseY <= targetY + targetH;
+            boolean hover = mouseX >= visualX && mouseX <= visualX + visualW
+                    && mouseY >= visualY && mouseY <= visualY + visualH;
 
-            boolean hasAnim = isAnimating(key);
-            if (expanded) drawExpandedCardAnimated(graphics, layout, hover, getAnimProgress(key));
-            else if (hasAnim) drawCollapsingCardAnimated(graphics, layout, hover, getAnimProgress(key));
-            else drawPartBlock(graphics, layout, hover);
+            if (expanded) {
+                drawExpandedCard(graphics, layout, hover, contentAlpha);
+            } else {
+                drawPartBlock(graphics, layout, hover);
+            }
         }
     }
 
@@ -728,62 +875,54 @@ public class FluidDetailScreen extends Screen {
         int x = layout.x, y = layout.y, w = layout.w, h = layout.h;
         int bg = hover ? 0xFF2A3A2E : 0xFF1A2A1E;
         int border = hover ? 0xFF66BB66 : 0xFF2E4A32;
-        CardBackground.drawWithShadow(graphics, x, y, w, h, bg, border, 0x40000000);
 
-        int iconX = x + (w - 16) / 2;
-        int iconY = y + (h - 16 - 14) / 2;
+        boolean needAlpha = currentPageAlpha < 0.99f;
+        if (needAlpha) RenderSystem.setShaderColor(1f, 1f, 1f, currentPageAlpha);
+        try {
+            CardBackground.drawWithShadow(graphics, x, y, w, h, bg, border, 0x40000000);
 
-        if (layout.info.displayStack != null && !layout.info.displayStack.isEmpty()) {
-            graphics.renderItem(layout.info.displayStack, iconX, iconY);
+            int iconX = x + (w - 16) / 2;
+            int iconY = y + (h - 16 - 14) / 2;
+
+            if (layout.info.displayStack != null && !layout.info.displayStack.isEmpty()) {
+                graphics.renderItem(layout.info.displayStack, iconX, iconY);
+            }
+
+            String name = layout.info.getDisplayName();
+            int maxW = w - 6;
+            String displayName = font.width(name) > maxW
+                    ? font.plainSubstrByWidth(name, maxW - 4) + "..." : name;
+            int nameX = x + (w - font.width(displayName)) / 2;
+            int nameY = y + h - 14;
+            graphics.drawString(font, "\u00a7f" + displayName, nameX, nameY, 0xFFFFFF);
+        } finally {
+            if (needAlpha) RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
         }
-
-        String name = layout.info.getDisplayName();
-        int maxW = w - 6;
-        String displayName = font.width(name) > maxW ? font.plainSubstrByWidth(name, maxW - 4) + "..." : name;
-        int nameX = x + (w - font.width(displayName)) / 2;
-        int nameY = y + h - 14;
-        graphics.drawString(font, "\u00a7f" + displayName, nameX, nameY, 0xFFFFFF);
     }
 
-    private void drawExpandedCardAnimated(GuiGraphics graphics, PartLayout layout, boolean hover, float progress) {
-        int slotX = layout.x, slotY = layout.y, slotW = layout.w, slotH = layout.h;
-        int animW = (int) (BLOCK_SIZE + (slotW - BLOCK_SIZE) * progress);
-        int animH = (int) (BLOCK_SIZE + (slotH - BLOCK_SIZE) * progress);
-        int animX = slotX + (slotW - animW) / 2;
-        int animY = slotY + (slotH - animH) / 2;
-
+    private void drawExpandedCard(GuiGraphics graphics, PartLayout layout, boolean hover, float contentAlpha) {
+        int x = layout.x, y = layout.y, w = layout.w, h = layout.h;
         int bg = hover ? 0xFF2A3A2E : 0xFF1A2A1E;
         int border = hover ? 0xFF66BB66 : 0xFF2E4A32;
-        CardBackground.drawWithShadow(graphics, animX, animY, animW, animH, bg, border, 0x40000000);
 
-        if (progress < 1.0f) return;
-
-        PartInfo info = layout.info;
-        float contentAlpha = getContentAlpha(layout.key);
-        if (contentAlpha <= 0.01f) return;
-
-        RenderSystem.setShaderColor(1f, 1f, 1f, contentAlpha);
+        boolean needBgAlpha = currentPageAlpha < 0.99f;
+        if (needBgAlpha) RenderSystem.setShaderColor(1f, 1f, 1f, currentPageAlpha);
         try {
-            drawExpandedHeader(graphics, info, slotX, slotY, slotW);
-            drawExpandedContent(graphics, info, slotX, slotY, slotW, slotH);
+            CardBackground.drawWithShadow(graphics, x, y, w, h, bg, border, 0x40000000);
+        } finally {
+            if (needBgAlpha) RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
+        }
+
+        float combined = contentAlpha * currentPageAlpha;
+        if (combined <= 0.01f) return;
+
+        RenderSystem.setShaderColor(1f, 1f, 1f, combined);
+        try {
+            drawExpandedHeader(graphics, layout.info, x, y, w);
+            drawExpandedContent(graphics, layout.info, x, y, w, h);
         } finally {
             RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
         }
-    }
-
-    private void drawCollapsingCardAnimated(GuiGraphics graphics, PartLayout layout, boolean hover, float progress) {
-        int slotX = layout.x, slotY = layout.y, slotW = layout.w, slotH = layout.h;
-        int bigW = EXPAND_W_COLS * BLOCK_SIZE + (EXPAND_W_COLS - 1) * BLOCK_SPACING;
-        int bigH = EXPAND_H_ROWS * BLOCK_SIZE + (EXPAND_H_ROWS - 1) * BLOCK_SPACING;
-
-        int animW = (int) (BLOCK_SIZE + (bigW - BLOCK_SIZE) * progress);
-        int animH = (int) (BLOCK_SIZE + (bigH - BLOCK_SIZE) * progress);
-        int animX = slotX + (slotW - animW) / 2;
-        int animY = slotY + (slotH - animH) / 2;
-
-        int bg = hover ? 0xFF2A3A2E : 0xFF1A2A1E;
-        int border = hover ? 0xFF66BB66 : 0xFF2E4A32;
-        CardBackground.drawWithShadow(graphics, animX, animY, animW, animH, bg, border, 0x40000000);
     }
 
     private void drawExpandedHeader(GuiGraphics graphics, PartInfo info, int slotX, int slotY, int slotW) {
@@ -920,7 +1059,6 @@ public class FluidDetailScreen extends Screen {
         graphics.fill(x + width - 1, y, x + width, y + height, color);
     }
 
-    /** ★ 滚动条：组件版本（含拖拽）。 */
     private void renderScrollBar(GuiGraphics graphics, int mouseX, int mouseY) {
         int barX = centerX + windowWidth - 6;
         int barY = centerY + scrollStartY;
@@ -932,10 +1070,20 @@ public class FluidDetailScreen extends Screen {
         totalScrollBar.render(graphics, mouseX, mouseY);
     }
 
+    private boolean anyPartAnimating() {
+        return AnimationManager.get().isAnyRunning(PART_ANY_PREFIX);
+    }
+
     // ==================== 事件 ====================
+
+    private boolean shouldBlockInput() {
+        return closing || DetailAnimations.isClosing();
+    }
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (shouldBlockInput()) return true;
+
         int closeX = centerX + windowWidth - PADDING - CLOSE_BTN_SIZE;
         int closeY = centerY + PADDING + 2;
         if (mouseX >= closeX && mouseX <= closeX + CLOSE_BTN_SIZE
@@ -944,7 +1092,6 @@ public class FluidDetailScreen extends Screen {
             return true;
         }
 
-        // ★ 滚动条拖拽优先（在窗口内边缘，不能误触关闭）
         if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && totalScrollBar.tryBeginDrag(mouseX, mouseY)) {
             return true;
         }
@@ -959,6 +1106,7 @@ public class FluidDetailScreen extends Screen {
         for (int[] rect : pageButtonRects) {
             if (mouseX >= rect[0] && mouseX <= rect[0] + PAGE_BTN_W
                     && mouseY >= rect[1] && mouseY <= rect[1] + PAGE_BTN_H) {
+                if (DetailPageAnimations.isTurning()) return true;
                 switchPage(rect[2]);
                 return true;
             }
@@ -967,10 +1115,8 @@ public class FluidDetailScreen extends Screen {
         for (PartLayout layout : partLayouts) {
             if (mouseX >= layout.x && mouseX <= layout.x + layout.w
                     && mouseY >= layout.y && mouseY <= layout.y + layout.h) {
-                if (expandedKeys.contains(layout.key)) expandedKeys.remove(layout.key);
-                else expandedKeys.add(layout.key);
-                animStartTimes.put(layout.key, System.currentTimeMillis());
-                needsLayoutRecalc = true;
+                if (DetailPageAnimations.isTurning()) return true;
+                toggleExpand(layout.key);
                 return true;
             }
         }
@@ -984,6 +1130,7 @@ public class FluidDetailScreen extends Screen {
 
     @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double dragX, double dragY) {
+        if (shouldBlockInput()) return true;
         if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && totalScrollBar.isDragging()) {
             totalScrollBar.updateDrag(mouseY);
             return true;
@@ -993,6 +1140,7 @@ public class FluidDetailScreen extends Screen {
 
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if (shouldBlockInput()) return true;
         if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && totalScrollBar.isDragging()) {
             totalScrollBar.endDrag();
             return true;
@@ -1002,6 +1150,7 @@ public class FluidDetailScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double delta) {
+        if (shouldBlockInput()) return true;
         if (mouseX < centerX || mouseX > centerX + windowWidth ||
                 mouseY < centerY || mouseY > centerY + windowHeight) return false;
         int newOffset = totalScrollOffset - (int) (delta * SCROLL_SPEED);
@@ -1011,7 +1160,10 @@ public class FluidDetailScreen extends Screen {
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (shouldBlockInput()) return true;
+
         if (searchBox.keyPressed(keyCode, scanCode, modifiers)) return true;
+
         if (keyCode == GLFW.GLFW_KEY_ESCAPE) { this.onClose(); return true; }
         if (keyCode == GLFW.GLFW_KEY_DOWN) {
             totalScrollOffset = Math.min(totalScrollOffset + SCROLL_SPEED, maxTotalScrollOffset);
@@ -1023,11 +1175,13 @@ public class FluidDetailScreen extends Screen {
         }
         if (keyCode == GLFW.GLFW_KEY_LEFT) { switchPage(-1); return true; }
         if (keyCode == GLFW.GLFW_KEY_RIGHT) { switchPage(1); return true; }
+
         return super.keyPressed(keyCode, scanCode, modifiers);
     }
 
     @Override
     public boolean charTyped(char codePoint, int modifiers) {
+        if (shouldBlockInput()) return true;
         if (searchBox.charTyped(codePoint, modifiers)) return true;
         return super.charTyped(codePoint, modifiers);
     }
@@ -1037,6 +1191,22 @@ public class FluidDetailScreen extends Screen {
 
     @Override
     public void onClose() {
+        if (closing) return;
+
+        AnimationManager.get().stopPrefix(PART_ANY_PREFIX);
+        AnimationManager.get().stopPrefix("widget.");
+        DetailPageAnimations.clear();
+
+        knownRow.clear();
+        knownCol.clear();
+
+        closing = true;
+        DetailAnimations.startCloseAnimation(this::finishClose);
+    }
+
+    private void finishClose() {
+        DetailAnimations.clear();
+
         Minecraft mc = Minecraft.getInstance();
         if (savedScreen != null) mc.setScreen(savedScreen);
         else super.onClose();
