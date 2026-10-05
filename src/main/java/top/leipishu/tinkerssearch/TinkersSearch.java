@@ -20,6 +20,7 @@ import net.minecraftforge.client.event.RenderTooltipEvent;
 import net.minecraftforge.client.event.RecipesUpdatedEvent;
 import org.lwjgl.glfw.GLFW;
 import org.lwjgl.opengl.GL11;
+import top.leipishu.tinkerssearch.client.animation.core.AnimationManager;
 import top.leipishu.tinkerssearch.client.gui.FloatingSearchPanel;
 import top.leipishu.tinkerssearch.client.gui.FluidDetailScreen;
 import top.leipishu.tinkerssearch.client.gui.PanelInteractionHandler;
@@ -66,6 +67,19 @@ public class TinkersSearch {
 
     private boolean isDetailScreenOpen() {
         return Minecraft.getInstance().screen instanceof FluidDetailScreen;
+    }
+
+    /**
+     * 每帧驱动动画系统。
+     *
+     * <p>使用 {@code RenderTickEvent.Phase.START}：它在每帧渲染前触发，
+     * 保证 {@code PanelRenderer} / {@code FluidDetailScreen} 读到本帧最新值。
+     * 不用 {@code ClientTickEvent}，因为后者在暂停/失焦时可能变慢。
+     */
+    @SubscribeEvent
+    public void onRenderTick(TickEvent.RenderTickEvent event) {
+        if (event.phase != TickEvent.Phase.START) return;
+        AnimationManager.get().update();
     }
 
     @SubscribeEvent(priority = EventPriority.LOWEST)
@@ -166,6 +180,9 @@ public class TinkersSearch {
                 searchPanel.setVisible(false);
                 System.out.println("Tinker's Search: Panel closed due to smeltery screen closing");
             }
+
+            // ★ 清理面板相关动画（滑入滑出、卡片 hover、Tab 指示器等）
+            AnimationManager.get().stopPrefix("panel.");
 
             if (jeiAvailable) {
                 Jei.refreshExclusionAreas();

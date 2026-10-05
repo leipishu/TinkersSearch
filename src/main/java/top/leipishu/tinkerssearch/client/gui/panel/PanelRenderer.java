@@ -183,7 +183,6 @@ public class PanelRenderer {
         }
 
         dataManager.checkPendingHighlightUpdate();
-        animationManager.updateAnimation();
 
         if (!panel.isVisible() && !animationManager.isAnimating()) return;
 
