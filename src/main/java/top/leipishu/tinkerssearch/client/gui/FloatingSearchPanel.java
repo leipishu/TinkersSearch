@@ -247,6 +247,16 @@ public class FloatingSearchPanel extends AbstractWidget {
         }
     }
 
+    /**
+     * 立即隐藏（无滑出动画）。
+     *
+     * <p>用于父界面关闭等场景——此时渲染已经停止，播放滑出动画既看不到，
+     * 又会让 {@code isVisible} 卡在 true。
+     */
+    public void forceHideImmediate() {
+        animationManager.hideImmediate();
+    }
+
     private void refreshSmelteryEntity() {
         Minecraft mc = Minecraft.getInstance();
         if (mc.screen == null) return;
@@ -405,7 +415,7 @@ public class FloatingSearchPanel extends AbstractWidget {
                 if (matchedMaterial != null) {
                     int currentTemp = getCurrentSmelteryTemperature();
                     alloyHandler.refreshTemperature(currentTemp);
-                    dataManager.resetAlloyResultsScrollOffset(); // ★ 切换材料时重置结果页
+                    dataManager.resetAlloyResultsScrollOffset();
                     alloyHandler.selectMaterial(matchedMaterial, dataManager.getAllFluids(), currentTemp);
                     return true;
                 }
@@ -431,8 +441,6 @@ public class FloatingSearchPanel extends AbstractWidget {
             int backY = py + PanelConfig.CARDS_START_Y;
             if (mouseX >= backX && mouseX <= backX + font.width(backText) &&
                     mouseY >= backY && mouseY <= backY + 12) {
-                // ★ 直接回材料列表：selectedMaterial 变 null 后
-                //   getAlloyScrollOffset() 自动切回材料列表偏移
                 alloyHandler.backToMaterials();
                 return true;
             }
@@ -734,8 +742,6 @@ public class FloatingSearchPanel extends AbstractWidget {
             int backY = py + PanelConfig.CARDS_START_Y;
             if (mouseX >= backX && mouseX <= backX + font.width(backText) &&
                     mouseY >= backY && mouseY <= backY + 12) {
-                // ★ 返回材料列表：selectedMaterial 变 null 后，
-                //   getAlloyScrollOffset() 自动切回材料列表偏移
                 alloyHandler.backToMaterials();
                 return true;
             }
@@ -766,7 +772,6 @@ public class FloatingSearchPanel extends AbstractWidget {
                         int currentTemp = getCurrentSmelteryTemperature();
                         alloyHandler.refreshTemperature(currentTemp);
 
-                        // ★ 选中新材料前重置结果页偏移，避免上次结果位置残留
                         dataManager.resetAlloyResultsScrollOffset();
 
                         alloyHandler.selectMaterial(materials.get(i), dataManager.getAllFluids(), currentTemp);

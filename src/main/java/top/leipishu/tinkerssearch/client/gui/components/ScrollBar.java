@@ -2,6 +2,8 @@ package top.leipishu.tinkerssearch.client.gui.components;
 
 import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.gui.GuiComponent;
+import top.leipishu.tinkerssearch.client.animation.controller.WidgetAnimations;
+import top.leipishu.tinkerssearch.client.animation.core.ColorUtil;
 
 import java.util.function.Consumer;
 
@@ -25,6 +27,9 @@ import java.util.function.Consumer;
  *   <li>{@link #endDrag} — 鼠标松开时调用</li>
  *   <li>{@link #isDragging}</li>
  * </ul>
+ *
+ * <p>动画：{@link #setAnimationId} 指定实例 id 后，thumb 位置与 hover
+ * 颜色会平滑过渡。拖拽时 thumb 立即跟随（不做平滑），滚轮滚动时平滑。
  */
 public class ScrollBar {
 
@@ -52,6 +57,9 @@ public class ScrollBar {
 
     /** 鼠标命中容差（水平方向向外扩展的像素）。 */
     private int hoverExpandX = 0;
+
+    /** 动画实例 id；null 表示不做动画。 */
+    private String animationId = null;
 
     public ScrollBar() {}
 
@@ -86,6 +94,17 @@ public class ScrollBar {
         this.hoverExpandX = Math.max(0, px);
     }
 
+    /**
+     * 指定动画实例 id。不同滚动条应使用不同 id。
+     * 为 {@code null} 时禁用动画（thumb 立即定位、颜色硬切）。
+     */
+    public void setAnimationId(String id) {
+        if (this.animationId != null && !this.animationId.equals(id)) {
+            WidgetAnimations.clearScrollBar(this.animationId);
+        }
+        this.animationId = id;
+    }
+
     // ==================== 状态 ====================
 
     public boolean isActive() { return maxOffset > 0; }
@@ -105,12 +124,30 @@ public class ScrollBar {
 
         GuiComponent.fill(ps, x, y, x + width, y + height, trackColor);
 
-        float ratio = (float) offset / (float) maxOffset;
+        // thumb 位置：拖拽时立即跟随，滚轮时平滑
+        float ratio;
+        if (animationId != null) {
+            ratio = WidgetAnimations.scrollBarThumbRatio(offset, maxOffset, animationId, dragging);
+        } else {
+            ratio = (float) offset / (float) maxOffset;
+        }
+        if (ratio < 0f) ratio = 0f;
+        else if (ratio > 1f) ratio = 1f;
+
         int thumbH = Math.max(thumbMinHeight, (int) (height * thumbRatio));
         if (thumbH > height) thumbH = height;
         int thumbY = y + (int) (ratio * (height - thumbH));
 
-        int color = (dragging || isHovered(mouseX, mouseY)) ? thumbColorHover : thumbColor;
+        // hover / 拖拽高亮
+        int color;
+        if (animationId != null) {
+            float hoverT = WidgetAnimations.scrollBarHoverFactor(
+                    animationId, isHovered(mouseX, mouseY), dragging);
+            color = ColorUtil.lerpARGB(thumbColor, thumbColorHover, hoverT);
+        } else {
+            color = (dragging || isHovered(mouseX, mouseY)) ? thumbColorHover : thumbColor;
+        }
+
         GuiComponent.fill(ps, x, thumbY, x + width, thumbY + thumbH, color);
     }
 

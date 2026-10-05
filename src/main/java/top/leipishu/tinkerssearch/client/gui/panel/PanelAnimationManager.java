@@ -21,7 +21,8 @@ import top.leipishu.tinkerssearch.client.gui.panel.PanelDataManager.Tab;
  * </ul>
  *
  * <p>对外接口保持不变：{@link #isAnimating()} / {@link #getAnimationOffset()} /
- * {@link #startHideAnimation()} / {@link #startShowAnimation()}。
+ * {@link #startHideAnimation()} / {@link #startShowAnimation()}，
+ * 另新增 {@link #hideImmediate()} 用于父界面关闭时立即隐藏。
  */
 public class PanelAnimationManager {
 
@@ -85,18 +86,23 @@ public class PanelAnimationManager {
      *   <li>面板 {@code actuallyVisible = false}（不再接收 JEI / 鼠标交互）</li>
      *   <li>滑出完成后 {@code isVisible = false}</li>
      * </ol>
+     *
+     * <p>★ 关键：在修改 {@link #targetVisible} 之前先读取当前 offset，
+     * 否则 {@link #getAnimationOffset()} 的静止态回退会直接返回隐藏位置，
+     * 导致动画 from == to（视觉上"没动画"）。
      */
     public void startHideAnimation() {
         resetToSmelteryTab();
         interactionHandler.setSearchBoxFocused(false);
         dataManager.resetScrollOffsets();
 
+        float startOffset = getAnimationOffset();   // ★ 先读（此时 targetVisible 可能仍为 true）
         targetVisible = false;
         panel.setActuallyVisible(false);
 
         AnimationManager.get().play(
                 SLIDE_KEY,
-                getAnimationOffset(),          // 从当前位置开始（允许中断）
+                startOffset,
                 -panel.getPanelWidth(),
                 SLIDE_DURATION,
                 0L,
@@ -132,6 +138,19 @@ public class PanelAnimationManager {
                 SLIDE_EASING,
                 () -> panel.setActuallyVisible(true)
         );
+    }
+
+    /**
+     * 立即隐藏，不播放滑出动画。
+     *
+     * <p>用于父界面（冶炼炉界面）关闭的场景：此时渲染已经停止，
+     * 播放滑出动画毫无意义，反而会让 {@code isVisible} 卡在 true。
+     */
+    public void hideImmediate() {
+        AnimationManager.get().stop(SLIDE_KEY);
+        targetVisible = false;
+        panel.setVisibleInternal(false);
+        panel.setActuallyVisible(false);
     }
 
     /** 重置到冶炼炉 Tab 并清空搜索框。 */
