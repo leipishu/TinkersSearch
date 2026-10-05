@@ -7,8 +7,7 @@ import top.leipishu.tinkerssearch.client.animation.core.Animator;
  * 浮动面板的动画读写封装。
  *
  * <p>涵盖冶炼炉 / 材料 / 合金三个 Tab 共用的卡片 hover、Tab hover、
- * Tab 指示器位置、空状态淡入、刷新按钮 hover。合金专属的卡片选中态在
- * 后续阶段接入（语义与普通 hover 相同，只是 target 不同）。
+ * Tab 指示器位置、空状态淡入、刷新按钮 hover。
  */
 public final class PanelAnimations {
 
@@ -18,10 +17,11 @@ public final class PanelAnimations {
     // ===== 卡片 hover ============================================
     // ============================================================
 
-    private static final String CARD_HOVER_PREFIX = "panel.card.hover:";
+    private static final String CARD_HOVER_PREFIX       = "panel.card.hover:";
+    private static final String ALLOY_CARD_HOVER_PREFIX = "panel.alloy.card.hover:";
 
     /**
-     * 查询/驱动单个卡片的 hover 值。
+     * 查询/驱动冶炼炉 & 材料 Tab 的卡片 hover 值。
      *
      * @param fluidId 流体注册名（如 {@code "minecraft:lava"}）
      * @return 0=常态，1=完全悬停
@@ -33,9 +33,12 @@ public final class PanelAnimations {
         return a.getValue();
     }
 
-    /** 清空所有卡片 hover 动画。 */
-    public static void clearCardHover() {
-        AnimationManager.get().stopPrefix(CARD_HOVER_PREFIX);
+    /** 合金 Tab 的卡片 hover（前缀区分，避免与普通 Tab 冲突）。 */
+    public static float alloyCardHover(String fluidId, boolean hover) {
+        Animator a = AnimationManager.get().animator(
+                ALLOY_CARD_HOVER_PREFIX + fluidId, 0f, 70f);
+        a.setTarget(hover ? 1f : 0f);
+        return a.getValue();
     }
 
     // ============================================================
@@ -61,22 +64,15 @@ public final class PanelAnimations {
     private static final String TAB_INDICATOR_KEY = "panel.tab.indicator";
 
     /**
-     * 更新 Tab 指示器的目标 x 坐标并返回当前插值。
+     * 更新 Tab 指示器的目标 x 坐标（相对面板左上角）并返回当前插值。
      *
-     * @param targetX 目标 x（相对面板左上角）
+     * <p>首次调用时直接定位（不产生滑动）；后续目标变化时平滑过渡。
      */
     public static float tabIndicatorX(int targetX) {
         Animator a = AnimationManager.get().animator(
-                TAB_INDICATOR_KEY, targetX, 100f);
+                TAB_INDICATOR_KEY, targetX, 120f);
         a.setTarget(targetX);
         return a.getValue();
-    }
-
-    /**
-     * 直接把指示器跳到指定位置（面板刚打开 / Tab 强制归位时用）。
-     */
-    public static void snapTabIndicator(int x) {
-        AnimationManager.get().animator(TAB_INDICATOR_KEY, x, 100f).snap(x);
     }
 
     // ============================================================
@@ -88,12 +84,12 @@ public final class PanelAnimations {
     /**
      * 查询/驱动"无匹配 / 无流体"提示的透明度。
      *
-     * @param areaKey 区分不同区域的空状态（如 {@code "smeltery"} / {@code "materials"}）
+     * @param areaKey 区分不同区域的空状态（{@code "smeltery"} / {@code "materials"} / {@code "alloy"}）
      * @return 0=不可见，1=完全不透明
      */
     public static float emptyAlpha(String areaKey, boolean visible) {
         Animator a = AnimationManager.get().animator(
-                EMPTY_ALPHA_PREFIX + areaKey, visible ? 1f : 0f, 100f);
+                EMPTY_ALPHA_PREFIX + areaKey, visible ? 1f : 0f, 120f);
         a.setTarget(visible ? 1f : 0f);
         return a.getValue();
     }
@@ -120,7 +116,7 @@ public final class PanelAnimations {
      * <p>调用时机：
      * <ul>
      *   <li>{@code TinkersSearch.handleSmelteryClose()} — 关闭界面</li>
-     *   <li>{@code PanelAnimationManager.startHideAnimation()} — 主动收起</li>
+     *   <li>{@code PanelAnimationManager.hideImmediate()} — 立即隐藏</li>
      * </ul>
      */
     public static void clearAll() {

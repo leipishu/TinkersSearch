@@ -181,8 +181,8 @@ public class TinkersSearch {
                 System.out.println("Tinker's Search: Panel closed due to smeltery screen closing");
             }
 
-            // ★ 清理面板相关动画（滑入滑出、卡片 hover、Tab 指示器等）
             AnimationManager.get().stopPrefix("panel.");
+            AnimationManager.get().stopPrefix("widget.");
 
             if (jeiAvailable) {
                 Jei.refreshExclusionAreas();

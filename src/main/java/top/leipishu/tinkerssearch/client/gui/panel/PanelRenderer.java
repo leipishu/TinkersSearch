@@ -12,6 +12,8 @@ import net.minecraftforge.fluids.FluidStack;
 import top.leipishu.tinkerssearch.alloy.AlloyQueryHandler;
 import top.leipishu.tinkerssearch.alloy.AlloyRecipeData;
 import top.leipishu.tinkerssearch.alloy.AlloyResultCalculator;
+import top.leipishu.tinkerssearch.client.animation.controller.PanelAnimations;
+import top.leipishu.tinkerssearch.client.animation.core.ColorUtil;
 import top.leipishu.tinkerssearch.client.gui.FloatingSearchPanel;
 import top.leipishu.tinkerssearch.client.gui.PanelInteractionHandler;
 import top.leipishu.tinkerssearch.client.gui.components.CardBackground;
@@ -83,6 +85,12 @@ public class PanelRenderer {
         smelteryScrollBar.setOnOffsetChanged(v -> dataManager.setScrollOffset(v));
         allMaterialsScrollBar.setOnOffsetChanged(v -> dataManager.setAllMaterialsScrollOffset(v));
         alloyScrollBar.setOnOffsetChanged(v -> dataManager.setAlloyScrollOffset(v));
+
+        // ===== 滚动条动画实例 id =====
+        favScrollBar.setAnimationId("panel.fav");
+        smelteryScrollBar.setAnimationId("panel.smeltery");
+        allMaterialsScrollBar.setAnimationId("panel.allMaterials");
+        alloyScrollBar.setAnimationId("panel.alloy");
     }
 
     // ==================== 公共方法 ====================
@@ -197,7 +205,8 @@ public class PanelRenderer {
         Font font = mc.font;
         if (cachedFont == null) cachedFont = font;
 
-        int px = panel.getPanelX() + animationManager.getAnimationOffset();
+        // ★ 注意：getPanelX() 已经包含 animationOffset，不要再叠加
+        int px = panel.getPanelX();
         int py = panel.getPanelY();
         int pw = panel.getPanelWidth();
         int ph = panel.getPanelHeight();
@@ -249,6 +258,17 @@ public class PanelRenderer {
         };
 
         Tab active = dataManager.getCurrentTab();
+        int activeIndex = -1;
+
+        // 底色常量
+        final int BASE_BG   = 0xFF3A3020;
+        final int HOVER_BG  = 0xFF4E4028;
+        final int ACTIVE_BG = 0xFF6A5030;
+
+        // 文字色常量
+        final int BASE_TEXT   = 0xFFAA8844;
+        final int HOVER_TEXT  = 0xFFDDBB55;
+        final int ACTIVE_TEXT = 0xFFFFDD77;
 
         for (int i = 0; i < TAB_COUNT; i++) {
             int tabX = px + TAB_START_X + i * TAB_ITEM_WIDTH;
@@ -257,25 +277,44 @@ public class PanelRenderer {
             int tabH = TAB_ITEM_HEIGHT;
 
             boolean isActive = (i < tabs.length) && (tabs[i] == active);
+            if (isActive) activeIndex = i;
+
             boolean isHover = mouseX >= tabX && mouseX <= tabX + tabW &&
                     mouseY >= tabY && mouseY <= tabY + tabH;
 
+            // ★ hover 动画（激活的 Tab 不参与 hover 插值）
+            float hoverT = PanelAnimations.tabHover(i, isHover && !isActive);
+
             int bg;
-            if (isActive) bg = 0xFF6A5030;
-            else if (isHover) bg = 0xFF4E4028;
-            else bg = 0xFF3A3020;
+            int textColor;
+            if (isActive) {
+                bg = ACTIVE_BG;
+                textColor = ACTIVE_TEXT;
+            } else {
+                bg = ColorUtil.lerpARGB(BASE_BG, HOVER_BG, hoverT);
+                textColor = ColorUtil.lerpARGB(BASE_TEXT, HOVER_TEXT, hoverT);
+            }
 
             GuiComponent.fill(poseStack, tabX, tabY, tabX + tabW, tabY + tabH, bg);
 
-            if (isActive) {
-                GuiComponent.fill(poseStack, tabX, tabY + tabH - 1, tabX + tabW, tabY + tabH, 0xFFFFAA00);
-            }
-
             String label = labels[i];
-            int textColor = isActive ? 0xFFFFDD77 : (isHover ? 0xFFDDBB55 : 0xFFAA8844);
             int textW = font.width(label);
             font.draw(poseStack, label, tabX + (tabW - textW) / 2,
                     tabY + (tabH - font.lineHeight) / 2 + 1, textColor);
+        }
+
+        // ★ 滑动指示器：在激活 Tab 底部画一条橙线，位置平滑过渡
+        if (activeIndex >= 0) {
+            int relTargetX = TAB_START_X + activeIndex * TAB_ITEM_WIDTH;
+            int tabW = TAB_ITEM_WIDTH - 2;
+            int tabY = py + TAB_ITEM_Y;
+            int tabH = TAB_ITEM_HEIGHT;
+
+            float relIndicatorX = PanelAnimations.tabIndicatorX(relTargetX);
+            int indicatorX = px + (int) relIndicatorX;
+
+            GuiComponent.fill(poseStack, indicatorX, tabY + tabH - 1,
+                    indicatorX + tabW, tabY + tabH, 0xFFFFAA00);
         }
     }
 
@@ -284,7 +323,13 @@ public class PanelRenderer {
         int btnY = py + REFRESH_BTN_Y;
         boolean hover = isHovered(btnX, btnY, REFRESH_BTN_W, REFRESH_BTN_H, mouseX, mouseY);
 
-        int color = hover ? 0xFF555555 : 0xFF333333;
+        // ★ hover 插值
+        float hoverT = PanelAnimations.refreshHover(hover);
+
+        int baseColor = 0xFF333333;
+        int hoverColor = 0xFF555555;
+        int color = ColorUtil.lerpARGB(baseColor, hoverColor, hoverT);
+
         GuiComponent.fill(poseStack, btnX, btnY, btnX + REFRESH_BTN_W, btnY + REFRESH_BTN_H, color);
         GuiComponent.fill(poseStack, btnX, btnY, btnX + REFRESH_BTN_W, btnY + 1, 0xFF666666);
         GuiComponent.fill(poseStack, btnX, btnY + REFRESH_BTN_H - 1, btnX + REFRESH_BTN_W, btnY + REFRESH_BTN_H, 0xFF666666);
@@ -411,11 +456,22 @@ public class PanelRenderer {
         int startY = areaStartY - dataManager.getScrollOffset();
         int endY = areaStartY + areaHeight;
 
-        if (dataManager.getDisplayedFluids().isEmpty()) {
-            String msg = interactionHandler.getSearchKeyword().isEmpty() ?
-                    "§7" + new TranslatableComponent("gui.tinkerssearch.no_fluids").getString() :
-                    "§7" + new TranslatableComponent("gui.tinkerssearch.no_match").getString();
-            font.draw(poseStack, msg, px + 5, areaStartY + 10, 0x666666);
+        boolean isEmpty = dataManager.getDisplayedFluids().isEmpty();
+        // ★ 空状态 alpha（无论空否都更新目标值）
+        float emptyAlpha = PanelAnimations.emptyAlpha("smeltery", isEmpty);
+
+        if (isEmpty) {
+            if (emptyAlpha > 0.01f) {
+                String msg = interactionHandler.getSearchKeyword().isEmpty() ?
+                        "§7" + new TranslatableComponent("gui.tinkerssearch.no_fluids").getString() :
+                        "§7" + new TranslatableComponent("gui.tinkerssearch.no_match").getString();
+                RenderSystem.setShaderColor(1f, 1f, 1f, emptyAlpha);
+                try {
+                    font.draw(poseStack, msg, px + 5, areaStartY + 10, 0x666666);
+                } finally {
+                    RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
+                }
+            }
             return;
         }
 
@@ -469,9 +525,19 @@ public class PanelRenderer {
         int height = layoutCalculator.getAllMaterialsAreaHeight();
         int endY = startY + height;
 
-        if (dataManager.getDisplayedAllMaterials().isEmpty()) {
-            font.draw(poseStack, "§7" + new TranslatableComponent("gui.tinkerssearch.no_materials").getString(),
-                    px + 5, startY + 10, 0x666666);
+        boolean isEmpty = dataManager.getDisplayedAllMaterials().isEmpty();
+        float emptyAlpha = PanelAnimations.emptyAlpha("materials", isEmpty);
+
+        if (isEmpty) {
+            if (emptyAlpha > 0.01f) {
+                String msg = "§7" + new TranslatableComponent("gui.tinkerssearch.no_materials").getString();
+                RenderSystem.setShaderColor(1f, 1f, 1f, emptyAlpha);
+                try {
+                    font.draw(poseStack, msg, px + 5, startY + 10, 0x666666);
+                } finally {
+                    RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
+                }
+            }
             return;
         }
 
@@ -541,10 +607,18 @@ public class PanelRenderer {
         boolean isBottom = dataManager.getBottomFluidName() != null
                 && fluidName.equals(dataManager.getBottomFluidName()) && existsInSmeltery;
 
-        int bg = hover ? 0xFF3A3A3A : 0xFF222222;
+        // ★ hover 插值
+        String cardKey = (regName != null) ? regName.toString() : fluidName;
+        float hoverT = PanelAnimations.cardHover(cardKey, hover);
+
+        int bg = ColorUtil.lerpARGB(0xFF222222, 0xFF3A3A3A, hoverT);
         int border;
-        if (isBottom) border = 0xFF00FF00;
-        else border = hover ? 0xFF888888 : 0xFF333333;
+        if (isBottom) {
+            // 底部高亮用绿色，hover 时轻微加亮
+            border = ColorUtil.lerpARGB(0xFF00FF00, 0xFF88FF88, hoverT);
+        } else {
+            border = ColorUtil.lerpARGB(0xFF333333, 0xFF888888, hoverT);
+        }
         CardBackground.draw(poseStack, x, y, w, h, bg, border);
 
         int iconSize = ICON_SIZE;
@@ -558,7 +632,10 @@ public class PanelRenderer {
         String displayName = fluidName.replace("Molten ", "").replace("熔融", "");
         String truncatedName = truncateTextWithEllipsis(font, displayName, maxTextW);
 
-        int nameColor = isBottom ? 0xFF00FF00 : 0xFFFFFF;
+        // 文字颜色：hover 时略微变亮
+        int nameColor = isBottom
+                ? ColorUtil.lerpARGB(0xFF00FF00, 0xFF88FF88, hoverT)
+                : ColorUtil.lerpARGB(0xFFFFFFFF, 0xFFFFEEDD, hoverT);
         font.draw(poseStack, truncatedName, textX, y + 4, nameColor);
 
         if (!existsInSmeltery) {
@@ -579,9 +656,15 @@ public class PanelRenderer {
         int starColor = isFav ? 0xFFFFD700 : 0x666666;
         font.draw(poseStack, star, starX, starY, starColor);
 
-        if (hover && existsInSmeltery) {
-            font.draw(poseStack, "§7" + new TranslatableComponent("gui.tinkerssearch.click_move").getString(),
-                    x + 4, y + h - 10, 0x666666);
+        // 提示文字随 hover 淡入
+        if (hoverT > 0.15f && existsInSmeltery) {
+            RenderSystem.setShaderColor(1f, 1f, 1f, hoverT);
+            try {
+                font.draw(poseStack, "§7" + new TranslatableComponent("gui.tinkerssearch.click_move").getString(),
+                        x + 4, y + h - 10, 0x666666);
+            } finally {
+                RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
+            }
         }
     }
 
@@ -719,9 +802,19 @@ public class PanelRenderer {
         int cardAreaHeight = endY - cardStartY;
         int cardAreaW = pw - 10 - SCROLL_BAR_WIDTH - SCROLL_BAR_PADDING;
 
-        if (materials.isEmpty()) {
-            font.draw(poseStack, "§7" + new TranslatableComponent("gui.tinkerssearch.no_match").getString(),
-                    px + 5, cardStartY + 10, 0x666666);
+        boolean isEmpty = materials.isEmpty();
+        float emptyAlpha = PanelAnimations.emptyAlpha("alloy", isEmpty);
+
+        if (isEmpty) {
+            if (emptyAlpha > 0.01f) {
+                RenderSystem.setShaderColor(1f, 1f, 1f, emptyAlpha);
+                try {
+                    font.draw(poseStack, "§7" + new TranslatableComponent("gui.tinkerssearch.no_match").getString(),
+                            px + 5, cardStartY + 10, 0x666666);
+                } finally {
+                    RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
+                }
+            }
             return;
         }
 
@@ -790,8 +883,21 @@ public class PanelRenderer {
                                        FluidStack fluid, boolean hover, boolean selected, Font font) {
         String name = fluid.getDisplayName().getString().replace("Molten ", "");
 
-        int bg = selected ? 0xFF1A3A6A : (hover ? 0xFF3A3A3A : 0xFF222222);
-        int border = selected ? 0xFF4488FF : (hover ? 0xFF888888 : 0xFF333333);
+        // ★ hover 插值（选中态优先，不参与 hover 过渡）
+        String cardKey = fluid.getFluid().getRegistryName() != null
+                ? fluid.getFluid().getRegistryName().toString()
+                : name;
+        float hoverT = PanelAnimations.alloyCardHover(cardKey, hover && !selected);
+
+        int bg;
+        int border;
+        if (selected) {
+            bg = 0xFF1A3A6A;
+            border = 0xFF4488FF;
+        } else {
+            bg = ColorUtil.lerpARGB(0xFF222222, 0xFF3A3A3A, hoverT);
+            border = ColorUtil.lerpARGB(0xFF333333, 0xFF888888, hoverT);
+        }
         CardBackground.draw(poseStack, x, y, w, h, bg, border);
 
         int iconSize = ICON_SIZE;
