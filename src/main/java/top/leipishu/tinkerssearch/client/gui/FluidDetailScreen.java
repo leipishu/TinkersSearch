@@ -19,6 +19,7 @@ import org.lwjgl.opengl.GL11;
 import slimeknights.tconstruct.smeltery.block.entity.controller.SmelteryBlockEntity;
 import slimeknights.tconstruct.smeltery.block.entity.tank.SmelteryTank;
 import slimeknights.tconstruct.library.tools.part.IMaterialItem;
+import slimeknights.tconstruct.library.materials.definition.MaterialId;
 
 import top.leipishu.tinkerssearch.client.animation.controller.DetailAnimations;
 import top.leipishu.tinkerssearch.client.animation.controller.DetailPageAnimations;
@@ -671,7 +672,7 @@ public class FluidDetailScreen extends Screen {
         int baseX = centerX;
         int baseY = centerY - totalScrollOffset;
 
-        // 铸造区
+        // ===== 铸造部分（不参与翻页动画）=====
         String castingTitle = "\u00a76" + Component.translatable("gui.tinkerssearch.detail.casting").getString() +
                 " \u00a77(\u00a7e" + filteredCastingInfos.size() + "\u00a77/\u00a78" + allCastingInfos.size() + "\u00a77)";
         font.draw(poseStack, castingTitle, baseX + PADDING, baseY + castingTitleY, 0xFFFFFF);
@@ -683,16 +684,50 @@ public class FluidDetailScreen extends Screen {
             renderCastingCards(poseStack, baseX, baseY + castingStartY, mouseX, mouseY);
         }
 
-        // 部件标题（不参与翻页）
+        // ===== 部件标题（不参与翻页动画）=====
         int totalPages = data.entries.size();
         String pageInfo = totalPages > 1 ? " \u00a77[" + (currentPageIndex + 1) + "/" + totalPages + "]" : "";
-        int currentPageTotal = (currentEntry() != null) ? currentEntry().parts.size() : 0;
+        MaterialEntry curEntry = currentEntry();
+        int currentPageTotal = (curEntry != null) ? curEntry.parts.size() : 0;
         String partTitle = "\u00a7d" + Component.translatable("gui.tinkerssearch.detail.parts").getString()
                 + pageInfo
                 + " \u00a77(\u00a7e" + filteredPartInfos.size() + "\u00a77/\u00a78" + currentPageTotal + "\u00a77)";
         font.draw(poseStack, partTitle, baseX + PADDING, baseY + partTitleY, 0xFFFFFF);
 
-        // 翻页按钮（不参与翻页）
+        // ★ 当前页浇筑模式标识（与部件标题、翻页按钮同一行）
+        if (curEntry != null) {
+            String matLabel;
+            if (curEntry.kind == MaterialEntry.SourceKind.COMPOSITE
+                    && curEntry.compositeInput != null) {
+                String inputName = resolveMaterialDisplayName(curEntry.compositeInput);
+                if (!inputName.isEmpty()) {
+                    matLabel = Component.translatable(
+                            "gui.tinkerssearch.detail.casting.on", inputName).getString();
+                } else {
+                    matLabel = Component.translatable(
+                            "gui.tinkerssearch.detail.casting.direct").getString();
+                }
+            } else {
+                matLabel = Component.translatable(
+                        "gui.tinkerssearch.detail.casting.direct").getString();
+            }
+
+            String matDisplay = "§7[" + matLabel + "]";
+            int matLabelX = baseX + PADDING + font.width(partTitle) + 6;
+
+            int rightReserve = totalPages > 1 ? (PAGE_BTN_W * 2 + 40 + 8) : 0;
+            int rightLimit = baseX + windowWidth - PADDING - rightReserve;
+
+            if (matLabelX < rightLimit - 10) {
+                int availW = rightLimit - matLabelX;
+                String display = font.width(matDisplay) <= availW
+                        ? matDisplay
+                        : font.plainSubstrByWidth(matDisplay, Math.max(10, availW - 6)) + "…";
+                font.draw(poseStack, display, matLabelX, baseY + partTitleY, 0xAAAAAA);
+            }
+        }
+
+        // ===== 翻页按钮（不参与翻页动画）=====
         if (totalPages > 1) {
             int barY = baseY + partTitleY - 4;
             int rightX = baseX + windowWidth - PADDING;
@@ -704,7 +739,7 @@ public class FluidDetailScreen extends Screen {
             drawPageButton(poseStack, nextX, barY, "\u25b6", mouseX, mouseY, 1);
         }
 
-        // ★ 卡片网格：唯一参与翻页动画的部分
+        // ===== 卡片网格（唯一参与翻页动画的部分）=====
         float pageSlideX = DetailPageAnimations.getSlideX();
         boolean applySlide = Math.abs(pageSlideX) > 0.5f;
 
@@ -723,9 +758,29 @@ public class FluidDetailScreen extends Screen {
             if (applySlide) poseStack.popPose();
         }
 
-        // 页脚
+        // ===== 页脚（不参与翻页动画）=====
         String footer = "\u00a78[\u53f3\u952e/ESC " + Component.translatable("gui.tinkerssearch.detail.close").getString() + "]";
         font.draw(poseStack, footer, baseX + PADDING, baseY + bottomHintY, 0x444444);
+    }
+
+    /**
+     * 从 {@link MaterialId} 解析当前语言的显示名。
+     *
+     * <p>不依赖 {@code IMaterial} 接口，直接按 TConstruct 的翻译键约定
+     * {@code material.<namespace>.<path>} 构造，交给 MC I18n 解析。
+     *
+     * <p>材料没有翻译时退化为 {@code mat.getPath()}。
+     */
+    private static String resolveMaterialDisplayName(MaterialId mat) {
+        if (mat == null) return "";
+
+        String key = "material." + mat.getNamespace() + "." + mat.getPath();
+        String localized = Component.translatable(key).getString();
+
+        if (localized != null && !localized.isEmpty() && !localized.equals(key)) {
+            return localized;
+        }
+        return mat.getPath();
     }
 
     private void drawPageButton(PoseStack ps, int x, int y, String arrow, int mouseX, int mouseY, int delta) {
